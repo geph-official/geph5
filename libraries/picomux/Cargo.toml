@@ -1,0 +1,18 @@
+[package]
+name = "picomux"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ahash = "0.8.8"
+async-event = "0.1.0"
+async-task = "4.7.0"
+bytemuck = {version="1.14.3", features=["derive", "min_const_generics"]}
+bytes = "1.5.0"
+futures-util = {version="0.3.30", features=["io"]}
+parking_lot = "0.12.1"
+smolscale = "0.4.4"
+tachyonix = "0.2.1"
+tracing = "0.1.40"
