@@ -48,16 +48,15 @@ async fn picomux_inner(
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(100_000, inner.clone());
 
-    let (send_outgoing, recv_outgoing) = tachyonix::channel(100);
+    let (send_outgoing, recv_outgoing) = tachyonix::channel(10000);
 
     let mut buffer_table: AHashMap<u32, Sender<Frame>> = AHashMap::new();
 
     loop {
         let frame = Frame::read(&mut inner_read).await?;
-
+        let stream_id = frame.header.stream_id;
         match frame.header.command {
             CMD_SYN => {
-                let stream_id = frame.header.stream_id;
                 if buffer_table.contains_key(&frame.header.stream_id) {
                     return Err(std::io::Error::new(ErrorKind::InvalidData, "duplicate SYN"));
                 }
@@ -79,6 +78,17 @@ async fn picomux_inner(
                 .detach();
                 let send_outgoing = send_outgoing.clone();
                 smolscale::spawn::<anyhow::Result<()>>(async move {
+                    scopeguard::defer!({
+                        let _ = send_outgoing.try_send(Frame {
+                            header: Header {
+                                version: 1,
+                                command: CMD_FIN,
+                                body_len: 0,
+                                stream_id,
+                            },
+                            body: Bytes::new(),
+                        });
+                    });
                     let mut buf = [0u8; 16384];
                     loop {
                         let n = read_outgoing.read(&mut buf).await?;
@@ -115,16 +125,21 @@ async fn picomux_inner(
                 if back.try_send(frame.clone()).is_err() {
                     tracing::warn!(
                         stream_id = frame.header.stream_id,
-                        "dropping stream because the accept queue is full"
+                        "dropping stream because the read queue is full"
                     );
+                    let _ = send_outgoing.try_send(Frame {
+                        header: Header {
+                            version: 1,
+                            command: CMD_FIN,
+                            body_len: 0,
+                            stream_id,
+                        },
+                        body: Bytes::new(),
+                    });
                 }
             }
             CMD_FIN => {
-                buffer_table
-                    .remove(&frame.header.stream_id)
-                    .ok_or_else(|| {
-                        std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for FIN")
-                    })?;
+                buffer_table.remove(&frame.header.stream_id);
             }
             CMD_NOP => {}
             other => {
