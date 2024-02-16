@@ -4,86 +4,127 @@ use std::{
     collections::VecDeque,
     convert::Infallible,
     io::{ErrorKind, Write},
+    pin::Pin,
     sync::Arc,
 };
 
 use ahash::AHashMap;
+use anyhow::Context;
 use async_event::Event;
 use async_task::Task;
+use bipe::BipeWriter;
 use bytes::Bytes;
 use frame::{Frame, CMD_FIN, CMD_NOP, CMD_PSH, CMD_SYN};
-use futures_util::{future::Shared, io::BufReader, AsyncRead, AsyncWrite, FutureExt};
+use futures_util::{
+    future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Future,
+    FutureExt, Sink,
+};
 use parking_lot::Mutex;
+use recycle_box::RecycleBox;
 use tachyonix::{Receiver, Sender};
+
+use crate::frame::Header;
 
 pub struct PicoMux {
     task: Shared<Task<Arc<std::io::Result<Infallible>>>>,
-    recv_incoming: Receiver<Stream>,
+    recv_accepted: Receiver<Stream>,
 }
 
 impl PicoMux {
     /// Creates a new picomux wrapping the given underlying connection.
     pub fn new(inner: impl AsyncRead + AsyncWrite + 'static + Send + Sync + Clone + Unpin) -> Self {
-        let (send_incoming, recv_incoming) = tachyonix::channel(10000);
-        let task =
-            smolscale::spawn(picomux_inner(inner, send_incoming).map(|s| Arc::new(s))).shared();
+        let (send_accepted, recv_accepted) = tachyonix::channel(10000);
+        let task = smolscale::spawn(picomux_inner(inner, send_accepted).map(Arc::new)).shared();
         Self {
             task,
-            recv_incoming,
+            recv_accepted,
         }
     }
 }
 
 async fn picomux_inner(
     inner: impl AsyncRead + AsyncWrite + 'static + Send + Sync + Clone + Unpin,
-    send_incoming: Sender<Stream>,
+    send_accepted: Sender<Stream>,
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(100_000, inner.clone());
 
-    let mut buffer_table: AHashMap<u32, Arc<Mutex<StreamBack>>> = AHashMap::new();
-    let (send_write, recv_write) = tachyonix::channel(1);
+    let (send_outgoing, recv_outgoing) = tachyonix::channel(100);
+
+    let mut buffer_table: AHashMap<u32, Sender<Frame>> = AHashMap::new();
 
     loop {
         let frame = Frame::read(&mut inner_read).await?;
 
         match frame.header.command {
             CMD_SYN => {
+                let stream_id = frame.header.stream_id;
                 if buffer_table.contains_key(&frame.header.stream_id) {
                     return Err(std::io::Error::new(ErrorKind::InvalidData, "duplicate SYN"));
                 }
-                let new_back = Arc::new(Mutex::new(StreamBack::default()));
+
+                let (send_incoming, mut recv_incoming) = tachyonix::channel(10000);
+                let (mut write_incoming, read_incoming) = bipe::bipe(32768);
+                let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
                 let stream = Stream {
-                    back: new_back.clone(),
-                    send_write: send_write.clone(),
+                    write_outgoing: async_dup::Arc::new(async_dup::Mutex::new(write_outgoing)),
+                    read_incoming: async_dup::Arc::new(async_dup::Mutex::new(read_incoming)),
                 };
-                if send_incoming.try_send(stream).is_err() {
+                // jelly bean movers
+                smolscale::spawn::<anyhow::Result<()>>(async move {
+                    loop {
+                        let frame: Frame = recv_incoming.recv().await?;
+                        write_incoming.write_all(&frame.body).await?;
+                    }
+                })
+                .detach();
+                let send_outgoing = send_outgoing.clone();
+                smolscale::spawn::<anyhow::Result<()>>(async move {
+                    let mut buf = [0u8; 16384];
+                    loop {
+                        let n = read_outgoing.read(&mut buf).await?;
+                        let frame = Frame {
+                            header: Header {
+                                version: 1,
+                                command: CMD_PSH,
+                                body_len: n as _,
+                                stream_id,
+                            },
+                            body: Bytes::copy_from_slice(&buf[..n]),
+                        };
+                        send_outgoing
+                            .send(frame)
+                            .await
+                            .ok()
+                            .context("cannot send")?;
+                    }
+                })
+                .detach();
+                if send_accepted.try_send(stream).is_err() {
                     tracing::warn!(
                         stream_id = frame.header.stream_id,
                         "dropping stream because the accept queue is full"
                     );
                     continue;
                 }
-                buffer_table.insert(frame.header.stream_id, new_back);
+                buffer_table.insert(frame.header.stream_id, send_incoming);
             }
             CMD_PSH => {
-                let mut back = buffer_table
-                    .get(&frame.header.stream_id)
-                    .ok_or_else(|| {
-                        std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for PSH")
-                    })?
-                    .lock();
-                back.read_buffer.write_all(&frame.body)?;
-                back.notify.notify_all();
+                let back = buffer_table.get(&frame.header.stream_id).ok_or_else(|| {
+                    std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for PSH")
+                })?;
+                if back.try_send(frame.clone()).is_err() {
+                    tracing::warn!(
+                        stream_id = frame.header.stream_id,
+                        "dropping stream because the accept queue is full"
+                    );
+                }
             }
             CMD_FIN => {
-                let back = buffer_table
+                buffer_table
                     .remove(&frame.header.stream_id)
                     .ok_or_else(|| {
                         std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for FIN")
                     })?;
-                let mut back = back.lock();
-                back.closed = true;
-                back.notify.notify_one();
             }
             CMD_NOP => {}
             other => {
@@ -96,14 +137,58 @@ async fn picomux_inner(
     }
 }
 
-#[derive(Default)]
-struct StreamBack {
-    read_buffer: VecDeque<u8>,
-    closed: bool,
-    notify: Event,
+#[derive(Clone)]
+pub struct Stream {
+    read_incoming: async_dup::Arc<async_dup::Mutex<bipe::BipeReader>>,
+    write_outgoing: async_dup::Arc<async_dup::Mutex<bipe::BipeWriter>>,
 }
 
-pub struct Stream {
-    back: Arc<Mutex<StreamBack>>,
-    send_write: Sender<Bytes>,
+impl Stream {
+    fn pin_project_read(
+        self: std::pin::Pin<&mut Self>,
+    ) -> Pin<&mut async_dup::Arc<async_dup::Mutex<bipe::BipeReader>>> {
+        // SAFETY: this is a safe pin-projection, since we never get a &mut sosistab2::Stream from a Pin<&mut Stream> elsewhere.
+        // Safety requires that we either consistently lose Pin or keep it.
+        // We could use the "pin_project" crate but I'm too lazy.
+        unsafe { self.map_unchecked_mut(|s| &mut s.read_incoming) }
+    }
+    fn pin_project_write(
+        self: std::pin::Pin<&mut Self>,
+    ) -> Pin<&mut async_dup::Arc<async_dup::Mutex<bipe::BipeWriter>>> {
+        unsafe { self.map_unchecked_mut(|s| &mut s.write_outgoing) }
+    }
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.pin_project_read().poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        self.pin_project_write().poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        self.pin_project_write().poll_flush(cx)
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        self.pin_project_write().poll_close(cx)
+    }
 }

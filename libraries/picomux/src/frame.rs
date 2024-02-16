@@ -2,6 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use bytes::Bytes;
 use futures_util::{AsyncRead, AsyncReadExt};
 
+#[derive(Clone)]
 pub struct Frame {
     pub header: Header,
     pub body: Bytes,
@@ -20,6 +21,14 @@ impl Frame {
             header,
             body: body.into(),
         })
+    }
+
+    /// The bytes representation of the frame.
+    pub fn bytes(&self) -> Bytes {
+        let mut buf = vec![0; self.body.len() + std::mem::size_of::<Frame>()];
+        buf[..std::mem::size_of::<Frame>()].copy_from_slice(bytemuck::bytes_of(&self.header));
+        buf[std::mem::size_of::<Frame>()..].copy_from_slice(&self.body);
+        buf.into()
     }
 }
 
