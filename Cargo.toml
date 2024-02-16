@@ -4,3 +4,7 @@ members = [
     "libraries/*",
 ]
 resolver = "2"
+
+[profile.release-dbg]
+inherits = "dev"
+opt-level = 3

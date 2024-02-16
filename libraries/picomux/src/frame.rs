@@ -9,9 +9,22 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Create an empty frame with the given stream ID and command.
+    pub fn new_empty(stream_id: u32, command: u8) -> Self {
+        Self {
+            header: Header {
+                version: 1,
+                command,
+                body_len: 0,
+                stream_id,
+            },
+            body: Bytes::new(),
+        }
+    }
+
     /// Read a frame from an async reader.
     pub async fn read(mut rdr: impl AsyncRead + Unpin) -> std::io::Result<Self> {
-        let mut header_buf = [0; std::mem::size_of::<Frame>()];
+        let mut header_buf = [0; std::mem::size_of::<Header>()];
         rdr.read_exact(&mut header_buf).await?;
         let header: Header = bytemuck::cast(header_buf);
         let len = header.body_len as usize;
@@ -25,9 +38,9 @@ impl Frame {
 
     /// The bytes representation of the frame.
     pub fn bytes(&self) -> Bytes {
-        let mut buf = vec![0; self.body.len() + std::mem::size_of::<Frame>()];
-        buf[..std::mem::size_of::<Frame>()].copy_from_slice(bytemuck::bytes_of(&self.header));
-        buf[std::mem::size_of::<Frame>()..].copy_from_slice(&self.body);
+        let mut buf = vec![0; self.body.len() + std::mem::size_of::<Header>()];
+        buf[..std::mem::size_of::<Header>()].copy_from_slice(bytemuck::bytes_of(&self.header));
+        buf[std::mem::size_of::<Header>()..].copy_from_slice(&self.body);
         buf.into()
     }
 }

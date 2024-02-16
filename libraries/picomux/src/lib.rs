@@ -1,155 +1,269 @@
 mod frame;
 
 use std::{
-    collections::VecDeque,
-    convert::Infallible,
-    io::{ErrorKind, Write},
-    pin::Pin,
-    sync::Arc,
+    convert::Infallible, hash::BuildHasherDefault, io::ErrorKind, ops::Deref, pin::Pin, sync::Arc,
+    time::Duration,
 };
 
-use ahash::AHashMap;
+use ahash::AHasher;
 use anyhow::Context;
-use async_event::Event;
+
 use async_task::Task;
-use bipe::BipeWriter;
+
 use bytes::Bytes;
+use dashmap::DashMap;
 use frame::{Frame, CMD_FIN, CMD_NOP, CMD_PSH, CMD_SYN};
+use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
-    future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Future,
-    FutureExt, Sink,
+    future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
 };
-use parking_lot::Mutex;
-use recycle_box::RecycleBox;
+
+use rand::Rng;
+use smol_timeout::TimeoutExt;
 use tachyonix::{Receiver, Sender};
 
 use crate::frame::Header;
 
 pub struct PicoMux {
     task: Shared<Task<Arc<std::io::Result<Infallible>>>>,
+    send_open_req: Sender<oneshot::Sender<Stream>>,
     recv_accepted: Receiver<Stream>,
 }
 
 impl PicoMux {
     /// Creates a new picomux wrapping the given underlying connection.
-    pub fn new(inner: impl AsyncRead + AsyncWrite + 'static + Send + Sync + Clone + Unpin) -> Self {
+    pub fn new(
+        read: impl AsyncRead + 'static + Send + Unpin,
+        write: impl AsyncWrite + Send + Unpin + 'static,
+    ) -> Self {
+        let (send_open_req, recv_open_req) = tachyonix::channel(1);
         let (send_accepted, recv_accepted) = tachyonix::channel(10000);
-        let task = smolscale::spawn(picomux_inner(inner, send_accepted).map(Arc::new)).shared();
+        let task = smolscale::spawn(
+            picomux_inner(read, write, send_accepted, recv_open_req).map(Arc::new),
+        )
+        .shared();
         Self {
             task,
             recv_accepted,
+            send_open_req,
+        }
+    }
+
+    /// Accepts a new stream from the peer.
+    pub async fn accept(&mut self) -> std::io::Result<Stream> {
+        let err = self.wait_error();
+        async {
+            if let Ok(val) = self.recv_accepted.recv().await {
+                Ok(val)
+            } else {
+                futures_util::future::pending().await
+            }
+        }
+        .race(err)
+        .await
+    }
+
+    /// Opens a new stream to the peer.
+    pub async fn open(&self) -> std::io::Result<Stream> {
+        let (send, recv) = oneshot::channel();
+        let _ = self.send_open_req.send(send).await;
+        async {
+            if let Ok(val) = recv.await {
+                Ok(val)
+            } else {
+                futures_util::future::pending().await
+            }
+        }
+        .race(self.wait_error())
+        .await
+    }
+
+    fn wait_error<T>(&self) -> impl Future<Output = std::io::Result<T>> + 'static {
+        let res = self.task.clone();
+        async move {
+            let res = res.await;
+            match res.deref() {
+                Err(err) => Err(std::io::Error::new(
+                    err.kind(),
+                    err.get_ref().map(|e| e.to_string()).unwrap_or_default(),
+                )),
+                _ => unreachable!(),
+            }
         }
     }
 }
 
+#[tracing::instrument(skip(read, write, send_accepted, recv_open_req))]
 async fn picomux_inner(
-    inner: impl AsyncRead + AsyncWrite + 'static + Send + Sync + Clone + Unpin,
+    read: impl AsyncRead + 'static + Send + Unpin,
+    mut write: impl AsyncWrite + Send + Unpin + 'static,
     send_accepted: Sender<Stream>,
+    mut recv_open_req: Receiver<oneshot::Sender<Stream>>,
 ) -> Result<Infallible, std::io::Error> {
-    let mut inner_read = BufReader::with_capacity(100_000, inner.clone());
+    let mut inner_read = BufReader::with_capacity(100_000, read);
 
-    let (send_outgoing, recv_outgoing) = tachyonix::channel(10000);
+    let (send_outgoing, mut recv_outgoing) = tachyonix::channel(10000);
+    let buffer_table: DashMap<_, _, BuildHasherDefault<AHasher>> = DashMap::default();
 
-    let mut buffer_table: AHashMap<u32, Sender<Frame>> = AHashMap::new();
-
-    loop {
-        let frame = Frame::read(&mut inner_read).await?;
-        let stream_id = frame.header.stream_id;
-        match frame.header.command {
-            CMD_SYN => {
-                if buffer_table.contains_key(&frame.header.stream_id) {
-                    return Err(std::io::Error::new(ErrorKind::InvalidData, "duplicate SYN"));
-                }
-
-                let (send_incoming, mut recv_incoming) = tachyonix::channel(10000);
-                let (mut write_incoming, read_incoming) = bipe::bipe(32768);
-                let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
-                let stream = Stream {
-                    write_outgoing: async_dup::Arc::new(async_dup::Mutex::new(write_outgoing)),
-                    read_incoming: async_dup::Arc::new(async_dup::Mutex::new(read_incoming)),
-                };
-                // jelly bean movers
-                smolscale::spawn::<anyhow::Result<()>>(async move {
-                    loop {
-                        let frame: Frame = recv_incoming.recv().await?;
-                        write_incoming.write_all(&frame.body).await?;
-                    }
-                })
-                .detach();
-                let send_outgoing = send_outgoing.clone();
-                smolscale::spawn::<anyhow::Result<()>>(async move {
-                    scopeguard::defer!({
-                        let _ = send_outgoing.try_send(Frame {
-                            header: Header {
-                                version: 1,
-                                command: CMD_FIN,
-                                body_len: 0,
-                                stream_id,
-                            },
-                            body: Bytes::new(),
-                        });
-                    });
-                    let mut buf = [0u8; 16384];
-                    loop {
-                        let n = read_outgoing.read(&mut buf).await?;
-                        let frame = Frame {
-                            header: Header {
-                                version: 1,
-                                command: CMD_PSH,
-                                body_len: n as _,
-                                stream_id,
-                            },
-                            body: Bytes::copy_from_slice(&buf[..n]),
-                        };
-                        send_outgoing
-                            .send(frame)
-                            .await
-                            .ok()
-                            .context("cannot send")?;
-                    }
-                })
-                .detach();
-                if send_accepted.try_send(stream).is_err() {
-                    tracing::warn!(
-                        stream_id = frame.header.stream_id,
-                        "dropping stream because the accept queue is full"
-                    );
-                    continue;
-                }
-                buffer_table.insert(frame.header.stream_id, send_incoming);
-            }
-            CMD_PSH => {
-                let back = buffer_table.get(&frame.header.stream_id).ok_or_else(|| {
-                    std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for PSH")
-                })?;
-                if back.try_send(frame.clone()).is_err() {
-                    tracing::warn!(
-                        stream_id = frame.header.stream_id,
-                        "dropping stream because the read queue is full"
-                    );
-                    let _ = send_outgoing.try_send(Frame {
-                        header: Header {
-                            version: 1,
-                            command: CMD_FIN,
-                            body_len: 0,
-                            stream_id,
-                        },
-                        body: Bytes::new(),
-                    });
+    // writes outgoing frames
+    let outgoing_loop = async {
+        loop {
+            let outgoing: Frame = recv_outgoing
+                .recv()
+                .await
+                .expect("send_outgoing should never be dropped here");
+            if outgoing.header.command == CMD_FIN {
+                tracing::debug!(
+                    stream_id = outgoing.header.stream_id,
+                    "removing on outgoing FIN"
+                );
+                if buffer_table.remove(&outgoing.header.stream_id).is_some() {
+                    write.write_all(&outgoing.bytes()).await?;
                 }
             }
-            CMD_FIN => {
-                buffer_table.remove(&frame.header.stream_id);
-            }
-            CMD_NOP => {}
-            other => {
-                return Err(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!("invalid command {other}"),
-                ));
-            }
+            write.write_all(&outgoing.bytes()).await?;
         }
-    }
+    };
+
+    let create_stream = |stream_id| {
+        let (send_incoming, mut recv_incoming) = tachyonix::channel(100);
+        let (mut write_incoming, read_incoming) = bipe::bipe(32768);
+        let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
+        let stream = Stream {
+            write_outgoing: async_dup::Arc::new(async_dup::Mutex::new(write_outgoing)),
+            read_incoming: async_dup::Arc::new(async_dup::Mutex::new(read_incoming)),
+        };
+        // jelly bean movers
+        smolscale::spawn::<anyhow::Result<()>>(async move {
+            loop {
+                let frame: Frame = recv_incoming.recv().await?;
+                write_incoming.write_all(&frame.body).await?;
+            }
+        })
+        .detach();
+        let send_outgoing = send_outgoing.clone();
+        smolscale::spawn::<anyhow::Result<()>>(async move {
+            scopeguard::defer!({
+                let _ = send_outgoing.try_send(Frame {
+                    header: Header {
+                        version: 1,
+                        command: CMD_FIN,
+                        body_len: 0,
+                        stream_id,
+                    },
+                    body: Bytes::new(),
+                });
+            });
+            let mut buf = [0u8; 16384];
+            loop {
+                let n = read_outgoing.read(&mut buf).await?;
+                if n == 0 {
+                    return Ok(());
+                }
+                let frame = Frame {
+                    header: Header {
+                        version: 1,
+                        command: CMD_PSH,
+                        body_len: n as _,
+                        stream_id,
+                    },
+                    body: Bytes::copy_from_slice(&buf[..n]),
+                };
+                tracing::trace!(stream_id, n, "sending outgoing data");
+                send_outgoing
+                    .send(frame)
+                    .await
+                    .ok()
+                    .context("cannot send")?;
+            }
+        })
+        .detach();
+        (stream, send_incoming)
+    };
+
+    // receive open requests
+    let open_req_loop = async {
+        loop {
+            let request = recv_open_req.recv().await.map_err(|_e| {
+                std::io::Error::new(ErrorKind::BrokenPipe, "open request channel died")
+            })?;
+            let stream_id = {
+                let mut rng = rand::thread_rng();
+                std::iter::repeat_with(|| rng.gen())
+                    .find(|key| !buffer_table.contains_key(key))
+                    .unwrap()
+            };
+            let _ = send_outgoing
+                .send(Frame::new_empty(stream_id, CMD_SYN))
+                .await;
+            let (stream, send_incoming) = create_stream(stream_id);
+            // thread safety: there can be no race because we are racing the futures in the foreground and there's no await point between when we obtain the id and when we insert
+            assert!(buffer_table.insert(stream_id, send_incoming).is_none());
+            let _ = request.send(stream);
+        }
+    };
+
+    outgoing_loop
+        .race(open_req_loop)
+        .race(async {
+            loop {
+                let frame = Frame::read(&mut inner_read).await?;
+                let stream_id = frame.header.stream_id;
+                tracing::trace!(
+                    command = frame.header.command,
+                    stream_id,
+                    body_len = frame.header.body_len,
+                    "got incoming frame"
+                );
+                match frame.header.command {
+                    CMD_SYN => {
+                        if buffer_table.contains_key(&stream_id) {
+                            return Err(std::io::Error::new(
+                                ErrorKind::InvalidData,
+                                "duplicate SYN",
+                            ));
+                        }
+                        let (stream, send_incoming) = create_stream(stream_id);
+                        if send_accepted.try_send(stream).is_err() {
+                            tracing::warn!(
+                                stream_id = frame.header.stream_id,
+                                "dropping stream because the accept queue is full"
+                            );
+                            continue;
+                        }
+                        buffer_table.insert(frame.header.stream_id, send_incoming);
+                    }
+                    CMD_PSH => {
+                        let back = buffer_table.get(&frame.header.stream_id).ok_or_else(|| {
+                            std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for PSH")
+                        })?;
+                        if back
+                            .send(frame.clone())
+                            .timeout(Duration::from_millis(200))
+                            .await
+                            .is_none()
+                        {
+                            tracing::warn!(
+                                stream_id = frame.header.stream_id,
+                                "dropping stream because the read queue is full"
+                            );
+                            let _ = send_outgoing.try_send(Frame::new_empty(stream_id, CMD_FIN));
+                        }
+                    }
+                    CMD_FIN => {
+                        buffer_table.remove(&frame.header.stream_id);
+                    }
+                    CMD_NOP => {}
+                    other => {
+                        return Err(std::io::Error::new(
+                            ErrorKind::InvalidData,
+                            format!("invalid command {other}"),
+                        ));
+                    }
+                }
+            }
+        })
+        .await
 }
 
 #[derive(Clone)]
@@ -205,5 +319,47 @@ impl AsyncWrite for Stream {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         self.pin_project_write().poll_close(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_lite::{AsyncReadExt, AsyncWriteExt};
+    use tracing_test::traced_test;
+
+    async fn setup_picomux_pair() -> (PicoMux, PicoMux) {
+        let (a_write, b_read) = bipe::bipe(1);
+        let (b_write, a_read) = bipe::bipe(1);
+
+        let picomux_a = PicoMux::new(a_read, a_write);
+        let picomux_b = PicoMux::new(b_read, b_write);
+
+        (picomux_a, picomux_b)
+    }
+
+    #[traced_test]
+    #[test]
+    fn test_picomux_basic() {
+        smolscale::block_on(async move {
+            let (picomux_a, mut picomux_b) = setup_picomux_pair().await;
+
+            let a_proc = async move {
+                let mut stream_a = picomux_a.open().await.unwrap();
+                stream_a.write_all(b"Hello, world!").await.unwrap();
+                stream_a.flush().await.unwrap();
+                drop(stream_a);
+                futures_util::future::pending().await
+            };
+            let b_proc = async move {
+                let mut stream_b = picomux_b.accept().await.unwrap();
+
+                let mut buf = vec![0u8; 13];
+                stream_b.read_exact(&mut buf).await.unwrap();
+
+                assert_eq!(buf, b"Hello, world!");
+            };
+            a_proc.race(b_proc).await
+        })
     }
 }
