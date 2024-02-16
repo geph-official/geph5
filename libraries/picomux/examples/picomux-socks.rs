@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
                         };
                         let remote_addr = format!("{domain}:{port}");
                         eprintln!("connecting through to {remote_addr}");
-                        let mut stream = mux.open().await?;
+                        let mut stream = mux.open().await.unwrap();
                         stream
                             .write_all(&(remote_addr.as_bytes().len() as u16).to_be_bytes())
                             .await?;
