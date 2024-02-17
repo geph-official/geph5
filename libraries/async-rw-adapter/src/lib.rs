@@ -5,7 +5,7 @@ use std::{
     task::Poll,
 };
 
-use futures_util::{AsyncRead, Future};
+use futures_util::{AsyncRead, AsyncWrite, Future};
 
 pub struct AsyncReadAdapter<
     B: AsRef<[u8]>,
@@ -98,6 +98,56 @@ pub struct AsyncWriteAdapter<Fut: Future<Output = std::io::Result<usize>>, Fun: 
 {
     write_fut_gen: Fun,
     last_in_prog: Pin<Box<Option<Fut>>>,
+}
+
+impl<Fut: Future<Output = std::io::Result<usize>> + Unpin, Fun: FnMut(&[u8]) -> Fut> AsyncWrite
+    for AsyncWriteAdapter<Fut, Fun>
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = unsafe { self.get_unchecked_mut() };
+        loop {
+            if let Some(fut) = this.last_in_prog.as_mut().as_pin_mut() {
+                // Try to complete the in-progress future
+                match fut.poll(cx) {
+                    Poll::Ready(Ok(size)) => {
+                        // Future completed, clear it
+                        this.last_in_prog.set(None);
+                        return Poll::Ready(Ok(size));
+                    }
+                    Poll::Ready(Err(e)) => {
+                        // Future completed with error, clear it
+                        this.last_in_prog.set(None);
+                        return Poll::Ready(Err(e));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                }
+            } else {
+                // No in-progress future, create a new one
+                let fut = (this.write_fut_gen)(buf);
+                this.last_in_prog.set(Some(fut));
+            }
+        }
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        // For simplicity, we're assuming flush is a no-op. Real implementations might need to handle this differently.
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        // For simplicity, we're also treating close as a no-op. Real implementations should ensure any buffered data is written out.
+        Poll::Ready(Ok(()))
+    }
 }
 
 #[cfg(test)]
