@@ -130,8 +130,8 @@ async fn picomux_inner(
         let (mut write_incoming, read_incoming) = bipe::bipe(32768);
         let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
         let stream = Stream {
-            write_outgoing: async_dup::Arc::new(async_dup::Mutex::new(write_outgoing)),
-            read_incoming: async_dup::Arc::new(async_dup::Mutex::new(read_incoming)),
+            write_outgoing,
+            read_incoming,
         };
         // jelly bean movers
         smolscale::spawn::<anyhow::Result<()>>(async move {
@@ -266,24 +266,19 @@ async fn picomux_inner(
         .await
 }
 
-#[derive(Clone)]
 pub struct Stream {
-    read_incoming: async_dup::Arc<async_dup::Mutex<bipe::BipeReader>>,
-    write_outgoing: async_dup::Arc<async_dup::Mutex<bipe::BipeWriter>>,
+    read_incoming: bipe::BipeReader,
+    write_outgoing: bipe::BipeWriter,
 }
 
 impl Stream {
-    fn pin_project_read(
-        self: std::pin::Pin<&mut Self>,
-    ) -> Pin<&mut async_dup::Arc<async_dup::Mutex<bipe::BipeReader>>> {
+    fn pin_project_read(self: std::pin::Pin<&mut Self>) -> Pin<&mut bipe::BipeReader> {
         // SAFETY: this is a safe pin-projection, since we never get a &mut sosistab2::Stream from a Pin<&mut Stream> elsewhere.
         // Safety requires that we either consistently lose Pin or keep it.
         // We could use the "pin_project" crate but I'm too lazy.
         unsafe { self.map_unchecked_mut(|s| &mut s.read_incoming) }
     }
-    fn pin_project_write(
-        self: std::pin::Pin<&mut Self>,
-    ) -> Pin<&mut async_dup::Arc<async_dup::Mutex<bipe::BipeWriter>>> {
+    fn pin_project_write(self: std::pin::Pin<&mut Self>) -> Pin<&mut bipe::BipeWriter> {
         unsafe { self.map_unchecked_mut(|s| &mut s.write_outgoing) }
     }
 }

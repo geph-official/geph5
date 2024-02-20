@@ -1,5 +1,6 @@
 use argh::FromArgs;
-use futures_lite::{AsyncReadExt, AsyncWriteExt, FutureExt};
+use futures_lite::{AsyncWriteExt, FutureExt};
+use futures_util::AsyncReadExt;
 use picomux::PicoMux;
 use smol::net::{TcpListener, TcpStream};
 use socksv5::v5::{
@@ -8,7 +9,10 @@ use socksv5::v5::{
 };
 use std::{
     net::{Ipv4Addr, SocketAddr},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 /// SOCKS5 Program
@@ -73,44 +77,75 @@ fn main() -> anyhow::Result<()> {
                     client.connect, client.listen
                 );
                 let listener = TcpListener::bind(client.listen).await?;
-                let remote_conn = TcpStream::connect(client.connect).await?;
-                let mux = Arc::new(PicoMux::new(remote_conn.clone(), remote_conn));
                 loop {
-                    let (client, _) = listener.accept().await?;
-                    let mux = mux.clone();
-                    smolscale::spawn(async move {
-                        let _handshake = read_handshake(client.clone()).await?;
-                        write_auth_method(client.clone(), SocksV5AuthMethod::Noauth).await?;
-                        let request = read_request(client.clone()).await?;
-                        let port = request.port;
-                        let domain: String = match &request.host {
-                            SocksV5Host::Domain(dom) => String::from_utf8_lossy(dom).parse()?,
-                            SocksV5Host::Ipv4(v4) => {
-                                let v4addr = Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]);
-                                v4addr.to_string()
+                    let remote_conn = TcpStream::connect(&client.connect).await?;
+                    let mux = Arc::new(PicoMux::new(remote_conn.clone(), remote_conn));
+                    let mux_dead = Arc::new(AtomicBool::new(false));
+                    let mux_dead_evt = Arc::new(async_event::Event::new());
+                    mux_dead_evt
+                        .wait_until(|| {
+                            if mux_dead.load(Ordering::Relaxed) {
+                                Some(anyhow::Ok(()))
+                            } else {
+                                None
                             }
-                            _ => anyhow::bail!("IPv6 not supported"),
-                        };
-                        let remote_addr = format!("{domain}:{port}");
-                        eprintln!("connecting through to {remote_addr}");
-                        let mut stream = mux.open().await.unwrap();
-                        stream
-                            .write_all(&(remote_addr.as_bytes().len() as u16).to_be_bytes())
-                            .await?;
-                        stream.write_all(remote_addr.as_bytes()).await?;
-                        write_request_status(
-                            client.clone(),
-                            SocksV5RequestStatus::Success,
-                            request.host,
-                            port,
-                        )
+                        })
+                        .race(async {
+                            loop {
+                                let (client, _) = listener.accept().await?;
+                                let mux = mux.clone();
+                                let mux_dead = mux_dead.clone();
+                                let mux_dead_evt = mux_dead_evt.clone();
+                                smolscale::spawn(async move {
+                                    let _handshake = read_handshake(client.clone()).await?;
+                                    write_auth_method(client.clone(), SocksV5AuthMethod::Noauth)
+                                        .await?;
+                                    let request = read_request(client.clone()).await?;
+                                    let port = request.port;
+                                    let domain: String = match &request.host {
+                                        SocksV5Host::Domain(dom) => {
+                                            String::from_utf8_lossy(dom).parse()?
+                                        }
+                                        SocksV5Host::Ipv4(v4) => {
+                                            let v4addr = Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]);
+                                            v4addr.to_string()
+                                        }
+                                        _ => anyhow::bail!("IPv6 not supported"),
+                                    };
+                                    let remote_addr = format!("{domain}:{port}");
+                                    eprintln!("connecting through to {remote_addr}");
+                                    let stream = mux.open().await;
+                                    if let Ok(stream) = stream {
+                                        let (read, mut write) = stream.split();
+                                        write
+                                            .write_all(
+                                                &(remote_addr.as_bytes().len() as u16)
+                                                    .to_be_bytes(),
+                                            )
+                                            .await?;
+                                        write.write_all(remote_addr.as_bytes()).await?;
+                                        write_request_status(
+                                            client.clone(),
+                                            SocksV5RequestStatus::Success,
+                                            request.host,
+                                            port,
+                                        )
+                                        .await?;
+                                        smol::io::copy(read, client.clone())
+                                            .race(smol::io::copy(client, write))
+                                            .await?;
+                                        Ok(())
+                                    } else {
+                                        eprintln!("restarting!!!!");
+                                        mux_dead.store(true, Ordering::Relaxed);
+                                        mux_dead_evt.notify_one();
+                                        Ok(())
+                                    }
+                                })
+                                .detach();
+                            }
+                        })
                         .await?;
-                        smol::io::copy(stream.clone(), client.clone())
-                            .race(smol::io::copy(client, stream))
-                            .await?;
-                        Ok(())
-                    })
-                    .detach();
                 }
             }
         }
@@ -127,8 +162,9 @@ async fn handle_server(mut conn: picomux::Stream) -> anyhow::Result<()> {
     let dest = String::from_utf8_lossy(&dest);
     eprintln!("received conn req for {dest}");
     let remote = TcpStream::connect(&*dest).await?;
-    smol::io::copy(remote.clone(), conn.clone())
-        .race(smol::io::copy(conn, remote))
+    let (conn_read, conn_write) = conn.split();
+    smol::io::copy(remote.clone(), conn_write)
+        .race(smol::io::copy(conn_read, remote))
         .await?;
     Ok(())
 }
