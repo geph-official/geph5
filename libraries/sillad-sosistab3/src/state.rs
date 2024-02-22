@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, io::Write};
+use std::{io::Write};
 
 use arrayref::array_ref;
 use blake3::derive_key;

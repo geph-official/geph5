@@ -1,20 +1,29 @@
 use std::{
     collections::VecDeque,
+    fmt::Debug,
     io::{ErrorKind, Read, Write},
     task::Poll,
 };
 
 use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
-use sillad::{dialer::Dialer, Pipe};
+use serde::{Deserialize, Serialize};
+use sillad::Pipe;
 use state::State;
 
 pub mod dialer;
 mod handshake;
+pub mod listener;
 mod state;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Cookie([u8; 32]);
+
+impl Debug for Cookie {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        hex::encode(self.0).fmt(f)
+    }
+}
 
 impl Cookie {
     /// Derives a cookie from a string.
@@ -22,6 +31,7 @@ impl Cookie {
         let derived_cookie = blake3::derive_key("cookie", s.as_bytes());
         Self(derived_cookie)
     }
+
     /// Derives a key given the direction.
     pub fn derive_key(&self, is_server: bool) -> [u8; 32] {
         blake3::derive_key(if is_server { "server" } else { "client" }, &self.0)

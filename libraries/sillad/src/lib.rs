@@ -8,7 +8,7 @@ pub mod listener;
 pub mod tcp;
 
 /// Sillad overall is based on returning connection-like items that implement AsyncRead and AsyncWrite, as well as a few other things. This is called a Pipe.
-pub trait Pipe: AsyncRead + AsyncWrite + Send + Sync + Unpin {
+pub trait Pipe: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {
     /// If this pipe is end-to-end encrypted, returns a shared secret that appears the same on both ends iff the encryption is secure.
     fn shared_secret(&self) -> Option<&[u8]> {
         None
