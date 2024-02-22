@@ -11,3 +11,10 @@ blake3 = "1.5.0"
 chacha20poly1305 = "0.10.1"
 rand = "0.8.5"
 x25519-dalek = {version="2.0.1", features=["serde"]}
+sillad={path="../sillad"}
+futures-util = "0.3.30"
+pin-project = "1.1.4"
+smallvec = "1.13.1"
+async-trait = "0.1.77"
+tap = "1.0.1"
+tracing = "0.1.40"

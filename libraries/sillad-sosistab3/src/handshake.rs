@@ -14,60 +14,68 @@ pub struct Handshake {
     pub timestamp: u64,
     pub padding_len: u64,
     pub padding_hash: blake3::Hash,
+    pub responding_to: blake3::Hash,
 }
 
 impl Handshake {
     /// Encrypts a handshake, given the cookie.
-    pub fn encrypt(self, cookie: Cookie) -> [u8; 108] {
-        let aead = ChaCha20Poly1305::new_from_slice(&cookie.0).unwrap();
+    pub fn encrypt(self, cookie: Cookie, is_server: bool) -> [u8; 140] {
+        let aead = ChaCha20Poly1305::new_from_slice(&cookie.derive_key(is_server)).unwrap();
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
-        let mut toret = [0u8; 108];
+        let mut toret = [0u8; 140];
         toret[..12].copy_from_slice(&nonce);
-        toret[12..][..80].copy_from_slice(&self.bytes());
+        toret[12..][..112].copy_from_slice(&self.bytes());
         let tag = aead
-            .encrypt_in_place_detached(&nonce, &[], &mut toret[12..][..80])
+            .encrypt_in_place_detached(&nonce, &[], &mut toret[12..][..112])
             .unwrap();
-        toret[12..][80..].copy_from_slice(&tag);
+        toret[12..][112..].copy_from_slice(&tag);
         toret
     }
 
     /// Decrypts a handshake, given the cookie.
-    pub fn decrypt(encrypted_handshake: [u8; 108], cookie: Cookie) -> Result<Self, std::io::Error> {
-        let aead = ChaCha20Poly1305::new_from_slice(&cookie.0).unwrap();
+    pub fn decrypt(
+        encrypted_handshake: [u8; 140],
+        cookie: Cookie,
+        is_server: bool,
+    ) -> Result<Self, std::io::Error> {
+        let aead = ChaCha20Poly1305::new_from_slice(&cookie.derive_key(is_server)).unwrap();
         let nonce = array_ref![encrypted_handshake, 0, 12];
-        let mut encrypted_data = encrypted_handshake[12..92].to_vec(); // 80 bytes of data + 16 bytes tag
-        let tag = array_ref![encrypted_handshake, 92, 16];
+        let mut encrypted_data = encrypted_handshake[12..124].to_vec(); // 112 bytes of data + 16 bytes tag
+        let tag = array_ref![encrypted_handshake, 124, 16];
 
         aead.decrypt_in_place_detached(nonce.into(), &[], &mut encrypted_data, tag.into())
             .map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
             })?;
 
-        Ok(Handshake::from_bytes(array_ref![encrypted_data, 0, 80]))
+        Ok(Handshake::from_bytes(array_ref![encrypted_data, 0, 112]))
     }
 
     /// Generates the bytes representation.
-    fn bytes(&self) -> [u8; 80] {
-        let mut toret = [0u8; 80];
+    fn bytes(&self) -> [u8; 112] {
+        let mut toret = [0u8; 112];
         toret[..32].copy_from_slice(self.eph_pk.as_bytes());
         toret[32..][..8].copy_from_slice(&self.timestamp.to_be_bytes());
         toret[40..][..8].copy_from_slice(&self.padding_len.to_be_bytes());
-        toret[48..].copy_from_slice(self.padding_hash.as_bytes());
+        toret[48..][..32].copy_from_slice(self.padding_hash.as_bytes());
+        toret[80..][..32].copy_from_slice(self.responding_to.as_bytes());
         toret
     }
 
     /// Creates a Handshake from bytes.
-    fn from_bytes(bytes: &[u8; 80]) -> Self {
+    fn from_bytes(bytes: &[u8; 112]) -> Self {
         let eph_pk = x25519_dalek::PublicKey::from(*array_ref![bytes, 0, 32]);
         let timestamp = u64::from_be_bytes(bytes[32..40].try_into().unwrap());
         let padding_len = u64::from_be_bytes(bytes[40..48].try_into().unwrap());
         let padding_hash = blake3::Hash::from_bytes(*array_ref![bytes, 48, 32]);
+        let responding_to = blake3::Hash::from_bytes(*array_ref![bytes, 80, 32]);
 
         Handshake {
             eph_pk,
             timestamp,
             padding_len,
             padding_hash,
+            responding_to,
         }
     }
 }
@@ -91,38 +99,18 @@ mod tests {
             timestamp,
             padding_len,
             padding_hash,
+            responding_to: blake3::hash(b""),
         };
 
         let cookie = Cookie(*blake3::hash(b"cookie").as_bytes());
 
-        let encrypted_handshake = handshake.encrypt(cookie);
-        let decrypted_handshake = Handshake::decrypt(encrypted_handshake, cookie).unwrap();
+        let encrypted_handshake = handshake.encrypt(cookie, false);
+        let decrypted_handshake = Handshake::decrypt(encrypted_handshake, cookie, false).unwrap();
 
         assert_eq!(handshake.eph_pk, decrypted_handshake.eph_pk);
         assert_eq!(handshake.timestamp, decrypted_handshake.timestamp);
         assert_eq!(handshake.padding_len, decrypted_handshake.padding_len);
         assert_eq!(handshake.padding_hash, decrypted_handshake.padding_hash);
-    }
-
-    #[test]
-    fn test_handshake_from_bytes() {
-        let eph_pk_bytes = [1u8; 32];
-        let timestamp_bytes = 123456789u64.to_be_bytes();
-        let padding_len_bytes = 32u64.to_be_bytes();
-        let padding_hash_bytes = [2u8; 32];
-
-        let mut bytes = [0u8; 80];
-        bytes[..32].copy_from_slice(&eph_pk_bytes);
-        bytes[32..40].copy_from_slice(&timestamp_bytes);
-        bytes[40..48].copy_from_slice(&padding_len_bytes);
-        bytes[48..].copy_from_slice(&padding_hash_bytes);
-
-        let handshake = Handshake::from_bytes(&bytes);
-
-        assert_eq!(handshake.eph_pk.as_bytes(), &eph_pk_bytes);
-        assert_eq!(handshake.timestamp, 123456789);
-        assert_eq!(handshake.padding_len, 32);
-        assert_eq!(handshake.padding_hash.as_bytes(), &padding_hash_bytes);
     }
 
     #[test]
@@ -138,6 +126,7 @@ mod tests {
             timestamp,
             padding_len,
             padding_hash,
+            responding_to: blake3::hash(b""),
         };
 
         let bytes = handshake.bytes();
