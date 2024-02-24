@@ -1,4 +1,4 @@
-use std::{io::Write};
+use std::io::Write;
 
 use arrayref::array_ref;
 use blake3::derive_key;
@@ -15,6 +15,7 @@ pub struct State {
 
 impl State {
     /// Derives a state from a given shared secret.
+    #[tracing::instrument]
     pub fn new(ss: &[u8], is_server: bool) -> Self {
         let (send_key_label, recv_key_label) = if is_server {
             ("dn", "up")
@@ -25,6 +26,12 @@ impl State {
         let send_key = Key::from_slice(&send_key);
         let recv_key = derive_key(recv_key_label, ss);
         let recv_key = Key::from_slice(&recv_key);
+
+        tracing::debug!(
+            send_key = hex::encode(send_key),
+            recv_key = hex::encode(recv_key),
+            "created a new state"
+        );
 
         let send_aead = ChaCha20Poly1305::new(send_key);
         let recv_aead = ChaCha20Poly1305::new(recv_key);
@@ -72,6 +79,12 @@ impl State {
             .send_aead
             .encrypt_in_place_detached(&nonce.into(), &[], &mut self.send_buf)
             .expect("encryption failure!");
+        tracing::trace!(
+            body_len = self.send_buf.len(),
+            nonce = hex::encode(nonce),
+            tag = hex::encode(tag_body),
+            "encrypted a body"
+        );
 
         // Append the encrypted body and its tag to the output
         output.extend_from_slice(&self.send_buf);
@@ -98,7 +111,6 @@ impl State {
         let tag_length = *array_ref![bts, 4, 16];
         let (_, rest) = bts.split_at(4);
         let (_, rest) = rest.split_at(16);
-        let (enc_body, tag_body) = rest.split_at(rest.len() - 16);
 
         // Prepare the nonce for the length decryption
         let nonce = self.recv_nonce(0);
@@ -111,41 +123,48 @@ impl State {
                 &mut enc_length,
                 array_ref![tag_length, 0, 16].into(),
             )
-            .map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "decryption of the length failed".to_string(),
+                )
             })?;
         let length = u32::from_le_bytes(enc_length) as usize;
-
         // Check the length for sanity
-        if length > enc_body.len() {
+        if length + 16 > rest.len() {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Decrypted length does not match body length",
+                std::io::ErrorKind::WouldBlock,
+                "not enough data after the length",
             ));
         }
 
+        let (enc_body, tag_body) = rest.split_at(length);
+        let tag_body = array_ref![tag_body, 0, 16];
         let mut enc_body: SmallVec<[u8; 32768]> = enc_body[..length].to_smallvec();
 
         // Prepare the next nonce for the body decryption
         let nonce = self.recv_nonce(1);
 
         // Decrypt the body with recv_aead
-
+        tracing::trace!(
+            length,
+            nonce = hex::encode(nonce),
+            tag = hex::encode(tag_body),
+            "decrypting a body"
+        );
         self.recv_aead
-            .decrypt_in_place_detached(
-                &nonce.into(),
-                &[],
-                &mut enc_body,
-                array_ref![tag_body, 0, 16].into(),
-            )
+            .decrypt_in_place_detached(&nonce.into(), &[], &mut enc_body, tag_body.into())
             .map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Decryption failed")
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    format!("decrypt of the body of length {} failed", length),
+                )
             })?;
 
         // Append the decrypted body to the output
         output.write_all(&enc_body).unwrap();
         self.recv_nonce += 2;
-        Ok(enc_length.len() + tag_length.len() + enc_body.len() + enc_body.len())
+        Ok(enc_length.len() + tag_length.len() + tag_body.len() + enc_body.len())
     }
 }
 

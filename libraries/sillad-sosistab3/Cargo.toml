@@ -24,3 +24,4 @@ async-task = "4.7.0"
 async-executor = "1.8.0"
 serde = {version="1.0.197", features=["derive"]}
 hex = "0.4.3"
+async-io = "2.3.1"

@@ -40,12 +40,24 @@ impl<D: Dialer> Dialer for SosistabDialer<D> {
             padding_hash,
             responding_to: blake3::hash(b""),
         };
+        tracing::debug!(
+            cookie = debug(self.cookie),
+            padding_len,
+            padding_hash = debug(padding_hash),
+            "handshake generated"
+        );
         // send the stuff
         let mut to_send = vec![];
         let my_handshake = my_handshake.encrypt(self.cookie, false);
         to_send.extend_from_slice(&my_handshake);
         to_send.extend_from_slice(&padding);
         lower.write_all(&to_send).await?;
+        tracing::debug!(
+            cookie = debug(self.cookie),
+            padding_len,
+            padding_hash = debug(padding_hash),
+            "handshake sent"
+        );
         // receive their handshake
         let mut their_handshake = [0u8; 140];
         lower.read_exact(&mut their_handshake).await?;
@@ -65,10 +77,22 @@ impl<D: Dialer> Dialer for SosistabDialer<D> {
                 "the server handshake gave us an incorrect padding hash",
             ));
         }
+        tracing::debug!(
+            cookie = debug(self.cookie),
+            padding_len,
+            padding_hash = debug(padding_hash),
+            "their handshake received"
+        );
         // we are ready for the shared secret
         let state = State::new(
             eph_sk.diffie_hellman(&their_handshake.eph_pk).as_bytes(),
             false,
+        );
+        tracing::debug!(
+            cookie = debug(self.cookie),
+            padding_len,
+            padding_hash = debug(padding_hash),
+            "shared secret generated"
         );
         Ok(SosistabPipe::new(lower, state))
     }

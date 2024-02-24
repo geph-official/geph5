@@ -2,7 +2,7 @@ mod frame;
 
 use std::{
     convert::Infallible, hash::BuildHasherDefault, io::ErrorKind, ops::Deref, pin::Pin, sync::Arc,
-    time::Duration,
+    task::Poll, time::Duration,
 };
 
 use ahash::AHasher;
@@ -102,7 +102,7 @@ async fn picomux_inner(
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(100_000, read);
 
-    let (send_outgoing, mut recv_outgoing) = tachyonix::channel(10000);
+    let (send_outgoing, mut recv_outgoing) = tachyonix::channel(1);
     let buffer_table: DashMap<_, _, BuildHasherDefault<AHasher>> = DashMap::default();
 
     // writes outgoing frames
@@ -112,6 +112,12 @@ async fn picomux_inner(
                 .recv()
                 .await
                 .expect("send_outgoing should never be dropped here");
+            tracing::trace!(
+                stream_id = outgoing.header.stream_id,
+                command = outgoing.header.command,
+                body_len = outgoing.body.len(),
+                "sending outgoing data into transport"
+            );
             if outgoing.header.command == CMD_FIN {
                 tracing::debug!(
                     stream_id = outgoing.header.stream_id,
@@ -144,15 +150,21 @@ async fn picomux_inner(
         let send_outgoing = send_outgoing.clone();
         smolscale::spawn::<anyhow::Result<()>>(async move {
             scopeguard::defer!({
-                let _ = send_outgoing.try_send(Frame {
-                    header: Header {
-                        version: 1,
-                        command: CMD_FIN,
-                        body_len: 0,
-                        stream_id,
-                    },
-                    body: Bytes::new(),
-                });
+                let send_outgoing = send_outgoing.clone();
+                smolscale::spawn(async move {
+                    send_outgoing
+                        .send(Frame {
+                            header: Header {
+                                version: 1,
+                                command: CMD_FIN,
+                                body_len: 0,
+                                stream_id,
+                            },
+                            body: Bytes::new(),
+                        })
+                        .await
+                })
+                .detach();
             });
             let mut buf = [0u8; 16384];
             loop {
@@ -169,7 +181,7 @@ async fn picomux_inner(
                     },
                     body: Bytes::copy_from_slice(&buf[..n]),
                 };
-                tracing::trace!(stream_id, n, "sending outgoing data");
+                tracing::trace!(stream_id, n, "sending outgoing data into channel");
                 send_outgoing
                     .send(frame)
                     .await
@@ -234,20 +246,25 @@ async fn picomux_inner(
                         buffer_table.insert(frame.header.stream_id, send_incoming);
                     }
                     CMD_PSH => {
-                        let back = buffer_table.get(&frame.header.stream_id).ok_or_else(|| {
-                            std::io::Error::new(ErrorKind::InvalidData, "invalid stream id for PSH")
-                        })?;
-                        if back
-                            .send(frame.clone())
-                            .timeout(Duration::from_millis(200))
-                            .await
-                            .is_none()
-                        {
+                        let back = buffer_table.get(&stream_id);
+                        if let Some(back) = back {
+                            if back
+                                .send(frame.clone())
+                                .timeout(Duration::from_millis(200))
+                                .await
+                                .is_none()
+                            {
+                                tracing::warn!(
+                                    stream_id = frame.header.stream_id,
+                                    "dropping stream because the read queue is full"
+                                );
+                                buffer_table.remove(&stream_id);
+                            }
+                        } else {
                             tracing::warn!(
                                 stream_id = frame.header.stream_id,
-                                "dropping stream because the read queue is full"
+                                "PSH to a stream that is no longer here"
                             );
-                            let _ = send_outgoing.try_send(Frame::new_empty(stream_id, CMD_FIN));
                         }
                     }
                     CMD_FIN => {
@@ -289,17 +306,29 @@ impl AsyncRead for Stream {
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        self.pin_project_read().poll_read(cx, buf)
+        if fastrand::f32() < 0.1 {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            self.pin_project_read().poll_read(cx, buf)
+        }
     }
 }
 
 impl AsyncWrite for Stream {
+    #[tracing::instrument(name = "picomux_stream_write", skip(self, cx, buf))]
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        self.pin_project_write().poll_write(cx, buf)
+    ) -> Poll<std::io::Result<usize>> {
+        tracing::trace!(buf_len = buf.len(), "about to poll write");
+        if fastrand::f32() < 0.1 {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            self.pin_project_write().poll_write(cx, buf)
+        }
     }
 
     fn poll_flush(

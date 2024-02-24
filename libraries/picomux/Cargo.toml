@@ -29,8 +29,13 @@ tachyonix = "0.2.1"
 tracing = "0.1.40"
 tracing-test = "0.2.4"
 async-rw-adapter={path="../async-rw-adapter"}
+fastrand = "2.0.1"
+
 
 [dev-dependencies]
 argh = "0.1"
 smol="2"
 socksv5="0.3"
+sillad={path="../sillad"}
+sillad-sosistab3={path="../sillad-sosistab3"}
+tracing-subscriber="0.3"

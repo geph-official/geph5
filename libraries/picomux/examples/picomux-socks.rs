@@ -1,8 +1,14 @@
 use argh::FromArgs;
 use futures_lite::{AsyncWriteExt, FutureExt};
-use futures_util::AsyncReadExt;
+use futures_util::{AsyncReadExt, TryFutureExt};
 use picomux::PicoMux;
-use smol::net::{TcpListener, TcpStream};
+
+use sillad::{
+    dialer::Dialer,
+    listener::Listener,
+    tcp::{TcpDialer, TcpListener},
+};
+use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie};
 use socksv5::v5::{
     read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
     SocksV5Host, SocksV5RequestStatus,
@@ -49,23 +55,31 @@ struct ClientCommand {
     listen: SocketAddr,
     /// server address and port to connect to (e.g., "127.0.0.1:1080")
     #[argh(option)]
-    connect: String,
+    connect: SocketAddr,
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+
     smolscale::block_on(async {
         let socks5: Socks5 = argh::from_env();
         match socks5.nested {
             SubCommands::Server(server) => {
                 eprintln!("Starting server on {}", server.listen);
                 let listener = TcpListener::bind(server.listen).await?;
+                let mut listener = SosistabListener::new(listener, Some(Cookie::new("hello")));
                 loop {
-                    let (tcp_stream, _) = listener.accept().await?;
-                    let mut mux = PicoMux::new(tcp_stream.clone(), tcp_stream);
+                    let tcp_stream = listener.accept().await?;
+                    let (read, write) = tcp_stream.split();
+                    let mut mux = PicoMux::new(read, write);
                     smolscale::spawn::<anyhow::Result<()>>(async move {
                         loop {
                             let client = mux.accept().await?;
-                            smolscale::spawn(handle_server(client)).detach();
+                            smolscale::spawn(
+                                handle_server(client)
+                                    .map_err(|e| eprintln!("server handling dying: {:?}", e)),
+                            )
+                            .detach();
                         }
                     })
                     .detach()
@@ -76,10 +90,17 @@ fn main() -> anyhow::Result<()> {
                     "Connecting to server at {}, socks5 at {}",
                     client.connect, client.listen
                 );
-                let listener = TcpListener::bind(client.listen).await?;
+                let mut listener = TcpListener::bind(client.listen).await?;
+                let dialer = TcpDialer {
+                    dest_addr: client.connect,
+                };
+                let dialer = SosistabDialer {
+                    inner: dialer,
+                    cookie: Cookie::new("hello"),
+                };
                 loop {
-                    let remote_conn = TcpStream::connect(&client.connect).await?;
-                    let mux = Arc::new(PicoMux::new(remote_conn.clone(), remote_conn));
+                    let remote_conn = dialer.dial().await?.split();
+                    let mux = Arc::new(PicoMux::new(remote_conn.0, remote_conn.1));
                     let mux_dead = Arc::new(AtomicBool::new(false));
                     let mux_dead_evt = Arc::new(async_event::Event::new());
                     mux_dead_evt
@@ -92,15 +113,16 @@ fn main() -> anyhow::Result<()> {
                         })
                         .race(async {
                             loop {
-                                let (client, _) = listener.accept().await?;
+                                let client = listener.accept().await?;
                                 let mux = mux.clone();
                                 let mux_dead = mux_dead.clone();
                                 let mux_dead_evt = mux_dead_evt.clone();
                                 smolscale::spawn(async move {
-                                    let _handshake = read_handshake(client.clone()).await?;
-                                    write_auth_method(client.clone(), SocksV5AuthMethod::Noauth)
+                                    let (mut read_client, mut write_client) = client.split();
+                                    let _handshake = read_handshake(&mut read_client).await?;
+                                    write_auth_method(&mut write_client, SocksV5AuthMethod::Noauth)
                                         .await?;
-                                    let request = read_request(client.clone()).await?;
+                                    let request = read_request(&mut read_client).await?;
                                     let port = request.port;
                                     let domain: String = match &request.host {
                                         SocksV5Host::Domain(dom) => {
@@ -115,31 +137,34 @@ fn main() -> anyhow::Result<()> {
                                     let remote_addr = format!("{domain}:{port}");
                                     eprintln!("connecting through to {remote_addr}");
                                     let stream = mux.open().await;
-                                    if let Ok(stream) = stream {
-                                        let (read, mut write) = stream.split();
-                                        write
-                                            .write_all(
-                                                &(remote_addr.as_bytes().len() as u16)
-                                                    .to_be_bytes(),
+                                    match stream {
+                                        Ok(stream) => {
+                                            let (read, mut write) = stream.split();
+                                            write
+                                                .write_all(
+                                                    &(remote_addr.as_bytes().len() as u16)
+                                                        .to_be_bytes(),
+                                                )
+                                                .await?;
+                                            write.write_all(remote_addr.as_bytes()).await?;
+                                            write_request_status(
+                                                &mut write_client,
+                                                SocksV5RequestStatus::Success,
+                                                request.host,
+                                                port,
                                             )
                                             .await?;
-                                        write.write_all(remote_addr.as_bytes()).await?;
-                                        write_request_status(
-                                            client.clone(),
-                                            SocksV5RequestStatus::Success,
-                                            request.host,
-                                            port,
-                                        )
-                                        .await?;
-                                        smol::io::copy(read, client.clone())
-                                            .race(smol::io::copy(client, write))
-                                            .await?;
-                                        Ok(())
-                                    } else {
-                                        eprintln!("restarting!!!!");
-                                        mux_dead.store(true, Ordering::Relaxed);
-                                        mux_dead_evt.notify_one();
-                                        Ok(())
+                                            smol::io::copy(read, write_client)
+                                                .race(smol::io::copy(read_client, write))
+                                                .await?;
+                                            Ok(())
+                                        }
+                                        Err(err) => {
+                                            eprintln!("restarting!!!! {:?}", err);
+                                            mux_dead.store(true, Ordering::Relaxed);
+                                            mux_dead_evt.notify_one();
+                                            Ok(())
+                                        }
                                     }
                                 })
                                 .detach();
@@ -161,7 +186,7 @@ async fn handle_server(mut conn: picomux::Stream) -> anyhow::Result<()> {
     conn.read_exact(&mut dest).await?;
     let dest = String::from_utf8_lossy(&dest);
     eprintln!("received conn req for {dest}");
-    let remote = TcpStream::connect(&*dest).await?;
+    let remote = smol::net::TcpStream::connect(&*dest).await?;
     let (conn_read, conn_write) = conn.split();
     smol::io::copy(remote.clone(), conn_write)
         .race(smol::io::copy(conn_read, remote))

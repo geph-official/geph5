@@ -1,9 +1,10 @@
 use std::{
     io::ErrorKind,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_executor::Executor;
+use async_io::Timer;
 use async_task::Task;
 use async_trait::async_trait;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
@@ -22,18 +23,32 @@ pub struct SosistabListener<P: Pipe> {
 
 impl<P: Pipe> SosistabListener<P> {
     /// Listens to incoming sosistab3 pipes by wrapping an existing sillad Listener. If a cookie is passed, then uses that cookie, but if not, a random cookie is generated.
-    pub fn new(listener: impl Listener<P = P>, cookie: Cookie) -> Self {
+    pub fn new(listener: impl Listener<P = P>, cookie: Option<Cookie>) -> Self {
         let (send_pipe, recv_pipe) = tachyonix::channel(1);
         let _task = smolscale::spawn(listen_loop(listener, send_pipe, cookie));
         Self { recv_pipe, _task }
     }
 }
 
+#[tracing::instrument(skip(listener, send_pipe))]
 async fn listen_loop<P: Pipe>(
     mut listener: impl Listener<P = P>,
     send_pipe: Sender<SosistabPipe<P>>,
-    cookie: Cookie,
+    cookie: Option<Cookie>,
 ) -> std::io::Result<()> {
+    const WAIT_INTERVAL: Duration = Duration::from_secs(30);
+
+    let cookie = if let Some(cookie) = cookie {
+        // tracing::warn!(
+        //     "sleeping for {:?} for listener with cookie {:?} for replay protection",
+        //     WAIT_INTERVAL,
+        //     cookie
+        // );
+        // Timer::after(WAIT_INTERVAL).await;
+        cookie
+    } else {
+        Cookie::random()
+    };
     let lexec = Executor::new();
     lexec
         .run(async {
@@ -44,9 +59,27 @@ async fn listen_loop<P: Pipe>(
                     .spawn(async move {
                         // receive their handshake
                         let mut their_handshake = [0u8; 140];
-                        let their_handshake_hash = blake3::hash(&their_handshake);
                         lower.read_exact(&mut their_handshake).await?;
+                        let their_handshake_hash = blake3::hash(&their_handshake);
                         let their_handshake = Handshake::decrypt(their_handshake, cookie, false)?;
+                        tracing::debug!(
+                            their_handshake_hash = debug(their_handshake_hash),
+                            "handshake received"
+                        );
+                        // read their padding
+                        let mut buff = vec![0u8; their_handshake.padding_len as usize];
+                        lower.read_exact(&mut buff).await?;
+                        if blake3::hash(&buff) != their_handshake.padding_hash {
+                            return Err(std::io::Error::new(
+                                ErrorKind::InvalidData,
+                                "the client handshake gave us an incorrect padding hash",
+                            ));
+                        }
+                        tracing::debug!(
+                            their_handshake_hash = debug(their_handshake_hash),
+                            their_padding_hash = debug(their_handshake.padding_hash),
+                            "handshake verified"
+                        );
                         // send the upstream handshake
                         let eph_sk =
                             x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
@@ -73,19 +106,15 @@ async fn listen_loop<P: Pipe>(
                         to_send.extend_from_slice(&my_handshake);
                         to_send.extend_from_slice(&padding);
                         lower.write_all(&to_send).await?;
-                        // read their padding
-                        let mut buff = vec![0u8; their_handshake.padding_len as usize];
-                        lower.read_exact(&mut buff).await?;
-                        if blake3::hash(&buff) != their_handshake.padding_hash {
-                            return Err(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "the client handshake gave us an incorrect padding hash",
-                            ));
-                        }
                         // we are ready for the shared secret
                         let state = State::new(
                             eph_sk.diffie_hellman(&their_handshake.eph_pk).as_bytes(),
                             true,
+                        );
+                        tracing::debug!(
+                            their_handshake_hash = debug(their_handshake_hash),
+                            their_padding_hash = debug(their_handshake.padding_hash),
+                            "pipe established"
                         );
                         let pipe = SosistabPipe::new(lower, state);
                         let _ = send_pipe.send(pipe).await;

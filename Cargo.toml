@@ -2,9 +2,10 @@
 
 members = [
     "libraries/*",
+    "binaries/*"
 ]
 resolver = "2"
 
 [profile.release-dbg]
 inherits = "dev"
-opt-level = 3
+opt-level = 3 

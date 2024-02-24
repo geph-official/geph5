@@ -10,4 +10,5 @@ async-io = "2.3.1"
 async-trait = "0.1.77"
 futures-lite = "2.2.0"
 futures-util = {version="0.3.30", features=["io"]}
+libc = "0.2.153"
 pin-project = "1.1.4"

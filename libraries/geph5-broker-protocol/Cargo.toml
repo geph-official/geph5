@@ -1,0 +1,20 @@
+[package]
+name = "geph5-broker-protocol"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.80"
+async-trait = "0.1.77"
+nanorpc = "0.1.12"
+serde_json = "1.0.114"
+thiserror = "1.0.57"
+serde = {version="1.0.197", features=["derive"]}
+bytes = {version="1.5.0", features=["serde"]}
+ed25519-dalek = {version="2.1.1", features=["serde"]}
+stdcode = "0.1.14"
+blake3 = {version="1.5.0", features=["serde"]}
+isocountry = "0.3.2"
+language-tags = {version="0.3.2", features=["serde"]}
