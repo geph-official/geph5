@@ -123,7 +123,7 @@ impl State {
                 &mut enc_length,
                 array_ref![tag_length, 0, 16].into(),
             )
-            .map_err(|e| {
+            .map_err(|_e| {
                 std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     "decryption of the length failed".to_string(),

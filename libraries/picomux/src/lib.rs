@@ -21,12 +21,13 @@ use futures_util::{
 use rand::Rng;
 use smol_timeout::TimeoutExt;
 use tachyonix::{Receiver, Sender};
+use tap::Tap;
 
 use crate::frame::Header;
 
 pub struct PicoMux {
     task: Shared<Task<Arc<std::io::Result<Infallible>>>>,
-    send_open_req: Sender<oneshot::Sender<Stream>>,
+    send_open_req: Sender<(Bytes, oneshot::Sender<Stream>)>,
     recv_accepted: Receiver<Stream>,
 }
 
@@ -63,10 +64,13 @@ impl PicoMux {
         .await
     }
 
-    /// Opens a new stream to the peer.
-    pub async fn open(&self) -> std::io::Result<Stream> {
+    /// Opens a new stream to the peer, putting the given metadata in the stream.
+    pub async fn open(&self, metadata: &[u8]) -> std::io::Result<Stream> {
         let (send, recv) = oneshot::channel();
-        let _ = self.send_open_req.send(send).await;
+        let _ = self
+            .send_open_req
+            .send((Bytes::copy_from_slice(metadata), send))
+            .await;
         async {
             if let Ok(val) = recv.await {
                 Ok(val)
@@ -98,7 +102,7 @@ async fn picomux_inner(
     read: impl AsyncRead + 'static + Send + Unpin,
     mut write: impl AsyncWrite + Send + Unpin + 'static,
     send_accepted: Sender<Stream>,
-    mut recv_open_req: Receiver<oneshot::Sender<Stream>>,
+    mut recv_open_req: Receiver<(Bytes, oneshot::Sender<Stream>)>,
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(100_000, read);
 
@@ -131,13 +135,14 @@ async fn picomux_inner(
         }
     };
 
-    let create_stream = |stream_id| {
+    let create_stream = |stream_id, metadata: Bytes| {
         let (send_incoming, mut recv_incoming) = tachyonix::channel(100);
         let (mut write_incoming, read_incoming) = bipe::bipe(32768);
         let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
         let stream = Stream {
             write_outgoing,
             read_incoming,
+            metadata,
         };
         // jelly bean movers
         smolscale::spawn::<anyhow::Result<()>>(async move {
@@ -196,7 +201,7 @@ async fn picomux_inner(
     // receive open requests
     let open_req_loop = async {
         loop {
-            let request = recv_open_req.recv().await.map_err(|_e| {
+            let (metadata, request) = recv_open_req.recv().await.map_err(|_e| {
                 std::io::Error::new(ErrorKind::BrokenPipe, "open request channel died")
             })?;
             let stream_id = {
@@ -206,9 +211,12 @@ async fn picomux_inner(
                     .unwrap()
             };
             let _ = send_outgoing
-                .send(Frame::new_empty(stream_id, CMD_SYN))
+                .send(Frame::new_empty(stream_id, CMD_SYN).tap_mut(|f| {
+                    f.body = metadata.clone();
+                    f.header.body_len = metadata.len() as _;
+                }))
                 .await;
-            let (stream, send_incoming) = create_stream(stream_id);
+            let (stream, send_incoming) = create_stream(stream_id, metadata);
             // thread safety: there can be no race because we are racing the futures in the foreground and there's no await point between when we obtain the id and when we insert
             assert!(buffer_table.insert(stream_id, send_incoming).is_none());
             let _ = request.send(stream);
@@ -235,7 +243,7 @@ async fn picomux_inner(
                                 "duplicate SYN",
                             ));
                         }
-                        let (stream, send_incoming) = create_stream(stream_id);
+                        let (stream, send_incoming) = create_stream(stream_id, frame.body.clone());
                         if send_accepted.try_send(stream).is_err() {
                             tracing::warn!(
                                 stream_id = frame.header.stream_id,
@@ -286,9 +294,14 @@ async fn picomux_inner(
 pub struct Stream {
     read_incoming: bipe::BipeReader,
     write_outgoing: bipe::BipeWriter,
+    metadata: Bytes,
 }
 
 impl Stream {
+    pub fn metadata(&self) -> &[u8] {
+        &self.metadata
+    }
+
     fn pin_project_read(self: std::pin::Pin<&mut Self>) -> Pin<&mut bipe::BipeReader> {
         // SAFETY: this is a safe pin-projection, since we never get a &mut sosistab2::Stream from a Pin<&mut Stream> elsewhere.
         // Safety requires that we either consistently lose Pin or keep it.
@@ -369,7 +382,7 @@ mod tests {
             let (picomux_a, mut picomux_b) = setup_picomux_pair().await;
 
             let a_proc = async move {
-                let mut stream_a = picomux_a.open().await.unwrap();
+                let mut stream_a = picomux_a.open(b"").await.unwrap();
                 stream_a.write_all(b"Hello, world!").await.unwrap();
                 stream_a.flush().await.unwrap();
                 drop(stream_a);

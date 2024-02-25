@@ -9,7 +9,7 @@ pub use exit::*;
 mod signed;
 use serde::{Deserialize, Serialize};
 pub use signed::*;
-use thiserror::Error;
+
 mod mac;
 pub use mac::*;
 mod bridge;

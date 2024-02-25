@@ -1,0 +1,64 @@
+use argh::FromArgs;
+use ed25519_dalek::SigningKey;
+use isocountry::CountryCode;
+use listen::listen_main;
+use once_cell::sync::{Lazy, OnceCell};
+use rand::Rng;
+use serde::Deserialize;
+use std::{net::SocketAddr, path::PathBuf};
+mod broker;
+mod listen;
+mod proxy;
+
+/// The global config file.
+static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
+
+/// This struct defines the structure of our configuration file
+#[derive(Deserialize)]
+struct ConfigFile {
+    signing_secret: PathBuf,
+    broker_url: Option<String>,
+    #[serde(default)]
+    broker_auth_token: String,
+
+    c2e_listen: SocketAddr,
+    b2e_listen: SocketAddr,
+
+    country: CountryCode,
+    city: String,
+}
+
+static SIGNING_SECRET: Lazy<SigningKey> = Lazy::new(|| {
+    let config_file = CONFIG_FILE.get().expect("Config file must be initialized.");
+    let path = &config_file.signing_secret;
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.len() == 32 => {
+            let bytes: [u8; 32] = bytes.as_slice().try_into().unwrap();
+            SigningKey::from_bytes(&bytes)
+        }
+        _ => {
+            // Generate a new SigningKey if there's an error or the length is not 32 bytes.
+            let new_key = SigningKey::from_bytes(&rand::thread_rng().gen());
+            let key_bytes = new_key.to_bytes();
+            std::fs::write(&config_file.signing_secret, key_bytes).unwrap();
+            new_key
+        }
+    }
+});
+
+/// Run the Geph5 broker.
+#[derive(FromArgs)]
+struct CliArgs {
+    /// path to a YAML-based config file
+    #[argh(option, short = 'c')]
+    config: PathBuf,
+}
+
+fn main() -> anyhow::Result<()> {
+    let args: CliArgs = argh::from_env();
+    CONFIG_FILE
+        .set(serde_yaml::from_slice(&std::fs::read(args.config).unwrap()).unwrap())
+        .ok()
+        .unwrap();
+    smolscale::block_on(listen_main())
+}

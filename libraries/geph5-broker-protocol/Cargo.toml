@@ -18,3 +18,4 @@ stdcode = "0.1.14"
 blake3 = {version="1.5.0", features=["serde"]}
 isocountry = "0.3.2"
 language-tags = {version="0.3.2", features=["serde"]}
+serde_with = {version="3.6.1", features=["hex"]}

@@ -1,0 +1,30 @@
+[package]
+name = "geph5-exit"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+geph5-broker-protocol={path="../../libraries/geph5-broker-protocol"}
+sillad={path="../../libraries/sillad"}
+picomux={path="../../libraries/picomux"}
+async-trait = "0.1.77"
+nanorpc = "0.1.12"
+thiserror = "1.0.57"
+smolscale = "0.4.4"
+futures-util = "0.3.30"
+async-io = "2.3.1"
+once_cell = "1.19.0"
+serde = "1.0.197"
+serde_json = "1.0.114"
+serde_yaml = "0.9.32"
+argh = "0.1.12"
+anyhow = "1.0.80"
+tracing = "0.1.40"
+smol = "2.0.0"
+rand = "0.8.5"
+reqwest = {version="0.11.24", features=["rustls-tls"]}
+isocountry = "0.3.2"
+ed25519-dalek = "2.1.1"
+blake3 = "1.5.0"

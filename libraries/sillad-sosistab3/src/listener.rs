@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_executor::Executor;
-use async_io::Timer;
+
 use async_task::Task;
 use async_trait::async_trait;
 use futures_util::{AsyncReadExt, AsyncWriteExt};

@@ -51,7 +51,7 @@ pub struct ExitRow {
     pub country: String,
     pub city: String,
     pub load: f32,
-    pub expiry: u64,
+    pub expiry: i64,
 }
 
 pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
@@ -59,7 +59,7 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
         "INSERT INTO exits_new (pubkey, c2e_listen, b2e_listen, country, city, load, expires)
         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
-    .bind(&exit.pubkey)
+    .bind(exit.pubkey)
     .bind(&exit.c2e_listen)
     .bind(&exit.b2e_listen)
     .bind(&exit.country)

@@ -1,5 +1,5 @@
 use argh::FromArgs;
-use futures_lite::{AsyncWriteExt, FutureExt};
+use futures_lite::{FutureExt};
 use futures_util::{AsyncReadExt, TryFutureExt};
 use picomux::PicoMux;
 
@@ -136,17 +136,10 @@ fn main() -> anyhow::Result<()> {
                                     };
                                     let remote_addr = format!("{domain}:{port}");
                                     eprintln!("connecting through to {remote_addr}");
-                                    let stream = mux.open().await;
+                                    let stream = mux.open(remote_addr.as_bytes()).await;
                                     match stream {
                                         Ok(stream) => {
-                                            let (read, mut write) = stream.split();
-                                            write
-                                                .write_all(
-                                                    &(remote_addr.as_bytes().len() as u16)
-                                                        .to_be_bytes(),
-                                                )
-                                                .await?;
-                                            write.write_all(remote_addr.as_bytes()).await?;
+                                            let (read, write) = stream.split();
                                             write_request_status(
                                                 &mut write_client,
                                                 SocksV5RequestStatus::Success,
@@ -177,14 +170,9 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-async fn handle_server(mut conn: picomux::Stream) -> anyhow::Result<()> {
+async fn handle_server(conn: picomux::Stream) -> anyhow::Result<()> {
     // read the destination
-    let mut dest_len_buf = [0u8; 2];
-    conn.read_exact(&mut dest_len_buf).await?;
-    let dest_len = u16::from_be_bytes(dest_len_buf);
-    let mut dest = vec![0u8; dest_len as usize];
-    conn.read_exact(&mut dest).await?;
-    let dest = String::from_utf8_lossy(&dest);
+    let dest = String::from_utf8_lossy(conn.metadata());
     eprintln!("received conn req for {dest}");
     let remote = smol::net::TcpStream::connect(&*dest).await?;
     let (conn_read, conn_write) = conn.split();

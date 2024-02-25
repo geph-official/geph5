@@ -1,8 +1,10 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use stdcode::StdcodeSerializeExt;
 use thiserror::Error;
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Signed<T> {
     #[serde(flatten)]
@@ -14,7 +16,7 @@ pub struct Signed<T> {
 
 impl<T: Serialize> Signed<T> {
     /// Creates a new Signed instance, which represents a piece of data signed by an ed25519 key.
-    pub fn new(inner: T, domain: &str, seckey: SigningKey) -> Self {
+    pub fn new(inner: T, domain: &str, seckey: &SigningKey) -> Self {
         let to_sign =
             blake3::keyed_hash(blake3::hash(domain.as_bytes()).as_bytes(), &inner.stdcode());
         let signature = seckey.sign(to_sign.as_bytes());

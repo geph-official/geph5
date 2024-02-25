@@ -1,8 +1,12 @@
 use anyhow::Context;
 use argh::FromArgs;
+use axum::{routing::post, Json, Router};
+use geph5_broker_protocol::BrokerService;
+use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::OnceCell;
+use rpc_impl::BrokerImpl;
 use serde::Deserialize;
-use std::fs;
+use std::{fs, net::SocketAddr, path::PathBuf};
 
 mod database;
 mod rpc_impl;
@@ -13,8 +17,10 @@ static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 /// This struct defines the structure of our configuration file
 #[derive(Deserialize)]
 struct ConfigFile {
+    listen: SocketAddr,
+    master_secret: PathBuf,
     postgres_url: String,
-    postgres_root_cert: String,
+    postgres_root_cert: PathBuf,
 
     bridge_token: String,
 }
@@ -27,7 +33,9 @@ struct CliArgs {
     config: String,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
     // Parse the command-line arguments
     let args: CliArgs = argh::from_env();
 
@@ -41,5 +49,12 @@ fn main() -> anyhow::Result<()> {
 
     let _ = CONFIG_FILE.set(config);
 
+    let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
+    let app = Router::new().route("/v1", post(rpc));
+    axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
+    Json(BrokerService(BrokerImpl {}).respond_raw(payload).await)
 }
