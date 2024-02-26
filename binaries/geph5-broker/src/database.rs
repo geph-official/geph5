@@ -36,7 +36,7 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
         let sleep_time = Duration::from_secs_f64(rand::thread_rng().gen_range(60.0..120.0));
         tracing::debug!("sleeping {:?}", sleep_time);
         Timer::after(sleep_time).await;
-        let res = sqlx::query("delete from exits_new where expires > extract(epoch from now)")
+        let res = sqlx::query("delete from exits_new where expiry > extract(epoch from now())")
             .execute(POSTGRES.deref())
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up exits");
@@ -56,8 +56,16 @@ pub struct ExitRow {
 
 pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO exits_new (pubkey, c2e_listen, b2e_listen, country, city, load, expires)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        r"INSERT INTO exits_new (pubkey, c2e_listen, b2e_listen, country, city, load, expiry)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (pubkey) DO UPDATE 
+        SET c2e_listen = EXCLUDED.c2e_listen, 
+            b2e_listen = EXCLUDED.b2e_listen, 
+            country = EXCLUDED.country, 
+            city = EXCLUDED.city, 
+            load = EXCLUDED.load, 
+            expiry = EXCLUDED.expiry
+        ",
     )
     .bind(exit.pubkey)
     .bind(&exit.c2e_listen)
@@ -65,6 +73,7 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     .bind(&exit.country)
     .bind(&exit.city)
     .bind(exit.load)
+    .bind(exit.expiry)
     .execute(POSTGRES.deref())
     .await?;
     Ok(())

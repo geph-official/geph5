@@ -1,11 +1,13 @@
 use anyhow::Context;
 use argh::FromArgs;
 use axum::{routing::post, Json, Router};
+use database::database_gc_loop;
 use geph5_broker_protocol::BrokerService;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::OnceCell;
 use rpc_impl::BrokerImpl;
 use serde::Deserialize;
+use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fs, net::SocketAddr, path::PathBuf};
 
 mod database;
@@ -23,6 +25,7 @@ struct ConfigFile {
     postgres_root_cert: PathBuf,
 
     bridge_token: String,
+    exit_token: String,
 }
 
 /// Run the Geph5 broker.
@@ -48,6 +51,8 @@ async fn main() -> anyhow::Result<()> {
         serde_yaml::from_str(&config_contents).context("Failed to parse the config file")?;
 
     let _ = CONFIG_FILE.set(config);
+
+    let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 
     let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
     let app = Router::new().route("/v1", post(rpc));

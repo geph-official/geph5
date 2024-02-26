@@ -4,7 +4,6 @@ use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Mac<T> {
-    #[serde(flatten)]
     pub inner: T,
 
     pub khash: blake3::Hash,

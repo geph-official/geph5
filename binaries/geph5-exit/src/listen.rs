@@ -1,10 +1,15 @@
-use std::time::{Duration, SystemTime};
+use std::{
+    net::IpAddr,
+    str::FromStr,
+    time::{Duration, SystemTime},
+};
 
 use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR};
 use picomux::PicoMux;
 use sillad::{listener::Listener, tcp::TcpListener, Pipe};
 use smol::future::FutureExt as _;
+use tap::Tap;
 
 use crate::{broker::BrokerRpcTransport, proxy::proxy_stream, CONFIG_FILE, SIGNING_SECRET};
 
@@ -14,15 +19,32 @@ pub async fn listen_main() -> anyhow::Result<()> {
     c2e.race(broker).await
 }
 
+#[tracing::instrument]
 async fn broker_loop() -> anyhow::Result<()> {
-    match CONFIG_FILE.wait().broker_url.as_ref() {
-        Some(binder) => {
-            let transport = BrokerRpcTransport::new(binder);
+    match &CONFIG_FILE.wait().broker {
+        Some(broker) => {
+            let my_ip = IpAddr::from_str(
+                String::from_utf8_lossy(
+                    &reqwest::get("https://checkip.amazonaws.com/")
+                        .await?
+                        .bytes()
+                        .await?,
+                )
+                .trim(),
+            )?;
+            tracing::info!(my_ip = display(my_ip), "starting communication with broker");
+            let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
             loop {
                 let descriptor = ExitDescriptor {
-                    c2e_listen: CONFIG_FILE.wait().c2e_listen,
-                    b2e_listen: CONFIG_FILE.wait().b2e_listen,
+                    c2e_listen: CONFIG_FILE
+                        .wait()
+                        .c2e_listen
+                        .tap_mut(|addr| addr.set_ip(my_ip)),
+                    b2e_listen: CONFIG_FILE
+                        .wait()
+                        .b2e_listen
+                        .tap_mut(|addr| addr.set_ip(my_ip)),
                     country: CONFIG_FILE.wait().country,
                     city: CONFIG_FILE.wait().city.clone(),
                     load: 0.0,
@@ -34,7 +56,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                 };
                 let to_upload = Mac::new(
                     Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
-                    blake3::hash(CONFIG_FILE.wait().broker_auth_token.as_bytes()).as_bytes(),
+                    blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
                 );
                 client
                     .put_exit(to_upload)

@@ -23,6 +23,7 @@ impl RpcTransport for BrokerRpcTransport {
         let resp = self
             .client
             .request(Method::POST, &self.url)
+            .header("content-type", "application/json")
             .body(serde_json::to_vec(&req).unwrap())
             .send()
             .await?;

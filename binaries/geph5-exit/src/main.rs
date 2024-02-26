@@ -17,15 +17,19 @@ static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 #[derive(Deserialize)]
 struct ConfigFile {
     signing_secret: PathBuf,
-    broker_url: Option<String>,
-    #[serde(default)]
-    broker_auth_token: String,
+    broker: Option<BrokerConfig>,
 
     c2e_listen: SocketAddr,
     b2e_listen: SocketAddr,
 
     country: CountryCode,
     city: String,
+}
+
+#[derive(Deserialize)]
+struct BrokerConfig {
+    url: String,
+    auth_token: String,
 }
 
 static SIGNING_SECRET: Lazy<SigningKey> = Lazy::new(|| {
@@ -55,9 +59,10 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
     let args: CliArgs = argh::from_env();
     CONFIG_FILE
-        .set(serde_yaml::from_slice(&std::fs::read(args.config).unwrap()).unwrap())
+        .set(serde_yaml::from_slice(&std::fs::read(args.config)?)?)
         .ok()
         .unwrap();
     smolscale::block_on(listen_main())

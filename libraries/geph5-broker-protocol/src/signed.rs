@@ -7,7 +7,6 @@ use thiserror::Error;
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Signed<T> {
-    #[serde(flatten)]
     pub inner: T,
 
     pub signature: Signature,
