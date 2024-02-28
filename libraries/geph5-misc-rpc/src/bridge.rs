@@ -1,0 +1,25 @@
+use std::{net::SocketAddr, time::SystemTime};
+
+use async_trait::async_trait;
+use nanorpc::nanorpc_derive;
+use serde::{Deserialize, Serialize};
+
+/// The metadata object passed to the exit on every b2e link.
+#[derive(Serialize, Deserialize)]
+pub struct B2eMetadata {
+    pub protocol: ObfsProtocol,
+    pub expiry: SystemTime,
+}
+
+/// Initialization information for an obfuscation session.
+#[derive(Serialize, Deserialize)]
+pub enum ObfsProtocol {
+    Sosistab3(String),
+}
+
+/// The RPC protocol that bridges expose, called by the broker.
+#[nanorpc_derive]
+#[async_trait]
+pub trait BridgeControlProtocol {
+    async fn tcp_forward(&self, b2e_dest: SocketAddr, metadata: B2eMetadata) -> SocketAddr;
+}

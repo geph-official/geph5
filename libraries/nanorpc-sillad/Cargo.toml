@@ -1,0 +1,16 @@
+[package]
+name = "nanorpc-sillad"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sillad={path="../sillad"}
+async-trait = "0.1.77"
+nanorpc = "0.1.12"
+serde_json = "1.0.114"
+thiserror = "1.0.57"
+anyhow = "1.0.80"
+futures-util = {version="0.3.30", features=["io"]}
+async-executor = "1.8.0"

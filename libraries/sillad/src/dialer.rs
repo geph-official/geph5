@@ -4,7 +4,7 @@ use crate::{EitherPipe, Pipe};
 
 #[async_trait]
 /// Dialers create pipes by initiating a connection to some sort of "other side". Failures are indicated by the standard I/O error type.
-pub trait Dialer: Sync + Send + Sized {
+pub trait Dialer: Sync + Send + Sized + 'static {
     type P: Pipe;
     async fn dial(&self) -> std::io::Result<Self::P>;
 }

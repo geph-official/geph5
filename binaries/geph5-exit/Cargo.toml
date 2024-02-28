@@ -30,3 +30,6 @@ ed25519-dalek = "2.1.1"
 blake3 = "1.5.0"
 tracing-subscriber = "0.3.18"
 tap = "1.0.1"
+geph5-misc-rpc={path="../../libraries/geph5-misc-rpc"}
+stdcode = "0.1.14"
+x25519-dalek = "2.0.1"

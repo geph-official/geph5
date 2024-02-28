@@ -12,7 +12,7 @@ chacha20poly1305 = "0.10.1"
 rand = "0.8.5"
 x25519-dalek = {version="2.0.1", features=["serde"]}
 sillad={path="../sillad"}
-futures-util = "0.3.30"
+futures-util = {version="0.3.30", features=["io"]}
 pin-project = "1.1.4"
 smallvec = "1.13.1"
 async-trait = "0.1.77"
