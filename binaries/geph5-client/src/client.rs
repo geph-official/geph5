@@ -1,35 +1,15 @@
 mod inner;
-
-use std::{
-    any::Any,
-    net::{Ipv4Addr, SocketAddr},
-    sync::Arc,
-};
-
+mod socks5;
 use anyctx::AnyCtx;
+use clone_macro::clone;
+use std::net::SocketAddr;
 
-use futures_util::AsyncReadExt as _;
-use geph5_misc_rpc::{
-    exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
-    read_prepend_length, write_prepend_length,
-};
-use picomux::PicoMux;
 use serde::{Deserialize, Serialize};
-use sillad::{
-    dialer::{Dialer, DynDialer},
-    listener::Listener,
-    Pipe,
-};
-use smol::future::FutureExt as _;
-use socksv5::v5::{
-    read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
-    SocksV5Host, SocksV5RequestStatus,
-};
-use stdcode::StdcodeSerializeExt;
+use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{broker::BrokerSource, exit::ExitConstraint};
 
-use self::inner::client_inner;
+use self::{inner::client_inner, socks5::socks5_loop};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -59,9 +39,9 @@ impl Client {
 type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    loop {
-        if let Err(err) = client_inner(ctx.clone()).await {
-            tracing::warn!("restarting everything due to {:?}", err);
-        }
-    }
+    let _client_loop = Immortal::respawn(
+        RespawnStrategy::Immediate,
+        clone!([ctx], move || client_inner(ctx.clone())),
+    );
+    socks5_loop(ctx).await
 }

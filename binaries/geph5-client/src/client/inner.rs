@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, sync::Arc};
+use std::sync::Arc;
 
 use anyctx::AnyCtx;
 use futures_util::AsyncReadExt as _;
@@ -7,15 +7,26 @@ use geph5_misc_rpc::{
     read_prepend_length, write_prepend_length,
 };
 use picomux::PicoMux;
-use sillad::{dialer::Dialer as _, listener::Listener as _, Pipe};
+use sillad::{dialer::Dialer as _, Pipe};
 use smol::future::FutureExt as _;
-use socksv5::v5::{
-    read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
-    SocksV5Host, SocksV5RequestStatus,
-};
+
 use stdcode::StdcodeSerializeExt;
 
-use super::Config;
+use super::{Config, CtxField};
+
+pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<picomux::Stream> {
+    let (send, recv) = oneshot::channel();
+    let elem = (dest_addr.to_string(), send);
+    let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
+    Ok(recv.await?)
+}
+
+type ChanElem = (String, oneshot::Sender<picomux::Stream>);
+
+static CONN_REQ_CHAN: CtxField<(
+    smol::channel::Sender<ChanElem>,
+    smol::channel::Receiver<ChanElem>,
+)> = |_| smol::channel::unbounded();
 
 pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let raw_dialer = ctx.init().exit_constraint.dialer().await?;
@@ -25,7 +36,6 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::debug!("authentication done, starting mux system");
     let (read, write) = authed_pipe.split();
     let mux = Arc::new(PicoMux::new(read, write));
-    let mut listener = sillad::tcp::TcpListener::bind(ctx.init().socks5_listen).await?;
 
     let (send_stop, mut recv_stop) = tachyonix::channel(1);
     // run a socks5 loop
@@ -35,47 +45,22 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     }
     .race(async {
         loop {
-            let client = listener.accept().await?;
             let mux = mux.clone();
             let send_stop = send_stop.clone();
-
+            let ctx = ctx.clone();
+            let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
             smolscale::spawn(async move {
-                let (mut read_client, mut write_client) = client.split();
-                let _handshake = read_handshake(&mut read_client).await?;
-                write_auth_method(&mut write_client, SocksV5AuthMethod::Noauth).await?;
-                let request = read_request(&mut read_client).await?;
-                let port = request.port;
-                let domain: String = match &request.host {
-                    SocksV5Host::Domain(dom) => String::from_utf8_lossy(dom).parse()?,
-                    SocksV5Host::Ipv4(v4) => {
-                        let v4addr = Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]);
-                        v4addr.to_string()
-                    }
-                    _ => anyhow::bail!("IPv6 not supported"),
-                };
-                let remote_addr = format!("{domain}:{port}");
                 tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
                 let stream = mux.open(remote_addr.as_bytes()).await;
                 match stream {
                     Ok(stream) => {
-                        let (read, write) = stream.split();
-                        write_request_status(
-                            &mut write_client,
-                            SocksV5RequestStatus::Success,
-                            request.host,
-                            port,
-                        )
-                        .await?;
-                        smol::io::copy(read, write_client)
-                            .race(smol::io::copy(read_client, write))
-                            .await?;
-                        Ok(())
+                        let _ = send_back.send(stream);
                     }
                     Err(err) => {
                         let _ = send_stop.try_send(err);
-                        Ok(())
                     }
                 }
+                anyhow::Ok(())
             })
             .detach();
         }
