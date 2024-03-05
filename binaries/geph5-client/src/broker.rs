@@ -3,7 +3,7 @@ use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum BrokerSource {
     Direct(String),
 }

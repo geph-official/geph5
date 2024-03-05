@@ -1,5 +1,5 @@
 use argh::FromArgs;
-use futures_lite::{FutureExt};
+use futures_lite::FutureExt;
 use futures_util::{AsyncReadExt, TryFutureExt};
 use picomux::PicoMux;
 

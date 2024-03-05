@@ -1421,6 +1421,7 @@ dependencies = [
  "smolscale",
  "socksv5",
  "stdcode",
+ "tachyonix",
  "thiserror",
  "tracing",
  "tracing-subscriber",

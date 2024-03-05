@@ -26,6 +26,7 @@ impl<T: Dialer> DialerExt for T {}
 
 /// Because Dialer has an associated type, it is not directly object-safe, so we provide a DynDialer that is a type-erased version of Dialer that always returns type-erased Pipes.
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct DynDialer {
     raw_dial: Arc<
         dyn Fn() -> Pin<Box<dyn Send + Future<Output = std::io::Result<Box<dyn Pipe>>>>>
