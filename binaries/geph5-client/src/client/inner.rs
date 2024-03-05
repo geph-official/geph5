@@ -29,7 +29,7 @@ static CONN_REQ_CHAN: CtxField<(
 )> = |_| smol::channel::unbounded();
 
 pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let raw_dialer = ctx.init().exit_constraint.dialer().await?;
+    let raw_dialer = ctx.init().exit_constraint.dialer(&ctx).await?;
     let raw_pipe = raw_dialer.dial().await?;
     tracing::debug!("raw dialer done");
     let authed_pipe = client_auth(raw_pipe).await?;

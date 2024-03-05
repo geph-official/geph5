@@ -36,7 +36,7 @@ impl Client {
     }
 }
 
-type CtxField<T> = fn(&AnyCtx<Config>) -> T;
+pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let _client_loop = Immortal::respawn(
