@@ -33,7 +33,11 @@ pub async fn proxy_stream(stream: picomux::Stream) -> anyhow::Result<()> {
 }
 
 async fn dns_resolve(name: &str) -> anyhow::Result<SocketAddr> {
-    let choices = smol::net::resolve(name).await?;
+    let choices = smol::net::resolve(name)
+        .await?
+        .into_iter()
+        .filter(|a| a.is_ipv4())
+        .collect::<Vec<_>>();
     Ok(*choices
         .choose(&mut rand::thread_rng())
         .context("no IP addresses corresponding to DNS name")?)

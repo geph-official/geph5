@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 
     let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
-    let app = Router::new().route("/v1", post(rpc));
+    let app = Router::new().route("/", post(rpc));
     axum::serve(listener, app).await?;
     Ok(())
 }

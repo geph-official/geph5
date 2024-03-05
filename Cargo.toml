@@ -6,6 +6,12 @@ members = [
 ]
 resolver = "2"
 
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
+
 [profile.release-dbg]
 inherits = "dev"
 opt-level = 3 

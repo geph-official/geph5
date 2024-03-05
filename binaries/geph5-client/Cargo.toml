@@ -1,0 +1,35 @@
+[package]
+name = "geph5-client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyctx = "0.1.0"
+anyhow = "1.0.80"
+isocountry = "0.3.2"
+serde={version="1", features=["derive"]}
+smol = "2.0.0"
+smol-timeout = "0.6.0"
+smolscale = "0.4.4"
+geph5-broker-protocol={path="../../libraries/geph5-broker-protocol"}
+geph5-misc-rpc={path="../../libraries/geph5-misc-rpc"}
+picomux={path="../../libraries/picomux"}
+sillad={path="../../libraries/sillad"}
+reqwest = {version="0.11.24", default-features=false, features=["rustls-tls"]}
+
+async-trait = "0.1.77"
+nanorpc = "0.1.12"
+thiserror = "1.0.57"
+serde_json = "1.0.114"
+rand = "0.8.5"
+x25519-dalek = "2.0.1"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+stdcode = "0.1.14"
+blake3 = "1.5.0"
+argh = "0.1.12"
+serde_yaml = "0.9.32"
+futures-util = "0.3.30"
+socksv5 = "0.3.1"

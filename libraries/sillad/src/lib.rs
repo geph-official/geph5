@@ -15,6 +15,8 @@ pub trait Pipe: AsyncRead + AsyncWrite + Send + Unpin + 'static {
     }
 }
 
+impl Pipe for Box<dyn Pipe> {}
+
 /// EitherPipe is a pipe that is either left or right.
 #[pin_project(project = EitherPipeProj)]
 pub enum EitherPipe<L: Pipe, R: Pipe> {
