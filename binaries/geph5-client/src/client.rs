@@ -2,7 +2,8 @@ mod inner;
 mod socks5;
 use anyctx::AnyCtx;
 use clone_macro::clone;
-use std::net::SocketAddr;
+use futures_util::TryFutureExt;
+use std::{net::SocketAddr, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
@@ -40,8 +41,9 @@ pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let _client_loop = Immortal::respawn(
-        RespawnStrategy::Immediate,
-        clone!([ctx], move || client_inner(ctx.clone())),
+        RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
+        clone!([ctx], move || client_inner(ctx.clone())
+            .inspect_err(|e| tracing::warn!("client_inner died: {:?}", e))),
     );
     socks5_loop(ctx).await
 }

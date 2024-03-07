@@ -4,6 +4,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
 pub enum BrokerSource {
     Direct(String),
 }
@@ -28,6 +29,7 @@ impl BrokerRpcTransport {
 impl RpcTransport for BrokerRpcTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        tracing::trace!(req = serde_json::to_string(&req).unwrap(), "calling broker");
         let resp = self
             .client
             .request(Method::POST, &self.url)

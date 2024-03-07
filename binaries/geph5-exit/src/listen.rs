@@ -39,7 +39,11 @@ async fn broker_loop() -> anyhow::Result<()> {
                 )
                 .trim(),
             )?;
-            tracing::info!(my_ip = display(my_ip), "starting communication with broker");
+            tracing::info!(
+                my_ip = display(my_ip),
+                my_pubkey = display(hex::encode(SIGNING_SECRET.as_bytes())),
+                "starting communication with broker"
+            );
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
             loop {
