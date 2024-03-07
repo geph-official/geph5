@@ -11,10 +11,7 @@ use sillad::{
     tcp::TcpDialer,
 };
 
-use crate::{
-    broker::BrokerRpcTransport,
-    client::{Config, CtxField},
-};
+use crate::client::{Config, CtxField};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -29,7 +26,7 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
     ctx.init()
         .broker
         .as_ref()
-        .map(|ctx| BrokerRpcTransport::new(ctx.clone()).into())
+        .map(|src| BrokerClient::from(src.rpc_transport()))
 };
 
 fn broker_client(ctx: &AnyCtx<Config>) -> anyhow::Result<&BrokerClient> {

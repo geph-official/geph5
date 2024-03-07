@@ -30,3 +30,5 @@ isocountry = "0.3.2"
 ed25519-dalek = "2.1.1"
 tokio = { version = "1.0", features = ["full"] }
 tracing-subscriber = "0.3.18"
+nanorpc-sillad={path="../../libraries/nanorpc-sillad"}
+sillad={path="../../libraries/sillad"}

@@ -1404,6 +1404,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "geph5-bridge"
+version = "0.1.0"
+dependencies = [
+ "async-io 2.3.1",
+ "async-trait",
+ "blake3",
+ "geph5-broker-protocol",
+ "geph5-misc-rpc",
+ "nanorpc",
+ "nanorpc-sillad",
+ "picomux",
+ "rand",
+ "sillad",
+ "smolscale",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "geph5-broker"
 version = "0.1.0"
 dependencies = [
@@ -1419,12 +1438,14 @@ dependencies = [
  "isocountry",
  "moka",
  "nanorpc",
+ "nanorpc-sillad",
  "once_cell",
  "pollster",
  "rand",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sillad",
  "smolscale",
  "sqlx",
  "thiserror",
@@ -1469,6 +1490,7 @@ dependencies = [
  "hex",
  "isocountry",
  "nanorpc",
+ "nanorpc-sillad",
  "nursery_macro",
  "oneshot",
  "picomux",

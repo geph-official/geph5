@@ -20,6 +20,7 @@ static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 #[derive(Deserialize)]
 struct ConfigFile {
     listen: SocketAddr,
+    tcp_listen: SocketAddr,
     master_secret: PathBuf,
     postgres_url: String,
     postgres_root_cert: PathBuf,
@@ -53,6 +54,11 @@ async fn main() -> anyhow::Result<()> {
     let _ = CONFIG_FILE.set(config);
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
+
+    let _tcp_loop = smolscale::spawn(nanorpc_sillad::rpc_serve(
+        sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
+        BrokerService(BrokerImpl {}),
+    ));
 
     let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
     let app = Router::new().route("/", post(rpc));
