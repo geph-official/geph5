@@ -1,8 +1,18 @@
 mod frame;
 
 use std::{
-    convert::Infallible, hash::BuildHasherDefault, io::ErrorKind, ops::Deref, pin::Pin, sync::Arc,
-    task::Poll, time::Duration,
+    convert::Infallible,
+    fmt::Debug,
+    hash::BuildHasherDefault,
+    io::ErrorKind,
+    ops::Deref,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    task::Poll,
+    time::{Duration, Instant},
 };
 
 use ahash::AHasher;
@@ -12,23 +22,45 @@ use async_task::Task;
 
 use bytes::Bytes;
 use dashmap::DashMap;
-use frame::{Frame, CMD_FIN, CMD_NOP, CMD_PSH, CMD_SYN};
+use frame::{Frame, CMD_FIN, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
 use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
-    future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
+    future::{FusedFuture, Shared},
+    io::BufReader,
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
 };
 
+use async_io::Timer;
+use parking_lot::Mutex;
 use rand::Rng;
 use smol_timeout::TimeoutExt;
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
 
-use crate::frame::Header;
+use crate::frame::{Header, PingInfo};
+
+#[derive(Clone, Copy, Debug)]
+pub struct LivenessConfig {
+    pub ping_interval: Duration,
+    pub timeout: Duration,
+}
+
+impl Default for LivenessConfig {
+    fn default() -> Self {
+        Self {
+            ping_interval: Duration::from_secs(1800),
+            timeout: Duration::from_secs(30),
+        }
+    }
+}
 
 pub struct PicoMux {
     task: Shared<Task<Arc<std::io::Result<Infallible>>>>,
     send_open_req: Sender<(Bytes, oneshot::Sender<Stream>)>,
+    last_forced_ping: Mutex<Instant>,
     recv_accepted: Receiver<Stream>,
+    send_liveness: Sender<LivenessConfig>,
+    liveness: LivenessConfig,
 }
 
 impl PicoMux {
@@ -39,15 +71,32 @@ impl PicoMux {
     ) -> Self {
         let (send_open_req, recv_open_req) = tachyonix::channel(1);
         let (send_accepted, recv_accepted) = tachyonix::channel(10000);
+        let (send_liveness, recv_liveness) = tachyonix::channel(1000);
+        let liveness = LivenessConfig::default();
+        send_liveness.try_send(liveness).unwrap();
         let task = smolscale::spawn(
-            picomux_inner(read, write, send_accepted, recv_open_req).map(Arc::new),
+            picomux_inner(read, write, send_accepted, recv_open_req, recv_liveness).map(Arc::new),
         )
         .shared();
         Self {
             task,
             recv_accepted,
             send_open_req,
+            last_forced_ping: Mutex::new(Instant::now()),
+            send_liveness,
+            liveness,
         }
+    }
+
+    /// Returns whether the mux is alive.
+    pub fn is_alive(&self) -> bool {
+        !self.task.is_terminated()
+    }
+
+    /// Sets the liveness maintenance configuration for this session.
+    pub fn set_liveness(&mut self, liveness: LivenessConfig) {
+        self.liveness = liveness;
+        let _ = self.send_liveness.try_send(liveness);
     }
 
     /// Accepts a new stream from the peer.
@@ -66,6 +115,15 @@ impl PicoMux {
 
     /// Opens a new stream to the peer, putting the given metadata in the stream.
     pub async fn open(&self, metadata: &[u8]) -> std::io::Result<Stream> {
+        {
+            let mut last_forced_ping = self.last_forced_ping.lock();
+            let now = Instant::now();
+            if now.saturating_duration_since(*last_forced_ping) > self.liveness.timeout {
+                tracing::debug!("forcing a ping based on debounced open");
+                let _ = self.send_liveness.try_send(self.liveness);
+                *last_forced_ping = now;
+            }
+        }
         let (send, recv) = oneshot::channel();
         let _ = self
             .send_open_req
@@ -97,18 +155,21 @@ impl PicoMux {
     }
 }
 
-#[tracing::instrument(skip(read, write, send_accepted, recv_open_req))]
+static MUX_ID_CTR: AtomicU64 = AtomicU64::new(0);
+
+#[tracing::instrument(skip_all, fields(mux_id=MUX_ID_CTR.fetch_add(1, Ordering::Relaxed)))]
 async fn picomux_inner(
     read: impl AsyncRead + 'static + Send + Unpin,
     mut write: impl AsyncWrite + Send + Unpin + 'static,
     send_accepted: Sender<Stream>,
     mut recv_open_req: Receiver<(Bytes, oneshot::Sender<Stream>)>,
+    mut recv_liveness: Receiver<LivenessConfig>,
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(100_000, read);
 
     let (send_outgoing, mut recv_outgoing) = tachyonix::channel(1);
+    let (send_pong, mut recv_pong) = tachyonix::channel(1);
     let buffer_table: DashMap<_, _, BuildHasherDefault<AHasher>> = DashMap::default();
-
     // writes outgoing frames
     let outgoing_loop = async {
         loop {
@@ -223,69 +284,147 @@ async fn picomux_inner(
         }
     };
 
+    // process pings
+    let ping_loop = async {
+        let mut lc: Option<LivenessConfig> = None;
+        loop {
+            if let Ok(info) = async {
+                if let Some(lc) = lc {
+                    Timer::after(lc.ping_interval).await;
+                    Ok(lc)
+                } else {
+                    futures_util::future::pending().await
+                }
+            }
+            .or(recv_liveness.recv())
+            .await
+            {
+                lc = Some(info);
+                let ping_body = serde_json::to_vec(&PingInfo {
+                    next_ping_in_ms: info.ping_interval.as_millis() as _,
+                })
+                .unwrap();
+                let _ = send_outgoing
+                    .send(Frame {
+                        header: Header {
+                            version: 1,
+                            command: CMD_PING,
+                            body_len: ping_body.len() as _,
+                            stream_id: 0,
+                        },
+                        body: ping_body.into(),
+                    })
+                    .await;
+                let start = Instant::now();
+                if recv_pong.recv().timeout(info.timeout).await.is_none() {
+                    return Err(std::io::Error::new(
+                        ErrorKind::TimedOut,
+                        "ping-pong timed out",
+                    ));
+                }
+                tracing::debug!(latency = debug(start.elapsed()), "PONG received");
+            } else {
+                return futures_util::future::pending().await;
+            }
+        }
+    };
+
     outgoing_loop
         .race(open_req_loop)
+        .race(ping_loop)
         .race(async {
+            let mut death_after = Duration::from_secs(3600);
+
+            let mut death_timer = Timer::after(death_after);
             loop {
-                let frame = Frame::read(&mut inner_read).await?;
-                let stream_id = frame.header.stream_id;
-                tracing::trace!(
-                    command = frame.header.command,
-                    stream_id,
-                    body_len = frame.header.body_len,
-                    "got incoming frame"
-                );
-                match frame.header.command {
-                    CMD_SYN => {
-                        if buffer_table.contains_key(&stream_id) {
-                            return Err(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "duplicate SYN",
-                            ));
-                        }
-                        let (stream, send_incoming) = create_stream(stream_id, frame.body.clone());
-                        if send_accepted.try_send(stream).is_err() {
-                            tracing::warn!(
-                                stream_id = frame.header.stream_id,
-                                "dropping stream because the accept queue is full"
-                            );
-                            continue;
-                        }
-                        buffer_table.insert(frame.header.stream_id, send_incoming);
-                    }
-                    CMD_PSH => {
-                        let back = buffer_table.get(&stream_id);
-                        if let Some(back) = back {
-                            if back
-                                .send(frame.clone())
-                                .timeout(Duration::from_millis(200))
-                                .await
-                                .is_none()
-                            {
+                death_timer.set_after(death_after);
+                tracing::trace!(death_after = debug(death_after), "setting death");
+                let inner = async {
+                    let frame = Frame::read(&mut inner_read).await?;
+                    let stream_id = frame.header.stream_id;
+                    tracing::trace!(
+                        command = frame.header.command,
+                        stream_id,
+                        body_len = frame.header.body_len,
+                        "got incoming frame"
+                    );
+                    match frame.header.command {
+                        CMD_SYN => {
+                            if buffer_table.contains_key(&stream_id) {
+                                return Err(std::io::Error::new(
+                                    ErrorKind::InvalidData,
+                                    "duplicate SYN",
+                                ));
+                            }
+                            let (stream, send_incoming) =
+                                create_stream(stream_id, frame.body.clone());
+                            if send_accepted.try_send(stream).is_err() {
                                 tracing::warn!(
                                     stream_id = frame.header.stream_id,
-                                    "dropping stream because the read queue is full"
+                                    "dropping stream because the accept queue is full"
                                 );
-                                buffer_table.remove(&stream_id);
                             }
-                        } else {
-                            tracing::warn!(
-                                stream_id = frame.header.stream_id,
-                                "PSH to a stream that is no longer here"
+                            buffer_table.insert(frame.header.stream_id, send_incoming);
+                        }
+                        CMD_PSH => {
+                            let back = buffer_table.get(&stream_id);
+                            if let Some(back) = back {
+                                if back
+                                    .send(frame.clone())
+                                    .timeout(Duration::from_millis(200))
+                                    .await
+                                    .is_none()
+                                {
+                                    tracing::warn!(
+                                        stream_id = frame.header.stream_id,
+                                        "dropping stream because the read queue is full"
+                                    );
+                                    buffer_table.remove(&stream_id);
+                                }
+                            } else {
+                                tracing::warn!(
+                                    stream_id = frame.header.stream_id,
+                                    "PSH to a stream that is no longer here"
+                                );
+                            }
+                        }
+                        CMD_FIN => {
+                            buffer_table.remove(&frame.header.stream_id);
+                        }
+                        CMD_NOP => {}
+                        CMD_PING => {
+                            let ping_info: PingInfo =
+                                serde_json::from_slice(&frame.body).map_err(|e| {
+                                    std::io::Error::new(
+                                        ErrorKind::InvalidData,
+                                        format!("invalid PING data {e}"),
+                                    )
+                                })?;
+                            tracing::debug!(
+                                next_ping_in_ms = ping_info.next_ping_in_ms,
+                                "responding to a PING"
                             );
+                            death_after = Duration::from_millis(ping_info.next_ping_in_ms as _);
+                            let _ = send_outgoing.send(Frame::new_empty(0, CMD_PONG)).await;
+                        }
+                        CMD_PONG => {
+                            let _ = send_pong.send(()).await;
+                        }
+                        other => {
+                            return Err(std::io::Error::new(
+                                ErrorKind::InvalidData,
+                                format!("invalid command {other}"),
+                            ));
                         }
                     }
-                    CMD_FIN => {
-                        buffer_table.remove(&frame.header.stream_id);
-                    }
-                    CMD_NOP => {}
-                    other => {
-                        return Err(std::io::Error::new(
-                            ErrorKind::InvalidData,
-                            format!("invalid command {other}"),
-                        ));
-                    }
-                }
+                    Ok(())
+                };
+                inner
+                    .or(async {
+                        (&mut death_timer).await;
+                        Err(std::io::Error::new(ErrorKind::TimedOut, "watchdog dead"))
+                    })
+                    .await?;
             }
         })
         .await
@@ -295,6 +434,12 @@ pub struct Stream {
     read_incoming: bipe::BipeReader,
     write_outgoing: bipe::BipeWriter,
     metadata: Bytes,
+}
+
+impl Debug for Stream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        "stream".fmt(f)
+    }
 }
 
 impl Stream {

@@ -53,6 +53,7 @@ fn main() {
 
 async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) {
     let auth_token = std::env::var("GEPH5_BRIDGE_TOKEN").unwrap();
+    let pool = std::env::var("GEPH5_BRIDGE_POOL").unwrap();
     let broker_addr: SocketAddr = std::env::var("GEPH5_BROKER_ADDR").unwrap().parse().unwrap();
     tracing::info!(
         auth_token,
@@ -65,11 +66,17 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             dest_addr: broker_addr,
         }));
     loop {
+        tracing::info!(
+            auth_token,
+            broker_addr = display(broker_addr),
+            "uploading..."
+        );
         broker_rpc
             .put_bridge(Mac::new(
                 BridgeDescriptor {
                     control_listen,
                     control_cookie: control_cookie.clone(),
+                    pool: pool.clone(),
                     expiry: SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()

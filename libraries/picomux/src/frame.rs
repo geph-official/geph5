@@ -1,6 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use bytes::Bytes;
 use futures_util::{AsyncRead, AsyncReadExt};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct Frame {
@@ -58,3 +59,11 @@ pub const CMD_SYN: u8 = 0;
 pub const CMD_FIN: u8 = 1;
 pub const CMD_PSH: u8 = 2;
 pub const CMD_NOP: u8 = 3;
+
+pub const CMD_PING: u8 = 0xa0;
+pub const CMD_PONG: u8 = 0xa1;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PingInfo {
+    pub next_ping_in_ms: u32,
+}

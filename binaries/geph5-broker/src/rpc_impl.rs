@@ -95,7 +95,24 @@ impl BrokerProtocol for BrokerImpl {
         Ok(())
     }
 
-    async fn put_bridge(&self, _descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
-        todo!()
+    async fn put_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
+        let descriptor = descriptor
+            .verify(blake3::hash(CONFIG_FILE.wait().bridge_token.as_bytes()).as_bytes())?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO bridges_new (listen, cookie, pool, expiry)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (listen) DO UPDATE
+            SET cookie = $2, pool = $3, expiry = $4
+            "#,
+        )
+        .bind(descriptor.control_listen.to_string())
+        .bind(descriptor.control_cookie.to_string())
+        .bind(descriptor.pool.to_string())
+        .bind(descriptor.expiry as i64)
+        .execute(&*POSTGRES)
+        .await?;
+        Ok(())
     }
 }
