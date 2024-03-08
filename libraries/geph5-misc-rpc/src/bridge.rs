@@ -5,14 +5,14 @@ use nanorpc::nanorpc_derive;
 use serde::{Deserialize, Serialize};
 
 /// The metadata object passed to the exit on every b2e link.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct B2eMetadata {
     pub protocol: ObfsProtocol,
     pub expiry: SystemTime,
 }
 
 /// Initialization information for an obfuscation session.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ObfsProtocol {
     Sosistab3(String),
 }

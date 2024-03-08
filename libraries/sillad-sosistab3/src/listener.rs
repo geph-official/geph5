@@ -23,7 +23,7 @@ pub struct SosistabListener<P: Pipe> {
 
 impl<P: Pipe> SosistabListener<P> {
     /// Listens to incoming sosistab3 pipes by wrapping an existing sillad Listener. If a cookie is passed, then uses that cookie, but if not, a random cookie is generated.
-    pub fn new(listener: impl Listener<P = P>, cookie: Option<Cookie>) -> Self {
+    pub fn new(listener: impl Listener<P = P>, cookie: Cookie) -> Self {
         let (send_pipe, recv_pipe) = tachyonix::channel(1);
         let _task = smolscale::spawn(listen_loop(listener, send_pipe, cookie));
         Self { recv_pipe, _task }
@@ -34,21 +34,10 @@ impl<P: Pipe> SosistabListener<P> {
 async fn listen_loop<P: Pipe>(
     mut listener: impl Listener<P = P>,
     send_pipe: Sender<SosistabPipe<P>>,
-    cookie: Option<Cookie>,
+    cookie: Cookie,
 ) -> std::io::Result<()> {
     const WAIT_INTERVAL: Duration = Duration::from_secs(30);
 
-    let cookie = if let Some(cookie) = cookie {
-        // tracing::warn!(
-        //     "sleeping for {:?} for listener with cookie {:?} for replay protection",
-        //     WAIT_INTERVAL,
-        //     cookie
-        // );
-        // Timer::after(WAIT_INTERVAL).await;
-        cookie
-    } else {
-        Cookie::random()
-    };
     let lexec = Executor::new();
     lexec
         .run(async {

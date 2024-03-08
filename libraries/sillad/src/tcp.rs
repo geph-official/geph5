@@ -18,6 +18,11 @@ impl TcpListener {
         let new = Async::<std::net::TcpListener>::bind(addr)?;
         Ok(Self { inner: new })
     }
+
+    /// Get the local listening address.
+    pub async fn local_addr(&self) -> SocketAddr {
+        self.inner.as_ref().local_addr().unwrap()
+    }
 }
 
 #[async_trait]

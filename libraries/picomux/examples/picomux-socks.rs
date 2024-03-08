@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
             SubCommands::Server(server) => {
                 eprintln!("Starting server on {}", server.listen);
                 let listener = TcpListener::bind(server.listen).await?;
-                let mut listener = SosistabListener::new(listener, Some(Cookie::new("hello")));
+                let mut listener = SosistabListener::new(listener, Cookie::new("hello"));
                 loop {
                     let tcp_stream = listener.accept().await?;
                     let (read, write) = tcp_stream.split();

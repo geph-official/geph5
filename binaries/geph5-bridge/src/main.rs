@@ -1,11 +1,17 @@
+mod listen_forward;
+
 use std::{
-    alloc::System,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
     time::{Duration, SystemTime},
 };
 
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
+use listen_forward::listen_forward_loop;
 use sillad::tcp::{TcpDialer, TcpListener};
+use sillad_sosistab3::{listener::SosistabListener, Cookie};
+use smol::future::FutureExt as _;
+use tap::Tap;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 fn main() {
@@ -21,7 +27,27 @@ fn main() {
         let listener = TcpListener::bind("0.0.0.0:0".parse().unwrap())
             .await
             .unwrap();
-        todo!()
+        let my_ip = IpAddr::from_str(
+            String::from_utf8_lossy(
+                &reqwest::get("https://checkip.amazonaws.com/")
+                    .await
+                    .unwrap()
+                    .bytes()
+                    .await
+                    .unwrap(),
+            )
+            .trim(),
+        )
+        .unwrap();
+        let control_listen = listener
+            .local_addr()
+            .await
+            .tap_mut(|addr| addr.set_ip(my_ip));
+        let control_cookie = format!("bridge-cookie-{}", rand::random::<u128>());
+        let control_listener = SosistabListener::new(listener, Cookie::new(&control_cookie));
+        let upload_loop = broker_upload_loop(control_listen, control_cookie);
+        let listen_loop = listen_forward_loop(control_listener);
+        upload_loop.race(listen_loop).await
     })
 }
 
@@ -48,7 +74,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs()
-                        + 600,
+                        + 120,
                 },
                 blake3::hash(auth_token.as_bytes()).as_bytes(),
             ))
