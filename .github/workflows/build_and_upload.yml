@@ -47,7 +47,7 @@ jobs:
         run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
 
       - name: Move binaries
-        run: mkdir artifacts; mv target/release/geph* artifacts
+        run: mkdir artifacts; mv target/x86_64-unknown-linux-musl/release/geph* artifacts
 
       # - name: Install AWS CLI
       #   run: |
@@ -56,7 +56,7 @@ jobs:
       #     sudo ./aws/install
 
       - name: Upload to Cloudflare R2
-        uses: ryand56/r2-upload-action@latest
+        uses: ryand56/r2-upload-action@v1.2.2
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
