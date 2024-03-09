@@ -63,4 +63,4 @@ jobs:
           r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           r2-bucket: geph5
           source-dir: ./artifacts/
-          destination-dir: ./artifacts/
+          destination-dir: ./musl-latest/
