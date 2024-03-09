@@ -123,12 +123,7 @@ impl ExitConstraint {
 
         let bridge_dialer = route_to_dialer(&bridge_routes);
 
-        Ok((
-            pubkey,
-            direct_dialer
-                .race(bridge_dialer.delay(Duration::from_millis(200)))
-                .dynamic(),
-        ))
+        Ok((pubkey, direct_dialer.race(bridge_dialer).dynamic()))
     }
 }
 

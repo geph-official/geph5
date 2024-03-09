@@ -9,6 +9,7 @@ use rpc_impl::BrokerImpl;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fs, net::SocketAddr, path::PathBuf};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod database;
 mod routes;
@@ -40,7 +41,14 @@ struct CliArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().compact())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive("geph5_broker".parse()?)
+                .from_env_lossy(),
+        )
+        .init();
     // Parse the command-line arguments
     let args: CliArgs = argh::from_env();
 
