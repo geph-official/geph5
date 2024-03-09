@@ -54,8 +54,10 @@ jobs:
 
       - name: Upload to Cloudflare R2
         run: |
-          aws configure set default.s3.endpoint_url ${{ secrets.R2_S3_URL }}
-          aws s3 cp target/x86_64-unknown-linux-musl/release s3://geph5 --recursive
+          aws configure set default.s3.endpoint_url $R2_S3_URL
+          aws s3 cp target/x86_64-unknown-linux-musl/release s3://geph5 --recursive --debug
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          BUCKET_NAME: geph5
+          R2_S3_URL: ${{ secrets.R2_S3_URL }}
