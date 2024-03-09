@@ -54,6 +54,7 @@ jobs:
 
       - name: Upload to Cloudflare R2
         run: |
+          aws configure set default.region us-west-1
           aws configure set default.s3.endpoint_url $R2_S3_URL
           aws s3 cp target/x86_64-unknown-linux-musl/release s3://geph5 --recursive --debug
         env:
