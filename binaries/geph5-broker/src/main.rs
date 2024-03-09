@@ -11,6 +11,7 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fs, net::SocketAddr, path::PathBuf};
 
 mod database;
+mod routes;
 mod rpc_impl;
 
 /// The global config file.

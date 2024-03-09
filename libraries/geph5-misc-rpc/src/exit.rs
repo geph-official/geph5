@@ -158,4 +158,8 @@ impl ClientExitCryptPipe {
     }
 }
 
-impl Pipe for ClientExitCryptPipe {}
+impl Pipe for ClientExitCryptPipe {
+    fn protocol(&self) -> &str {
+        "client-exit"
+    }
+}

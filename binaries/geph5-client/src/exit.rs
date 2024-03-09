@@ -1,15 +1,18 @@
+use std::time::Duration;
+
 use anyctx::AnyCtx;
 use anyhow::Context;
 
 use ed25519_dalek::VerifyingKey;
-use geph5_broker_protocol::{BrokerClient, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{BrokerClient, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR};
 use isocountry::CountryCode;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sillad::{
-    dialer::{DialerExt, DynDialer},
+    dialer::{DialerExt, DynDialer, FailingDialer},
     tcp::TcpDialer,
 };
+use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
 use crate::client::{Config, CtxField};
 
@@ -104,9 +107,63 @@ impl ExitConstraint {
             .min_by_key(|e| (e.1.load * 1000.0) as u64)
             .context("no exits that fit the criterion")?;
         tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
-        let dialer = TcpDialer {
+        let direct_dialer = TcpDialer {
             dest_addr: exit.c2e_listen,
         };
-        Ok((pubkey, dialer.dynamic()))
+
+        // Also obtain the bridges
+        let bridge_routes = broker
+            .get_routes(exit.b2e_listen)
+            .await?
+            .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
+        tracing::debug!(
+            bridge_routes = debug(&bridge_routes),
+            "bridge routes obtained too"
+        );
+
+        let bridge_dialer = route_to_dialer(&bridge_routes);
+
+        Ok((
+            pubkey,
+            direct_dialer
+                .race(bridge_dialer.delay(Duration::from_millis(200)))
+                .dynamic(),
+        ))
+    }
+}
+
+fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
+    match route {
+        RouteDescriptor::Tcp(addr) => TcpDialer { dest_addr: *addr }.dynamic(),
+        RouteDescriptor::Sosistab3 { cookie, lower } => {
+            let inner = route_to_dialer(lower);
+            SosistabDialer {
+                inner,
+                cookie: Cookie::new(cookie),
+            }
+            .dynamic()
+        }
+        RouteDescriptor::Race(inside) => inside
+            .iter()
+            .map(route_to_dialer)
+            .reduce(|a, b| a.race(b).dynamic())
+            .unwrap_or_else(|| FailingDialer.dynamic()),
+        RouteDescriptor::Fallback(a) => a
+            .iter()
+            .map(route_to_dialer)
+            .reduce(|a, b| a.fallback(b).dynamic())
+            .unwrap_or_else(|| FailingDialer.dynamic()),
+        RouteDescriptor::Timeout {
+            milliseconds,
+            lower,
+        } => route_to_dialer(lower)
+            .timeout(Duration::from_millis(*milliseconds as _))
+            .dynamic(),
+        RouteDescriptor::Delay {
+            milliseconds,
+            lower,
+        } => route_to_dialer(lower)
+            .delay(Duration::from_millis((*milliseconds).into()))
+            .dynamic(),
     }
 }

@@ -18,6 +18,7 @@ serde_yaml = "0.9.32"
 smolscale = "0.4.4"
 sqlx = { version = "0.7", features = [ "runtime-tokio-rustls", "postgres", "chrono" ] }
 geph5-broker-protocol={path="../../libraries/geph5-broker-protocol"}
+geph5-misc-rpc={path="../../libraries/geph5-misc-rpc"}
 async-trait = "0.1.77"
 nanorpc = "0.1.12"
 thiserror = "1.0.57"
@@ -32,3 +33,4 @@ tokio = { version = "1.0", features = ["full"] }
 tracing-subscriber = "0.3.18"
 nanorpc-sillad={path="../../libraries/nanorpc-sillad"}
 sillad={path="../../libraries/sillad"}
+sillad-sosistab3={path="../../libraries/sillad-sosistab3"}

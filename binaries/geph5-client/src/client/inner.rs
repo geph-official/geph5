@@ -10,7 +10,11 @@ use nursery_macro::nursery;
 use picomux::PicoMux;
 use sillad::{dialer::Dialer as _, Pipe};
 use smol::future::FutureExt as _;
-use std::{sync::Arc, time::Instant};
+use smol_timeout::TimeoutExt;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use stdcode::StdcodeSerializeExt;
 
@@ -33,14 +37,25 @@ static CONN_REQ_CHAN: CtxField<(
 #[tracing::instrument(skip(ctx))]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let start = Instant::now();
-    let (pubkey, raw_dialer) = ctx.init().exit_constraint.dialer(&ctx).await?;
-    let raw_pipe = raw_dialer.dial().await?;
-    tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
-    let authed_pipe = client_auth(raw_pipe, pubkey).await?;
-    tracing::debug!(
-        elapsed = debug(start.elapsed()),
-        "authentication done, starting mux system"
-    );
+    let authed_pipe = async {
+        let (pubkey, raw_dialer) = ctx.init().exit_constraint.dialer(&ctx).await?;
+        tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
+        let raw_pipe = raw_dialer.dial().await?;
+        tracing::debug!(
+            elapsed = debug(start.elapsed()),
+            protocol = raw_pipe.protocol(),
+            "dial completed"
+        );
+        let authed_pipe = client_auth(raw_pipe, pubkey).await?;
+        tracing::debug!(
+            elapsed = debug(start.elapsed()),
+            "authentication done, starting mux system"
+        );
+        anyhow::Ok(authed_pipe)
+    }
+    .timeout(Duration::from_secs(60))
+    .await
+    .context("overall dial/mux/auth timeout")??;
     let (read, write) = authed_pipe.split();
     let mux = Arc::new(PicoMux::new(read, write));
 

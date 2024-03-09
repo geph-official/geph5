@@ -109,4 +109,8 @@ impl AsyncWrite for TcpPipe {
     }
 }
 
-impl Pipe for TcpPipe {}
+impl Pipe for TcpPipe {
+    fn protocol(&self) -> &str {
+        "tcp"
+    }
+}

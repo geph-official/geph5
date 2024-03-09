@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 geph5-broker-protocol={path="../../libraries/geph5-broker-protocol"}
 sillad={path="../../libraries/sillad"}
+sillad-sosistab3={path="../../libraries/sillad-sosistab3"}
 picomux={path="../../libraries/picomux"}
 async-trait = "0.1.77"
 nanorpc = "0.1.12"
@@ -35,3 +36,5 @@ stdcode = "0.1.14"
 x25519-dalek = "2.0.1"
 hex = "0.4.3"
 nursery_macro = "0.1.0"
+moka = {version="0.12.5", features=["future"]}
+tachyonix = "0.2.1"

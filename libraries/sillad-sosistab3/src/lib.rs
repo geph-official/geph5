@@ -185,4 +185,8 @@ impl<P: Pipe> AsyncRead for SosistabPipe<P> {
     }
 }
 
-impl<P: Pipe> Pipe for SosistabPipe<P> {}
+impl<P: Pipe> Pipe for SosistabPipe<P> {
+    fn protocol(&self) -> &str {
+        "sosistab3"
+    }
+}

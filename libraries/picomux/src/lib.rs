@@ -22,7 +22,8 @@ use async_task::Task;
 
 use bytes::Bytes;
 use dashmap::DashMap;
-use frame::{Frame, CMD_FIN, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
+use frame::{Frame, CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
+use futures_intrusive::sync::SharedSemaphore;
 use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
     future::{FusedFuture, Shared},
@@ -34,10 +35,12 @@ use async_io::Timer;
 use parking_lot::Mutex;
 use rand::Rng;
 use smol_timeout::TimeoutExt;
-use tachyonix::{Receiver, Sender};
+use tachyonix::{Receiver, Sender, TrySendError};
 use tap::Tap;
 
 use crate::frame::{Header, PingInfo};
+
+const MORE_INTERVAL: usize = 200;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LivenessConfig {
@@ -90,7 +93,7 @@ impl PicoMux {
 
     /// Returns whether the mux is alive.
     pub fn is_alive(&self) -> bool {
-        !self.task.is_terminated()
+        self.task.peek().is_none()
     }
 
     /// Sets the liveness maintenance configuration for this session.
@@ -145,10 +148,7 @@ impl PicoMux {
         async move {
             let res = res.await;
             match res.deref() {
-                Err(err) => Err(std::io::Error::new(
-                    err.kind(),
-                    err.get_ref().map(|e| e.to_string()).unwrap_or_default(),
-                )),
+                Err(err) => Err(std::io::Error::new(err.kind(), err.to_string())),
                 _ => unreachable!(),
             }
         }
@@ -169,7 +169,7 @@ async fn picomux_inner(
 
     let (send_outgoing, mut recv_outgoing) = tachyonix::channel(1);
     let (send_pong, mut recv_pong) = tachyonix::channel(1);
-    let buffer_table: DashMap<_, _, BuildHasherDefault<AHasher>> = DashMap::default();
+    let buffer_table: DashMap<u32, _, BuildHasherDefault<AHasher>> = DashMap::default();
     // writes outgoing frames
     let outgoing_loop = async {
         loop {
@@ -197,7 +197,7 @@ async fn picomux_inner(
     };
 
     let create_stream = |stream_id, metadata: Bytes| {
-        let (send_incoming, mut recv_incoming) = tachyonix::channel(100);
+        let (send_incoming, mut recv_incoming) = tachyonix::channel(MORE_INTERVAL * 2);
         let (mut write_incoming, read_incoming) = bipe::bipe(32768);
         let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
         let stream = Stream {
@@ -205,58 +205,77 @@ async fn picomux_inner(
             read_incoming,
             metadata,
         };
+
+        let send_more = SharedSemaphore::new(false, 2);
         // jelly bean movers
-        smolscale::spawn::<anyhow::Result<()>>(async move {
-            loop {
-                let frame: Frame = recv_incoming.recv().await?;
-                write_incoming.write_all(&frame.body).await?;
+        smolscale::spawn::<anyhow::Result<()>>({
+            let send_outgoing = send_outgoing.clone();
+
+            async move {
+                loop {
+                    for _ in 0..MORE_INTERVAL {
+                        let frame: Frame = recv_incoming.recv().await?;
+                        write_incoming.write_all(&frame.body).await?;
+                    }
+                    send_outgoing
+                        .send(Frame::new_empty(stream_id, CMD_MORE))
+                        .await?;
+                    tracing::debug!(stream_id, MORE_INTERVAL, "sending MORE");
+                }
             }
         })
         .detach();
-        let send_outgoing = send_outgoing.clone();
-        smolscale::spawn::<anyhow::Result<()>>(async move {
-            scopeguard::defer!({
-                let send_outgoing = send_outgoing.clone();
-                smolscale::spawn(async move {
-                    send_outgoing
-                        .send(Frame {
+
+        smolscale::spawn::<anyhow::Result<()>>({
+            let send_more = send_more.clone();
+            let send_outgoing = send_outgoing.clone();
+            async move {
+                scopeguard::defer!({
+                    let send_outgoing = send_outgoing.clone();
+                    smolscale::spawn(async move {
+                        send_outgoing
+                            .send(Frame {
+                                header: Header {
+                                    version: 1,
+                                    command: CMD_FIN,
+                                    body_len: 0,
+                                    stream_id,
+                                },
+                                body: Bytes::new(),
+                            })
+                            .await
+                    })
+                    .detach();
+                });
+                let mut buf = [0u8; 16384];
+                loop {
+                    send_more.acquire(1).await.disarm();
+                    for _ in 0..MORE_INTERVAL {
+                        let n = read_outgoing.read(&mut buf).await?;
+                        if n == 0 {
+                            return Ok(());
+                        }
+                        let frame = Frame {
                             header: Header {
                                 version: 1,
-                                command: CMD_FIN,
-                                body_len: 0,
+                                command: CMD_PSH,
+                                body_len: n as _,
                                 stream_id,
                             },
-                            body: Bytes::new(),
-                        })
-                        .await
-                })
-                .detach();
-            });
-            let mut buf = [0u8; 16384];
-            loop {
-                let n = read_outgoing.read(&mut buf).await?;
-                if n == 0 {
-                    return Ok(());
+                            body: Bytes::copy_from_slice(&buf[..n]),
+                        };
+                        tracing::trace!(stream_id, n, "sending outgoing data into channel");
+                        send_outgoing
+                            .send(frame)
+                            .await
+                            .ok()
+                            .context("cannot send")?;
+                    }
                 }
-                let frame = Frame {
-                    header: Header {
-                        version: 1,
-                        command: CMD_PSH,
-                        body_len: n as _,
-                        stream_id,
-                    },
-                    body: Bytes::copy_from_slice(&buf[..n]),
-                };
-                tracing::trace!(stream_id, n, "sending outgoing data into channel");
-                send_outgoing
-                    .send(frame)
-                    .await
-                    .ok()
-                    .context("cannot send")?;
             }
         })
         .detach();
-        (stream, send_incoming)
+        (stream, send_incoming, send_more)
     };
 
     // receive open requests
@@ -277,9 +296,11 @@ async fn picomux_inner(
                     f.header.body_len = metadata.len() as _;
                 }))
                 .await;
-            let (stream, send_incoming) = create_stream(stream_id, metadata);
+            let (stream, send_incoming, send_more) = create_stream(stream_id, metadata);
             // thread safety: there can be no race because we are racing the futures in the foreground and there's no await point between when we obtain the id and when we insert
-            assert!(buffer_table.insert(stream_id, send_incoming).is_none());
+            assert!(buffer_table
+                .insert(stream_id, (send_incoming, send_more))
+                .is_none());
             let _ = request.send(stream);
         }
     };
@@ -356,30 +377,33 @@ async fn picomux_inner(
                                     "duplicate SYN",
                                 ));
                             }
-                            let (stream, send_incoming) =
+                            let (stream, send_incoming, send_more) =
                                 create_stream(stream_id, frame.body.clone());
-                            if send_accepted.try_send(stream).is_err() {
+                            if let Err(err) = send_accepted.try_send(stream) {
+                                tracing::warn!(err = debug(err), "oh dead");
+                                return Err(std::io::Error::new(ErrorKind::NotConnected, "dead"));
+                            }
+                            buffer_table.insert(frame.header.stream_id, (send_incoming, send_more));
+                        }
+                        CMD_MORE => {
+                            let back = buffer_table.get(&stream_id);
+                            if let Some(back) = back {
+                                back.1.release(1);
+                            } else {
                                 tracing::warn!(
                                     stream_id = frame.header.stream_id,
-                                    "dropping stream because the accept queue is full"
+                                    "MORE to a stream that is no longer here"
                                 );
                             }
-                            buffer_table.insert(frame.header.stream_id, send_incoming);
                         }
                         CMD_PSH => {
                             let back = buffer_table.get(&stream_id);
                             if let Some(back) = back {
-                                if back
-                                    .send(frame.clone())
-                                    .timeout(Duration::from_millis(200))
-                                    .await
-                                    .is_none()
-                                {
-                                    tracing::warn!(
-                                        stream_id = frame.header.stream_id,
-                                        "dropping stream because the read queue is full"
-                                    );
-                                    buffer_table.remove(&stream_id);
+                                if let Err(TrySendError::Full(_)) = back.0.try_send(frame.clone()) {
+                                    tracing::error!(
+                                        stream_id,
+                                        "receive queue full --- this should NEVER happen"
+                                    )
                                 }
                             } else {
                                 tracing::warn!(
@@ -391,6 +415,7 @@ async fn picomux_inner(
                         CMD_FIN => {
                             buffer_table.remove(&frame.header.stream_id);
                         }
+
                         CMD_NOP => {}
                         CMD_PING => {
                             let ping_info: PingInfo =
@@ -501,6 +526,12 @@ impl AsyncWrite for Stream {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         self.pin_project_write().poll_close(cx)
+    }
+}
+
+impl sillad::Pipe for Stream {
+    fn protocol(&self) -> &str {
+        "sillad-stream"
     }
 }
 

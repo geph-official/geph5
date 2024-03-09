@@ -13,9 +13,20 @@ pub trait Pipe: AsyncRead + AsyncWrite + Send + Unpin + 'static {
     fn shared_secret(&self) -> Option<&[u8]> {
         None
     }
+
+    /// This must return a string that uniquely identifies the protocol type.
+    fn protocol(&self) -> &str;
 }
 
-impl Pipe for Box<dyn Pipe> {}
+impl Pipe for Box<dyn Pipe> {
+    fn shared_secret(&self) -> Option<&[u8]> {
+        (**self).shared_secret()
+    }
+
+    fn protocol(&self) -> &str {
+        (**self).protocol()
+    }
+}
 
 /// EitherPipe is a pipe that is either left or right.
 #[pin_project(project = EitherPipeProj)]
@@ -75,6 +86,13 @@ impl<L: Pipe, R: Pipe> Pipe for EitherPipe<L, R> {
         match self {
             EitherPipe::Left(l) => l.shared_secret(),
             EitherPipe::Right(r) => r.shared_secret(),
+        }
+    }
+
+    fn protocol(&self) -> &str {
+        match self {
+            EitherPipe::Left(l) => l.protocol(),
+            EitherPipe::Right(r) => r.protocol(),
         }
     }
 }

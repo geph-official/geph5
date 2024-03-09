@@ -46,7 +46,7 @@ fn main() {
         let control_cookie = format!("bridge-cookie-{}", rand::random::<u128>());
         let control_listener = SosistabListener::new(listener, Cookie::new(&control_cookie));
         let upload_loop = broker_upload_loop(control_listen, control_cookie);
-        let listen_loop = listen_forward_loop(control_listener);
+        let listen_loop = listen_forward_loop(my_ip, control_listener);
         upload_loop.race(listen_loop).await
     })
 }
@@ -88,6 +88,6 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             .await
             .unwrap()
             .unwrap();
-        async_io::Timer::after(Duration::from_secs(60)).await;
+        async_io::Timer::after(Duration::from_secs(10)).await;
     }
 }

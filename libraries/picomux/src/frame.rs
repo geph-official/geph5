@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures_util::{AsyncRead, AsyncReadExt};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Frame {
     pub header: Header,
     pub body: Bytes,
@@ -46,7 +46,7 @@ impl Frame {
     }
 }
 
-#[derive(Clone, Copy, Pod, PartialEq, Zeroable)]
+#[derive(Clone, Copy, Pod, PartialEq, Zeroable, Debug)]
 #[repr(C)]
 pub struct Header {
     pub version: u8,
@@ -59,6 +59,7 @@ pub const CMD_SYN: u8 = 0;
 pub const CMD_FIN: u8 = 1;
 pub const CMD_PSH: u8 = 2;
 pub const CMD_NOP: u8 = 3;
+pub const CMD_MORE: u8 = 4;
 
 pub const CMD_PING: u8 = 0xa0;
 pub const CMD_PONG: u8 = 0xa1;

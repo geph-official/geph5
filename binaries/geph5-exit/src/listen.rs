@@ -3,9 +3,11 @@ use ed25519_dalek::Signer;
 use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR};
 use geph5_misc_rpc::{
+    bridge::B2eMetadata,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
 };
+use moka::future::Cache;
 use picomux::PicoMux;
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
@@ -15,15 +17,18 @@ use std::{
     time::{Duration, SystemTime},
 };
 use stdcode::StdcodeSerializeExt;
+use tachyonix::Sender;
 use tap::Tap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
+mod b2e_process;
 
 use crate::{broker::BrokerRpcTransport, proxy::proxy_stream, CONFIG_FILE, SIGNING_SECRET};
 
 pub async fn listen_main() -> anyhow::Result<()> {
     let c2e = c2e_loop();
+    let b2e = b2e_loop();
     let broker = broker_loop();
-    c2e.race(broker).await
+    c2e.race(broker).race(b2e).await
 }
 
 #[tracing::instrument]
@@ -74,7 +79,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                     .await?
                     .map_err(|e| anyhow::anyhow!(e.0))?;
 
-                smol::Timer::after(Duration::from_secs(60)).await;
+                smol::Timer::after(Duration::from_secs(10)).await;
             }
         }
         None => {
@@ -91,6 +96,42 @@ async fn c2e_loop() -> anyhow::Result<()> {
         smolscale::spawn(
             handle_client(c2e_raw).map_err(|e| tracing::debug!("client died suddenly with {e}")),
         )
+        .detach()
+    }
+}
+
+async fn b2e_loop() -> anyhow::Result<()> {
+    let mut listener = TcpListener::bind(CONFIG_FILE.wait().b2e_listen).await?;
+    let b2e_table: Cache<B2eMetadata, Sender<picomux::Stream>> = Cache::builder()
+        .time_to_idle(Duration::from_secs(86400))
+        .build();
+    loop {
+        let b2e_raw = listener.accept().await?;
+        let (read, write) = b2e_raw.split();
+        let mut b2e_mux = PicoMux::new(read, write);
+        let b2e_table = b2e_table.clone();
+        smolscale::spawn::<anyhow::Result<()>>(async move {
+            loop {
+                let lala = b2e_mux.accept().await?;
+                let b2e_metadata: B2eMetadata = stdcode::deserialize(lala.metadata())?;
+                tracing::debug!(
+                    metadata = debug(&b2e_metadata),
+                    "accepting b2e with metadata"
+                );
+                let send = b2e_table
+                    .get_with(b2e_metadata.clone(), async {
+                        tracing::debug!(
+                            metadata = debug(&b2e_metadata),
+                            "this is a new table entry"
+                        );
+                        let (send, recv) = tachyonix::channel(1);
+                        smolscale::spawn(b2e_process::b2e_process(b2e_metadata, recv)).detach();
+                        send
+                    })
+                    .await;
+                send.send(lala).await.ok().context("could not accept")?;
+            }
+        })
         .detach()
     }
 }

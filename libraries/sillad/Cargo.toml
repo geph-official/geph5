@@ -12,3 +12,4 @@ futures-lite = "2.2.0"
 futures-util = {version="0.3.30", features=["io"]}
 libc = "0.2.153"
 pin-project = "1.1.4"
+smol-timeout = "0.6.0"

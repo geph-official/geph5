@@ -1,5 +1,10 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
+use anyhow::Context;
 use async_trait::async_trait;
 use deadpool::managed::Pool;
 use futures_util::AsyncReadExt as _;
@@ -15,9 +20,11 @@ use sillad::{
 use smol::future::FutureExt as _;
 
 use stdcode::StdcodeSerializeExt;
+use tap::Tap;
 
-pub async fn listen_forward_loop(listener: impl Listener) {
+pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) {
     let state = State {
+        my_ip,
         mapping: Cache::builder()
             .time_to_idle(Duration::from_secs(86400))
             .build(),
@@ -29,18 +36,22 @@ pub async fn listen_forward_loop(listener: impl Listener) {
 
 struct State {
     // b2e_dest => (metadata, task)
-    mapping: Cache<SocketAddr, (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>)>,
+    my_ip: IpAddr,
+    mapping: Cache<(SocketAddr, B2eMetadata), (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>)>,
 }
 
 #[async_trait]
 impl BridgeControlProtocol for State {
     async fn tcp_forward(&self, b2e_dest: SocketAddr, metadata: B2eMetadata) -> SocketAddr {
         self.mapping
-            .get_with(b2e_dest, async {
+            .get_with((b2e_dest, metadata.clone()), async {
                 let listener = TcpListener::bind("0.0.0.0:0".parse().unwrap())
                     .await
                     .unwrap();
-                let addr = listener.local_addr().await;
+                let addr = listener
+                    .local_addr()
+                    .await
+                    .tap_mut(|s| s.set_ip(self.my_ip));
                 let task = smolscale::spawn(handle_one_listener(listener, b2e_dest, metadata));
                 (addr, Arc::new(task))
             })
@@ -58,7 +69,9 @@ async fn handle_one_listener(
         let client_conn = listener.accept().await?;
         let metadata = metadata.clone();
         smolscale::spawn(async move {
-            let exit_conn = dial_pooled(b2e_dest, &metadata.stdcode()).await?;
+            let exit_conn = dial_pooled(b2e_dest, &metadata.stdcode())
+                .await
+                .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
             let (client_read, client_write) = client_conn.split();
             let (exit_read, exit_write) = exit_conn.split();
             smol::io::copy(exit_read, client_write)
@@ -86,9 +99,13 @@ async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<pi
             .max_size(20)
             .build()
         })
-        .await?;
-    let mux = pool.get().await?;
-    let stream = mux.open(metadata).await?;
+        .await
+        .context("cannot get pool")?;
+    let mux = pool.get().await.context("cannot get from pool")?;
+    let stream = mux
+        .open(metadata)
+        .await
+        .context("cannot open through mux")?;
     Ok(stream)
 }
 
@@ -112,6 +129,7 @@ impl deadpool::managed::Manager for MuxManager {
         conn: &mut Self::Type,
         _: &deadpool::managed::Metrics,
     ) -> deadpool::managed::RecycleResult<Self::Error> {
+        tracing::debug!(alive = conn.is_alive(), "trying to recycle");
         if !conn.is_alive() {
             let error = conn.open(b"").await.expect_err("dude");
             return Err(error.into());

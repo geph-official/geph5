@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use ed25519_dalek::{SigningKey, VerifyingKey};
@@ -11,7 +11,8 @@ use moka::future::Cache;
 use once_cell::sync::Lazy;
 
 use crate::{
-    database::{insert_exit, ExitRow, POSTGRES},
+    database::{insert_exit, query_bridges, ExitRow, POSTGRES},
+    routes::bridge_to_leaf_route,
     CONFIG_FILE,
 };
 
@@ -72,9 +73,23 @@ impl BrokerProtocol for BrokerImpl {
             .map_err(|e: Arc<GenericError>| e.deref().clone())
     }
 
-    async fn get_routes(&self, _exit: String) -> Result<RouteDescriptor, GenericError> {
-        // Implement your logic here
-        unimplemented!();
+    async fn get_routes(&self, exit: SocketAddr) -> Result<RouteDescriptor, GenericError> {
+        // TODO auth
+        let raw_descriptors = query_bridges("").await?;
+        let mut routes = vec![];
+        for desc in raw_descriptors {
+            match bridge_to_leaf_route(&desc, exit).await {
+                Ok(route) => routes.push(route),
+                Err(err) => {
+                    tracing::warn!(
+                        err = debug(err),
+                        bridge = debug(desc),
+                        "could not communicate"
+                    )
+                }
+            }
+        }
+        Ok(RouteDescriptor::Race(routes))
     }
 
     async fn put_exit(&self, descriptor: Mac<Signed<ExitDescriptor>>) -> Result<(), GenericError> {
