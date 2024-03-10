@@ -33,22 +33,22 @@ pub async fn listen_main() -> anyhow::Result<()> {
 
 #[tracing::instrument]
 async fn broker_loop() -> anyhow::Result<()> {
+    let my_ip = IpAddr::from_str(
+        String::from_utf8_lossy(
+            &reqwest::get("https://checkip.amazonaws.com/")
+                .await?
+                .bytes()
+                .await?,
+        )
+        .trim(),
+    )?;
+    tracing::info!(
+        my_ip = display(my_ip),
+        my_pubkey = display(hex::encode(SIGNING_SECRET.as_bytes())),
+        "listen information gotten"
+    );
     match &CONFIG_FILE.wait().broker {
         Some(broker) => {
-            let my_ip = IpAddr::from_str(
-                String::from_utf8_lossy(
-                    &reqwest::get("https://checkip.amazonaws.com/")
-                        .await?
-                        .bytes()
-                        .await?,
-                )
-                .trim(),
-            )?;
-            tracing::info!(
-                my_ip = display(my_ip),
-                my_pubkey = display(hex::encode(SIGNING_SECRET.as_bytes())),
-                "starting communication with broker"
-            );
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
             loop {
