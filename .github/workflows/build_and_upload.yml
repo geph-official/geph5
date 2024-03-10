@@ -46,8 +46,8 @@ jobs:
       - name: Build geph5-bridge
         run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-bridge/Cargo.toml
 
-      - name: Build geph5-exit
-        run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
+      - name: Build geph5-client
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-client/Cargo.toml
 
       - name: Move binaries
         run: mkdir artifacts; mv target/x86_64-unknown-linux-musl/release/geph* artifacts
