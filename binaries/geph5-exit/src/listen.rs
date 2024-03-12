@@ -1,5 +1,5 @@
 use anyhow::Context;
-use ed25519_dalek::Signer;
+use ed25519_dalek::{Signer, VerifyingKey};
 use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR};
 use geph5_misc_rpc::{
@@ -42,9 +42,14 @@ async fn broker_loop() -> anyhow::Result<()> {
         )
         .trim(),
     )?;
+    let my_pubkey: VerifyingKey = (&*SIGNING_SECRET).into();
     tracing::info!(
-        my_ip = display(my_ip),
-        my_pubkey = display(hex::encode(SIGNING_SECRET.as_bytes())),
+        c2e_direct = format!(
+            "{}:{}/{}",
+            my_ip,
+            CONFIG_FILE.wait().c2e_listen.port(),
+            hex::encode(my_pubkey.as_bytes())
+        ),
         "listen information gotten"
     );
     match &CONFIG_FILE.wait().broker {
