@@ -6,5 +6,5 @@
 # Ignore VSCode stuff
 **/.vscode
 
-# Ignore CLion stuff
+# Ignore JetBrains IDE stuff
 **/.idea
