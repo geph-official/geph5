@@ -9,8 +9,10 @@ use rpc_impl::BrokerImpl;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fs, net::SocketAddr, path::PathBuf};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod database;
+mod routes;
 mod rpc_impl;
 
 /// The global config file.
@@ -20,6 +22,7 @@ static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 #[derive(Deserialize)]
 struct ConfigFile {
     listen: SocketAddr,
+    tcp_listen: SocketAddr,
     master_secret: PathBuf,
     postgres_url: String,
     postgres_root_cert: PathBuf,
@@ -38,7 +41,14 @@ struct CliArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().compact())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive("geph5_broker".parse()?)
+                .from_env_lossy(),
+        )
+        .init();
     // Parse the command-line arguments
     let args: CliArgs = argh::from_env();
 
@@ -53,6 +63,11 @@ async fn main() -> anyhow::Result<()> {
     let _ = CONFIG_FILE.set(config);
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
+
+    let _tcp_loop = smolscale::spawn(nanorpc_sillad::rpc_serve(
+        sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
+        BrokerService(BrokerImpl {}),
+    ));
 
     let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
     let app = Router::new().route("/", post(rpc));

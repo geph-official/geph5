@@ -1,0 +1,69 @@
+# .github/workflows/build_and_upload.yml
+name: Build and Upload
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install musl-tools
+        run: sudo apt-get install -y musl-tools
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: x86_64-unknown-linux-musl
+
+      - name: Cache cargo registry
+        uses: actions/cache@v2
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry
+
+      - name: Cache cargo index
+        uses: actions/cache@v2
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git
+
+      - name: Cache cargo build
+        uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target
+
+      - name: Build geph5-exit
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
+
+      - name: Build geph5-bridge
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-bridge/Cargo.toml
+
+      - name: Build geph5-client
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-client/Cargo.toml
+
+      - name: Move binaries
+        run: mkdir artifacts; mv target/x86_64-unknown-linux-musl/release/geph* artifacts
+
+      # - name: Install AWS CLI
+      #   run: |
+      #     curl "https://d1vvhvl2y92vvt.cloudfront.net/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      #     unzip awscliv2.zip
+      #     sudo ./aws/install
+
+      - name: Upload to Cloudflare R2
+        uses: ryand56/r2-upload-action@v1.2.2
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          r2-bucket: geph5
+          source-dir: ./artifacts/
+          destination-dir: ./musl-latest/

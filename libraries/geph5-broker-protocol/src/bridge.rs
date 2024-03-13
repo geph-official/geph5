@@ -6,5 +6,6 @@ use serde::{Deserialize, Serialize};
 pub struct BridgeDescriptor {
     pub control_listen: SocketAddr,
     pub control_cookie: String,
+    pub pool: String,
     pub expiry: u64,
 }

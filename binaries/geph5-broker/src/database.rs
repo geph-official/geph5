@@ -1,6 +1,7 @@
 use std::{ops::Deref, str::FromStr, time::Duration};
 
 use async_io::Timer;
+use geph5_broker_protocol::BridgeDescriptor;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use sqlx::{
@@ -40,6 +41,10 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
             .execute(POSTGRES.deref())
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up exits");
+        let res = sqlx::query("delete from bridges_new where expiry > extract(epoch from now())")
+            .execute(POSTGRES.deref())
+            .await?;
+        tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
     }
 }
 
@@ -77,4 +82,20 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     .execute(POSTGRES.deref())
     .await?;
     Ok(())
+}
+
+pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeDescriptor>> {
+    static RANDOM: Lazy<String> = Lazy::new(|| format!("rando-{}", rand::random::<u128>()));
+    let raw: Vec<(String, String, String, i64)> = sqlx::query_as(r"
+    select distinct on (pool) listen, cookie, pool, expiry from bridges_new order by pool, encode(digest(listen || $1 || $2, 'sha256'), 'hex');
+    ").bind(key).bind(RANDOM.deref()).fetch_all(POSTGRES.deref()).await?;
+    Ok(raw
+        .into_iter()
+        .map(|row| BridgeDescriptor {
+            control_listen: row.0.parse().unwrap(),
+            control_cookie: row.1,
+            pool: row.2,
+            expiry: row.3 as _,
+        })
+        .collect())
 }

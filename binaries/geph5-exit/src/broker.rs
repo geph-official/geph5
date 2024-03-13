@@ -20,6 +20,7 @@ impl BrokerRpcTransport {
 impl RpcTransport for BrokerRpcTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        tracing::debug!(method = req.method, "calling binder");
         let resp = self
             .client
             .request(Method::POST, &self.url)

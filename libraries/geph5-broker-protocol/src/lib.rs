@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, net::SocketAddr};
 
 use async_trait::async_trait;
 use nanorpc::nanorpc_derive;
@@ -19,7 +19,7 @@ pub use bridge::*;
 #[async_trait]
 pub trait BrokerProtocol {
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError>;
-    async fn get_routes(&self, exit: String) -> Result<RouteDescriptor, GenericError>;
+    async fn get_routes(&self, exit_b2e: SocketAddr) -> Result<RouteDescriptor, GenericError>;
     async fn put_exit(&self, descriptor: Mac<Signed<ExitDescriptor>>) -> Result<(), GenericError>;
     async fn put_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
 }

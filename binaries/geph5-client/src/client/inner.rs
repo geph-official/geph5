@@ -1,14 +1,20 @@
-use std::sync::Arc;
-
 use anyctx::AnyCtx;
+use anyhow::Context;
+use ed25519_dalek::VerifyingKey;
 use futures_util::AsyncReadExt as _;
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
 };
+use nursery_macro::nursery;
 use picomux::PicoMux;
 use sillad::{dialer::Dialer as _, Pipe};
 use smol::future::FutureExt as _;
+use smol_timeout::TimeoutExt;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use stdcode::StdcodeSerializeExt;
 
@@ -28,12 +34,28 @@ static CONN_REQ_CHAN: CtxField<(
     smol::channel::Receiver<ChanElem>,
 )> = |_| smol::channel::unbounded();
 
+#[tracing::instrument(skip(ctx))]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let raw_dialer = ctx.init().exit_constraint.dialer(&ctx).await?;
-    let raw_pipe = raw_dialer.dial().await?;
-    tracing::debug!("raw dialer done");
-    let authed_pipe = client_auth(raw_pipe).await?;
-    tracing::debug!("authentication done, starting mux system");
+    let start = Instant::now();
+    let authed_pipe = async {
+        let (pubkey, raw_dialer) = ctx.init().exit_constraint.dialer(&ctx).await?;
+        tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
+        let raw_pipe = raw_dialer.dial().await?;
+        tracing::debug!(
+            elapsed = debug(start.elapsed()),
+            protocol = raw_pipe.protocol(),
+            "dial completed"
+        );
+        let authed_pipe = client_auth(raw_pipe, pubkey).await?;
+        tracing::debug!(
+            elapsed = debug(start.elapsed()),
+            "authentication done, starting mux system"
+        );
+        anyhow::Ok(authed_pipe)
+    }
+    .timeout(Duration::from_secs(60))
+    .await
+    .context("overall dial/mux/auth timeout")??;
     let (read, write) = authed_pipe.split();
     let mux = Arc::new(PicoMux::new(read, write));
 
@@ -44,31 +66,34 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         Err(err.into())
     }
     .race(async {
-        loop {
-            let mux = mux.clone();
-            let send_stop = send_stop.clone();
-            let ctx = ctx.clone();
-            let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
-            smolscale::spawn(async move {
-                tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
-                let stream = mux.open(remote_addr.as_bytes()).await;
-                match stream {
-                    Ok(stream) => {
-                        let _ = send_back.send(stream);
+        nursery!({
+            loop {
+                let mux = mux.clone();
+                let send_stop = send_stop.clone();
+                let ctx = ctx.clone();
+                let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
+                spawn!(async move {
+                    tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
+                    let stream = mux.open(remote_addr.as_bytes()).await;
+                    match stream {
+                        Ok(stream) => {
+                            let _ = send_back.send(stream);
+                        }
+                        Err(err) => {
+                            let _ = send_stop.try_send(err);
+                        }
                     }
-                    Err(err) => {
-                        let _ = send_stop.try_send(err);
-                    }
-                }
-                anyhow::Ok(())
-            })
-            .detach();
-        }
+                    anyhow::Ok(())
+                })
+                .detach();
+            }
+        })
     })
     .await
 }
 
-async fn client_auth(mut pipe: impl Pipe) -> anyhow::Result<impl Pipe> {
+#[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
+async fn client_auth(mut pipe: impl Pipe, pubkey: VerifyingKey) -> anyhow::Result<impl Pipe> {
     match pipe.shared_secret() {
         Some(_) => todo!(),
         None => {
@@ -81,6 +106,11 @@ async fn client_auth(mut pipe: impl Pipe) -> anyhow::Result<impl Pipe> {
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
             let exit_hello: ExitHello =
                 stdcode::deserialize(&read_prepend_length(&mut pipe).await?)?;
+            // verify the exit hello
+            let signed_value = (&client_hello, &exit_hello.inner).stdcode();
+            pubkey
+                .verify_strict(&signed_value, &exit_hello.signature)
+                .context("exit hello failed validation")?;
             match exit_hello.inner {
                 ExitHelloInner::Reject(reason) => {
                     anyhow::bail!("exit rejected our authentication attempt: {reason}")

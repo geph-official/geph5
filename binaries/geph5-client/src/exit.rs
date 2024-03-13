@@ -1,22 +1,22 @@
+use std::time::Duration;
+
 use anyctx::AnyCtx;
 use anyhow::Context;
-use async_trait::async_trait;
+
 use ed25519_dalek::VerifyingKey;
-use geph5_broker_protocol::{BrokerClient, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{BrokerClient, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR};
 use isocountry::CountryCode;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sillad::{
-    dialer::{Dialer, DialerExt, DynDialer},
+    dialer::{DialerExt, DynDialer, FailingDialer},
     tcp::TcpDialer,
 };
+use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
-use crate::{
-    broker::BrokerRpcTransport,
-    client::{Config, CtxField},
-};
+use crate::client::{Config, CtxField};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ExitConstraint {
     Auto,
@@ -29,7 +29,7 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
     ctx.init()
         .broker
         .as_ref()
-        .map(|ctx| BrokerRpcTransport::new(ctx.clone()).into())
+        .map(|src| BrokerClient::from(src.rpc_transport()))
 };
 
 fn broker_client(ctx: &AnyCtx<Config>) -> anyhow::Result<&BrokerClient> {
@@ -40,7 +40,8 @@ fn broker_client(ctx: &AnyCtx<Config>) -> anyhow::Result<&BrokerClient> {
 
 impl ExitConstraint {
     /// Turn this into a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
-    pub async fn dialer(&self, ctx: &AnyCtx<Config>) -> anyhow::Result<DynDialer> {
+    #[tracing::instrument(skip(ctx))]
+    pub async fn dialer(&self, ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, DynDialer)> {
         let mut country_constraint = None;
         let mut city_constraint = None;
         match self {
@@ -48,14 +49,23 @@ impl ExitConstraint {
                 let (dir, pubkey) = dir
                     .split_once('/')
                     .context("did not find / in a direct constraint")?;
-                let pubkey = VerifyingKey::from_bytes(hex::);
-                return Ok(TcpDialer {
-                    dest_addr: *smol::net::resolve(dir)
-                        .await?
-                        .choose(&mut rand::thread_rng())
-                        .context("could not resolve destination for direct exit connection")?,
-                }
-                .dynamic());
+                let pubkey = VerifyingKey::from_bytes(
+                    hex::decode(pubkey)
+                        .context("cannot decode pubkey as hex")?
+                        .as_slice()
+                        .try_into()
+                        .context("pubkey wrong length")?,
+                )?;
+                return Ok((
+                    pubkey,
+                    TcpDialer {
+                        dest_addr: *smol::net::resolve(dir)
+                            .await?
+                            .choose(&mut rand::thread_rng())
+                            .context("could not resolve destination for direct exit connection")?,
+                    }
+                    .dynamic(),
+                ));
             }
             ExitConstraint::Country(country) => country_constraint = Some(*country),
             ExitConstraint::CountryCity(country, city) => {
@@ -96,6 +106,59 @@ impl ExitConstraint {
             })
             .min_by_key(|e| (e.1.load * 1000.0) as u64)
             .context("no exits that fit the criterion")?;
-        todo!()
+        tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
+        let direct_dialer = TcpDialer {
+            dest_addr: exit.c2e_listen,
+        };
+
+        // Also obtain the bridges
+        let bridge_routes = broker
+            .get_routes(exit.b2e_listen)
+            .await?
+            .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
+        tracing::debug!(
+            bridge_routes = debug(&bridge_routes),
+            "bridge routes obtained too"
+        );
+
+        let bridge_dialer = route_to_dialer(&bridge_routes);
+
+        Ok((pubkey, direct_dialer.race(bridge_dialer).dynamic()))
+    }
+}
+
+fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
+    match route {
+        RouteDescriptor::Tcp(addr) => TcpDialer { dest_addr: *addr }.dynamic(),
+        RouteDescriptor::Sosistab3 { cookie, lower } => {
+            let inner = route_to_dialer(lower);
+            SosistabDialer {
+                inner,
+                cookie: Cookie::new(cookie),
+            }
+            .dynamic()
+        }
+        RouteDescriptor::Race(inside) => inside
+            .iter()
+            .map(route_to_dialer)
+            .reduce(|a, b| a.race(b).dynamic())
+            .unwrap_or_else(|| FailingDialer.dynamic()),
+        RouteDescriptor::Fallback(a) => a
+            .iter()
+            .map(route_to_dialer)
+            .reduce(|a, b| a.fallback(b).dynamic())
+            .unwrap_or_else(|| FailingDialer.dynamic()),
+        RouteDescriptor::Timeout {
+            milliseconds,
+            lower,
+        } => route_to_dialer(lower)
+            .timeout(Duration::from_millis(*milliseconds as _))
+            .dynamic(),
+        RouteDescriptor::Delay {
+            milliseconds,
+            lower,
+        } => route_to_dialer(lower)
+            .delay(Duration::from_millis((*milliseconds).into()))
+            .dynamic(),
     }
 }
