@@ -64,7 +64,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     .context("overall dial/mux/auth timeout")??;
     client_inner(ctx, authed_pipe).await
 }
-#[tracing::instrument(skip_all, fields(remote=authed_pipe.remote_addr().unwrap_or("(none)")))]
+#[tracing::instrument(skip_all, fields(remote=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
 async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
