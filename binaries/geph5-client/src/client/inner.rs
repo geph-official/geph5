@@ -7,7 +7,7 @@ use geph5_misc_rpc::{
     read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
-use picomux::PicoMux;
+use picomux::{LivenessConfig, PicoMux};
 use sillad::{dialer::Dialer as _, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
@@ -63,7 +63,12 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     .await
     .context("overall dial/mux/auth timeout")??;
     let (read, write) = authed_pipe.split();
-    let mux = Arc::new(PicoMux::new(read, write));
+    let mut mux = PicoMux::new(read, write);
+    mux.set_liveness(LivenessConfig {
+        ping_interval: Duration::from_secs(600),
+        timeout: Duration::from_secs(10),
+    });
+    let mux = Arc::new(mux);
 
     let (send_stop, mut recv_stop) = tachyonix::channel(1);
     // run a socks5 loop
