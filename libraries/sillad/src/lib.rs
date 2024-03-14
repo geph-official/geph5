@@ -16,6 +16,9 @@ pub trait Pipe: AsyncRead + AsyncWrite + Send + Unpin + 'static {
 
     /// This must return a string that uniquely identifies the protocol type.
     fn protocol(&self) -> &str;
+
+    /// This might return a string that is some sort of human-readable identifier of the remote address.
+    fn remote_addr(&self) -> Option<&str>;
 }
 
 impl Pipe for Box<dyn Pipe> {
@@ -25,6 +28,10 @@ impl Pipe for Box<dyn Pipe> {
 
     fn protocol(&self) -> &str {
         (**self).protocol()
+    }
+
+    fn remote_addr(&self) -> Option<&str> {
+        (**self).remote_addr()
     }
 }
 
@@ -93,6 +100,13 @@ impl<L: Pipe, R: Pipe> Pipe for EitherPipe<L, R> {
         match self {
             EitherPipe::Left(l) => l.protocol(),
             EitherPipe::Right(r) => r.protocol(),
+        }
+    }
+
+    fn remote_addr(&self) -> Option<&str> {
+        match self {
+            EitherPipe::Left(l) => l.remote_addr(),
+            EitherPipe::Right(r) => r.remote_addr(),
         }
     }
 }

@@ -7,12 +7,15 @@ use geph5_misc_rpc::{
     read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
-use picomux::PicoMux;
+use picomux::{LivenessConfig, PicoMux};
 use sillad::{dialer::Dialer as _, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -34,8 +37,11 @@ static CONN_REQ_CHAN: CtxField<(
     smol::channel::Receiver<ChanElem>,
 )> = |_| smol::channel::unbounded();
 
-#[tracing::instrument(skip(ctx))]
-pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
+pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+    tracing::info!("(re)starting main logic");
     let start = Instant::now();
     let authed_pipe = async {
         let (pubkey, raw_dialer) = ctx.init().exit_constraint.dialer(&ctx).await?;
@@ -56,8 +62,17 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     .timeout(Duration::from_secs(60))
     .await
     .context("overall dial/mux/auth timeout")??;
+    client_inner(ctx, authed_pipe).await
+}
+#[tracing::instrument(skip_all, fields(remote=authed_pipe.remote_addr().unwrap_or("(none)")))]
+async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
-    let mux = Arc::new(PicoMux::new(read, write));
+    let mut mux = PicoMux::new(read, write);
+    mux.set_liveness(LivenessConfig {
+        ping_interval: Duration::from_secs(600),
+        timeout: Duration::from_secs(10),
+    });
+    let mux = Arc::new(mux);
 
     let (send_stop, mut recv_stop) = tachyonix::channel(1);
     // run a socks5 loop
@@ -72,6 +87,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 let send_stop = send_stop.clone();
                 let ctx = ctx.clone();
                 let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
+                smol::future::yield_now().await;
                 spawn!(async move {
                     tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
                     let stream = mux.open(remote_addr.as_bytes()).await;

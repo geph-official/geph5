@@ -69,6 +69,8 @@ pub struct ClientExitCryptPipe {
     #[pin]
     write_outgoing: BipeWriter,
     _write_task: Task<()>,
+
+    addr: Option<String>,
 }
 
 impl AsyncRead for ClientExitCryptPipe {
@@ -108,6 +110,7 @@ impl AsyncWrite for ClientExitCryptPipe {
 impl ClientExitCryptPipe {
     /// Creates a new pipe, given read and write keys
     pub fn new(pipe: impl Pipe, read_key: [u8; 32], write_key: [u8; 32]) -> Self {
+        let addr = pipe.remote_addr().map(|s| s.to_string());
         let (mut pipe_read, mut pipe_write) = pipe.split();
         let (mut write_incoming, read_incoming) = bipe::bipe(32768);
         let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
@@ -154,6 +157,8 @@ impl ClientExitCryptPipe {
             _read_task,
             write_outgoing,
             _write_task,
+
+            addr,
         }
     }
 }
@@ -161,5 +166,9 @@ impl ClientExitCryptPipe {
 impl Pipe for ClientExitCryptPipe {
     fn protocol(&self) -> &str {
         "client-exit"
+    }
+
+    fn remote_addr(&self) -> Option<&str> {
+        self.addr.as_deref()
     }
 }

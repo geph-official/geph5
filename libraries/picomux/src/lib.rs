@@ -533,6 +533,10 @@ impl sillad::Pipe for Stream {
     fn protocol(&self) -> &str {
         "sillad-stream"
     }
+
+    fn remote_addr(&self) -> Option<&str> {
+        None
+    }
 }
 
 #[cfg(test)]

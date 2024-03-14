@@ -31,8 +31,8 @@ impl Listener for TcpListener {
     async fn accept(&mut self) -> std::io::Result<Self::P> {
         let (conn, _) = self.inner.accept().await?;
         set_tcp_options(&conn)?;
-
-        Ok(TcpPipe(conn))
+        let addr = conn.as_ref().peer_addr()?.to_string();
+        Ok(TcpPipe(conn, addr))
     }
 }
 
@@ -68,12 +68,12 @@ impl Dialer for TcpDialer {
     async fn dial(&self) -> std::io::Result<Self::P> {
         let inner = Async::<TcpStream>::connect(self.dest_addr).await?;
         set_tcp_options(&inner)?;
-        Ok(TcpPipe(inner))
+        Ok(TcpPipe(inner, self.dest_addr.to_string()))
     }
 }
 
 #[pin_project]
-pub struct TcpPipe(#[pin] Async<TcpStream>);
+pub struct TcpPipe(#[pin] Async<TcpStream>, String);
 
 impl AsyncRead for TcpPipe {
     fn poll_read(
@@ -112,5 +112,9 @@ impl AsyncWrite for TcpPipe {
 impl Pipe for TcpPipe {
     fn protocol(&self) -> &str {
         "tcp"
+    }
+
+    fn remote_addr(&self) -> Option<&str> {
+        Some(&self.1)
     }
 }

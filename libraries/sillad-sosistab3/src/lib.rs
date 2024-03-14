@@ -189,4 +189,8 @@ impl<P: Pipe> Pipe for SosistabPipe<P> {
     fn protocol(&self) -> &str {
         "sosistab3"
     }
+
+    fn remote_addr(&self) -> Option<&str> {
+        self.lower.remote_addr()
+    }
 }

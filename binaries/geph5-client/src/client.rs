@@ -10,7 +10,7 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{broker::BrokerSource, exit::ExitConstraint};
 
-use self::{inner::client_inner, socks5::socks5_loop};
+use self::{inner::client_once, socks5::socks5_loop};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -40,10 +40,14 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let _client_loop = Immortal::respawn(
-        RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-        clone!([ctx], move || client_inner(ctx.clone())
-            .inspect_err(|e| tracing::warn!("client_inner died: {:?}", e))),
-    );
+    let _client_loops: Vec<_> = (0..8)
+        .map(|_| {
+            Immortal::respawn(
+                RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
+                clone!([ctx], move || client_once(ctx.clone())
+                    .inspect_err(|e| tracing::warn!("client_inner died: {:?}", e))),
+            )
+        })
+        .collect();
     socks5_loop(ctx).await
 }
