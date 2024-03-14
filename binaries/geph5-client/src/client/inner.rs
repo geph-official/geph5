@@ -40,7 +40,7 @@ static CONN_REQ_CHAN: CtxField<(
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
-pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
     let start = Instant::now();
     let authed_pipe = async {
@@ -62,6 +62,10 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     .timeout(Duration::from_secs(60))
     .await
     .context("overall dial/mux/auth timeout")??;
+    client_inner(ctx, authed_pipe).await
+}
+#[tracing::instrument(skip_all, fields(remote=authed_pipe.remote_addr().unwrap_or("(none)")))]
+async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
