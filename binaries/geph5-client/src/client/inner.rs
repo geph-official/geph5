@@ -12,7 +12,10 @@ use sillad::{dialer::Dialer as _, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -34,8 +37,11 @@ static CONN_REQ_CHAN: CtxField<(
     smol::channel::Receiver<ChanElem>,
 )> = |_| smol::channel::unbounded();
 
-#[tracing::instrument(skip(ctx))]
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+    tracing::info!("(re)starting main logic");
     let start = Instant::now();
     let authed_pipe = async {
         let (pubkey, raw_dialer) = ctx.init().exit_constraint.dialer(&ctx).await?;
@@ -72,6 +78,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 let send_stop = send_stop.clone();
                 let ctx = ctx.clone();
                 let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
+                smol::future::yield_now().await;
                 spawn!(async move {
                     tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
                     let stream = mux.open(remote_addr.as_bytes()).await;
