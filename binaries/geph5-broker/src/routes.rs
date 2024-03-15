@@ -44,7 +44,7 @@ pub async fn bridge_to_leaf_route(
                 )
                 .timeout(Duration::from_secs(5))
                 .await
-                .context("timeout ")??;
+                .context("timeout")??;
             anyhow::Ok(RouteDescriptor::Sosistab3 {
                 cookie,
                 lower: RouteDescriptor::Tcp(forwarded_listen).into(),
