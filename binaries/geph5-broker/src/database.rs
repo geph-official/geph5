@@ -2,6 +2,7 @@ use std::{ops::Deref, str::FromStr, time::Duration};
 
 use async_io::Timer;
 use geph5_broker_protocol::BridgeDescriptor;
+use moka::future::Cache;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use sqlx::{
@@ -85,11 +86,18 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeDescriptor>> {
+    static CACHE: Lazy<Cache<String, Vec<BridgeDescriptor>>> = Lazy::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(300))
+            .build()
+    });
     static RANDOM: Lazy<String> = Lazy::new(|| format!("rando-{}", rand::random::<u128>()));
-    let raw: Vec<(String, String, String, i64)> = sqlx::query_as(r"
-    select distinct on (pool) listen, cookie, pool, expiry from bridges_new order by pool, encode(digest(listen || $1 || $2, 'sha256'), 'hex');
-    ").bind(key).bind(RANDOM.deref()).fetch_all(POSTGRES.deref()).await?;
-    Ok(raw
+
+    CACHE.try_get_with(key.to_string(), async {
+        let raw: Vec<(String, String, String, i64)> = sqlx::query_as(r"
+        select distinct on (pool) listen, cookie, pool, expiry from bridges_new order by pool, encode(digest(listen || $1 || $2, 'sha256'), 'hex');
+        ").bind(key).bind(RANDOM.deref()).fetch_all(POSTGRES.deref()).await?;
+        anyhow::Ok(raw
         .into_iter()
         .map(|row| BridgeDescriptor {
             control_listen: row.0.parse().unwrap(),
@@ -98,4 +106,5 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeDescriptor>> {
             expiry: row.3 as _,
         })
         .collect())
+    }).await.map_err(|e| anyhow::anyhow!(e))
 }
