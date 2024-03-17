@@ -92,7 +92,10 @@ impl BrokerProtocol for BrokerImpl {
         Ok(RouteDescriptor::Race(routes))
     }
 
-    async fn put_exit(&self, descriptor: Mac<Signed<ExitDescriptor>>) -> Result<(), GenericError> {
+    async fn insert_exit(
+        &self,
+        descriptor: Mac<Signed<ExitDescriptor>>,
+    ) -> Result<(), GenericError> {
         let descriptor =
             descriptor.verify(blake3::hash(CONFIG_FILE.wait().exit_token.as_bytes()).as_bytes())?;
         let pubkey = descriptor.pubkey;
@@ -110,7 +113,7 @@ impl BrokerProtocol for BrokerImpl {
         Ok(())
     }
 
-    async fn put_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
+    async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
         let descriptor = descriptor
             .verify(blake3::hash(CONFIG_FILE.wait().bridge_token.as_bytes()).as_bytes())?;
 

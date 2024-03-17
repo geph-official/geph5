@@ -193,4 +193,8 @@ impl<P: Pipe> Pipe for SosistabPipe<P> {
     fn remote_addr(&self) -> Option<&str> {
         self.lower.remote_addr()
     }
+
+    fn shared_secret(&self) -> Option<&[u8]> {
+        Some(self.state.shared_secret())
+    }
 }

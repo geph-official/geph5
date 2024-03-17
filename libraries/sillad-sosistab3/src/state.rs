@@ -6,6 +6,7 @@ use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, Key, KeyInit};
 use smallvec::{SmallVec, ToSmallVec};
 
 pub struct State {
+    shared_secret: Vec<u8>,
     send_aead: ChaCha20Poly1305,
     send_nonce: u64,
     send_buf: Vec<u8>,
@@ -37,12 +38,17 @@ impl State {
         let recv_aead = ChaCha20Poly1305::new(recv_key);
 
         State {
+            shared_secret: ss.to_vec(),
             send_aead,
             send_nonce: 0,
             send_buf: vec![],
             recv_aead,
             recv_nonce: 0,
         }
+    }
+
+    pub fn shared_secret(&self) -> &[u8] {
+        &self.shared_secret
     }
 
     fn send_nonce(&mut self) -> [u8; 12] {

@@ -80,7 +80,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                     blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
                 );
                 client
-                    .put_exit(to_upload)
+                    .insert_exit(to_upload)
                     .await?
                     .map_err(|e| anyhow::anyhow!(e.0))?;
 

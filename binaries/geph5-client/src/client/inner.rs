@@ -8,7 +8,7 @@ use geph5_misc_rpc::{
 };
 use nursery_macro::nursery;
 use picomux::{LivenessConfig, PicoMux};
-use sillad::{dialer::Dialer as _, Pipe};
+use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
@@ -113,8 +113,31 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
 
 #[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
 async fn client_auth(mut pipe: impl Pipe, pubkey: VerifyingKey) -> anyhow::Result<impl Pipe> {
-    match pipe.shared_secret() {
-        Some(_) => todo!(),
+    match pipe.shared_secret().map(|s| s.to_owned()) {
+        Some(ss) => {
+            tracing::debug!("using shared secret for authentication");
+            let challenge = rand::random();
+            let client_hello = ClientHello {
+                credentials: Default::default(), // no authentication support yet
+                crypt_hello: ClientCryptHello::SharedSecretChallenge(challenge),
+            };
+            write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
+
+            let mac = blake3::keyed_hash(&challenge, &ss);
+            let exit_response: ExitHello =
+                stdcode::deserialize(&read_prepend_length(&mut pipe).await?)?;
+            match exit_response.inner {
+                ExitHelloInner::SharedSecretResponse(response_mac) => {
+                    if mac == response_mac {
+                        tracing::debug!("authentication successful with shared secret");
+                        Ok(EitherPipe::Left(pipe))
+                    } else {
+                        anyhow::bail!("authentication failed with shared secret");
+                    }
+                }
+                _ => anyhow::bail!("unexpected response from server"),
+            }
+        }
         None => {
             tracing::debug!("requiring full authentication");
             let my_esk = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
@@ -141,7 +164,9 @@ async fn client_auth(mut pipe: impl Pipe, pubkey: VerifyingKey) -> anyhow::Resul
                     let shared_secret = my_esk.diffie_hellman(&their_epk);
                     let read_key = blake3::derive_key("e2c", shared_secret.as_bytes());
                     let write_key = blake3::derive_key("c2e", shared_secret.as_bytes());
-                    Ok(ClientExitCryptPipe::new(pipe, read_key, write_key))
+                    Ok(EitherPipe::Right(ClientExitCryptPipe::new(
+                        pipe, read_key, write_key,
+                    )))
                 }
             }
         }

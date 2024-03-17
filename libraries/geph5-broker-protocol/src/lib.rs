@@ -20,8 +20,11 @@ pub use bridge::*;
 pub trait BrokerProtocol {
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError>;
     async fn get_routes(&self, exit_b2e: SocketAddr) -> Result<RouteDescriptor, GenericError>;
-    async fn put_exit(&self, descriptor: Mac<Signed<ExitDescriptor>>) -> Result<(), GenericError>;
-    async fn put_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
+    async fn insert_exit(
+        &self,
+        descriptor: Mac<Signed<ExitDescriptor>>,
+    ) -> Result<(), GenericError>;
+    async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
 }
 
 pub const DOMAIN_EXIT_DESCRIPTOR: &str = "exit-descriptor";

@@ -72,7 +72,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             "uploading..."
         );
         broker_rpc
-            .put_bridge(Mac::new(
+            .insert_bridge(Mac::new(
                 BridgeDescriptor {
                     control_listen,
                     control_cookie: control_cookie.clone(),
