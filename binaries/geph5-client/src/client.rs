@@ -40,7 +40,7 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let _client_loops: Vec<_> = (0..8)
+    let _client_loops: Vec<_> = (0..1)
         .map(|_| {
             Immortal::respawn(
                 RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),

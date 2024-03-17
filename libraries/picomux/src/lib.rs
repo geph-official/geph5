@@ -26,9 +26,7 @@ use frame::{Frame, CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_
 use futures_intrusive::sync::SharedSemaphore;
 use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
-    future::{FusedFuture, Shared},
-    io::BufReader,
-    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
+    future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
 };
 
 use async_io::Timer;
@@ -40,7 +38,9 @@ use tap::Tap;
 
 use crate::frame::{Header, PingInfo};
 
-const MORE_INTERVAL: usize = 200;
+const INIT_WINDOW: usize = 10;
+const MAX_WINDOW: usize = 500;
+const MSS: usize = 4096;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LivenessConfig {
@@ -197,30 +197,63 @@ async fn picomux_inner(
     };
 
     let create_stream = |stream_id, metadata: Bytes| {
-        let (send_incoming, mut recv_incoming) = tachyonix::channel(MORE_INTERVAL * 2);
-        let (mut write_incoming, read_incoming) = bipe::bipe(32768);
-        let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
+        let (send_incoming, mut recv_incoming) = tachyonix::channel(MAX_WINDOW);
+        let (mut write_incoming, read_incoming) = bipe::bipe(MSS * 2);
+        let (write_outgoing, mut read_outgoing) = bipe::bipe(MSS * 2);
         let stream = Stream {
             write_outgoing,
             read_incoming,
             metadata,
         };
 
-        let send_more = SharedSemaphore::new(false, 2);
+        let send_more = SharedSemaphore::new(false, INIT_WINDOW);
         // jelly bean movers
         smolscale::spawn::<anyhow::Result<()>>({
             let send_outgoing = send_outgoing.clone();
 
             async move {
+                let mut remote_window = INIT_WINDOW;
+                let mut target_remote_window = INIT_WINDOW / 2;
                 loop {
-                    for _ in 0..MORE_INTERVAL {
-                        let frame: Frame = recv_incoming.recv().await?;
-                        write_incoming.write_all(&frame.body).await?;
+                    let min_quantum = (target_remote_window / 10).max(3).min(50);
+                    let (frame, enqueued_time): (Frame, Instant) = recv_incoming.recv().await?;
+                    let queue_delay = enqueued_time.elapsed();
+                    tracing::trace!(
+                        stream_id,
+                        queue_delay = debug(queue_delay),
+                        remote_window,
+                        target_remote_window,
+                        "queue delay measured"
+                    );
+                    write_incoming.write_all(&frame.body).await?;
+                    remote_window -= 1;
+
+                    // adjust the target remote window
+                    if queue_delay.as_millis() > 50 {
+                        target_remote_window = 3;
+                    } else {
+                        target_remote_window = (target_remote_window + 1).min(MAX_WINDOW);
                     }
-                    send_outgoing
-                        .send(Frame::new_empty(stream_id, CMD_MORE))
-                        .await?;
-                    tracing::debug!(stream_id, MORE_INTERVAL, "sending MORE");
+
+                    if remote_window + min_quantum <= target_remote_window {
+                        let quantum = target_remote_window - remote_window;
+                        send_outgoing
+                            .send(Frame::new(
+                                stream_id,
+                                CMD_MORE,
+                                &(quantum as u16).to_le_bytes(),
+                            ))
+                            .await?;
+                        tracing::debug!(
+                            stream_id,
+                            remote_window,
+                            target_remote_window,
+                            quantum,
+                            queue_delay = debug(queue_delay),
+                            "sending MORE"
+                        );
+                        remote_window += quantum;
+                    }
                 }
             }
         })
@@ -247,30 +280,28 @@ async fn picomux_inner(
                     })
                     .detach();
                 });
-                let mut buf = [0u8; 16384];
+                let mut buf = [0u8; MSS];
                 loop {
                     send_more.acquire(1).await.disarm();
-                    for _ in 0..MORE_INTERVAL {
-                        let n = read_outgoing.read(&mut buf).await?;
-                        if n == 0 {
-                            return Ok(());
-                        }
-                        let frame = Frame {
-                            header: Header {
-                                version: 1,
-                                command: CMD_PSH,
-                                body_len: n as _,
-                                stream_id,
-                            },
-                            body: Bytes::copy_from_slice(&buf[..n]),
-                        };
-                        tracing::trace!(stream_id, n, "sending outgoing data into channel");
-                        send_outgoing
-                            .send(frame)
-                            .await
-                            .ok()
-                            .context("cannot send")?;
+                    let n = read_outgoing.read(&mut buf).await?;
+                    if n == 0 {
+                        return Ok(());
                     }
+                    let frame = Frame {
+                        header: Header {
+                            version: 1,
+                            command: CMD_PSH,
+                            body_len: n as _,
+                            stream_id,
+                        },
+                        body: Bytes::copy_from_slice(&buf[..n]),
+                    };
+                    tracing::trace!(stream_id, n, "sending outgoing data into channel");
+                    send_outgoing
+                        .send(frame)
+                        .await
+                        .ok()
+                        .context("cannot send")?;
                 }
             }
         })
@@ -386,9 +417,17 @@ async fn picomux_inner(
                             buffer_table.insert(frame.header.stream_id, (send_incoming, send_more));
                         }
                         CMD_MORE => {
+                            let window_increase = u16::from_le_bytes(
+                                (&frame.body[..]).try_into().ok().ok_or_else(|| {
+                                    std::io::Error::new(
+                                        ErrorKind::InvalidData,
+                                        "corrupt window increase message",
+                                    )
+                                })?,
+                            );
                             let back = buffer_table.get(&stream_id);
                             if let Some(back) = back {
-                                back.1.release(1);
+                                back.1.release(window_increase as _);
                             } else {
                                 tracing::warn!(
                                     stream_id = frame.header.stream_id,
@@ -399,7 +438,9 @@ async fn picomux_inner(
                         CMD_PSH => {
                             let back = buffer_table.get(&stream_id);
                             if let Some(back) = back {
-                                if let Err(TrySendError::Full(_)) = back.0.try_send(frame.clone()) {
+                                if let Err(TrySendError::Full(_)) =
+                                    back.0.try_send((frame.clone(), Instant::now()))
+                                {
                                     tracing::error!(
                                         stream_id,
                                         "receive queue full --- this should NEVER happen"

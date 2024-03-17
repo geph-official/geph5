@@ -23,6 +23,19 @@ impl Frame {
         }
     }
 
+    /// Create an frame with the given stream ID, command, and body
+    pub fn new(stream_id: u32, command: u8, body: &[u8]) -> Self {
+        Self {
+            header: Header {
+                version: 1,
+                command,
+                body_len: body.len() as _,
+                stream_id,
+            },
+            body: Bytes::copy_from_slice(body),
+        }
+    }
+
     /// Read a frame from an async reader.
     pub async fn read(mut rdr: impl AsyncRead + Unpin) -> std::io::Result<Self> {
         let mut header_buf = [0; std::mem::size_of::<Header>()];

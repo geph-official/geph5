@@ -64,6 +64,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     .context("overall dial/mux/auth timeout")??;
     client_inner(ctx, authed_pipe).await
 }
+
 #[tracing::instrument(skip_all, fields(remote=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
 async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
@@ -96,7 +97,9 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
                             let _ = send_back.send(stream);
                         }
                         Err(err) => {
+                            tracing::warn!(remote_addr = display(&remote_addr), err = debug(&err), "session is dead, hot-potatoing the connection request to somebody else");
                             let _ = send_stop.try_send(err);
+                            let _ = ctx.get(CONN_REQ_CHAN).0.try_send((remote_addr, send_back));
                         }
                     }
                     anyhow::Ok(())
