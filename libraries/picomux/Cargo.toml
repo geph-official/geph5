@@ -31,7 +31,7 @@ smolscale = "0.4.4"
 tachyonix = "0.2.1"
 tracing = "0.1.40"
 tracing-test = "0.2.4"
-async-rw-adapter={path="../async-rw-adapter"}
+# async-rw-adapter={path="../async-rw-adapter"}
 fastrand = "2.0.1"
 tap = "1.0.1"
 serde = {version="1.0.197", features=["derive"]}
