@@ -40,7 +40,7 @@ use crate::frame::{Header, PingInfo};
 
 const INIT_WINDOW: usize = 10;
 const MAX_WINDOW: usize = 500;
-const MSS: usize = 16384;
+const MSS: usize = 4096;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LivenessConfig {
