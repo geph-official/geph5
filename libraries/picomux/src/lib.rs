@@ -61,7 +61,7 @@ pub struct PicoMux {
     task: Shared<Task<Arc<std::io::Result<Infallible>>>>,
     send_open_req: Sender<(Bytes, oneshot::Sender<Stream>)>,
     last_forced_ping: Mutex<Instant>,
-    recv_accepted: Receiver<Stream>,
+    recv_accepted: async_channel::Receiver<Stream>,
     send_liveness: Sender<LivenessConfig>,
     liveness: LivenessConfig,
 }
@@ -73,7 +73,7 @@ impl PicoMux {
         write: impl AsyncWrite + Send + Unpin + 'static,
     ) -> Self {
         let (send_open_req, recv_open_req) = tachyonix::channel(1);
-        let (send_accepted, recv_accepted) = tachyonix::channel(10000);
+        let (send_accepted, recv_accepted) = async_channel::bounded(10000);
         let (send_liveness, recv_liveness) = tachyonix::channel(1000);
         let liveness = LivenessConfig::default();
         send_liveness.try_send(liveness).unwrap();
@@ -103,7 +103,7 @@ impl PicoMux {
     }
 
     /// Accepts a new stream from the peer.
-    pub async fn accept(&mut self) -> std::io::Result<Stream> {
+    pub async fn accept(&self) -> std::io::Result<Stream> {
         let err = self.wait_error();
         async {
             if let Ok(val) = self.recv_accepted.recv().await {
@@ -161,7 +161,7 @@ static MUX_ID_CTR: AtomicU64 = AtomicU64::new(0);
 async fn picomux_inner(
     read: impl AsyncRead + 'static + Send + Unpin,
     mut write: impl AsyncWrite + Send + Unpin + 'static,
-    send_accepted: Sender<Stream>,
+    send_accepted: async_channel::Sender<Stream>,
     mut recv_open_req: Receiver<(Bytes, oneshot::Sender<Stream>)>,
     mut recv_liveness: Receiver<LivenessConfig>,
 ) -> Result<Infallible, std::io::Error> {

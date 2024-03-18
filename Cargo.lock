@@ -2527,6 +2527,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "argh",
+ "async-channel 2.2.0",
  "async-dup",
  "async-event",
  "async-io 2.3.2",
