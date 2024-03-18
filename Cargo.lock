@@ -1471,6 +1471,7 @@ dependencies = [
  "async-io 2.3.2",
  "async-trait",
  "blake3",
+ "dashmap",
  "deadpool",
  "futures-util",
  "geph5-broker-protocol",

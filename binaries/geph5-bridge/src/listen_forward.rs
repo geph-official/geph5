@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Context;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use deadpool::managed::Pool;
 use futures_util::AsyncReadExt as _;
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
@@ -18,7 +19,6 @@ use sillad::{
     tcp::{TcpDialer, TcpListener},
 };
 use smol::future::FutureExt as _;
-
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
 
@@ -84,12 +84,15 @@ async fn handle_one_listener(
 }
 
 async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<picomux::Stream> {
-    static POOLS: Lazy<Cache<SocketAddr, Pool<MuxManager>>> = Lazy::new(|| {
-        Cache::builder()
-            .time_to_idle(Duration::from_secs(86400))
-            .build()
-    });
+    static POOLS: Lazy<DashMap<u8, Cache<SocketAddr, Pool<MuxManager>>>> =
+        Lazy::new(Default::default);
     let pool = POOLS
+        .entry(rand::random())
+        .or_insert_with(|| {
+            Cache::builder()
+                .time_to_idle(Duration::from_secs(86400))
+                .build()
+        })
         .try_get_with(b2e_dest, async {
             Pool::builder(MuxManager {
                 underlying: TcpDialer {
