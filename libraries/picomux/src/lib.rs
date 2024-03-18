@@ -213,7 +213,7 @@ async fn picomux_inner(
 
             async move {
                 let mut remote_window = INIT_WINDOW;
-                let mut target_remote_window = INIT_WINDOW / 2;
+                let mut target_remote_window = INIT_WINDOW;
                 loop {
                     let min_quantum = (target_remote_window / 10).max(3).min(50);
                     let (frame, enqueued_time): (Frame, Instant) = recv_incoming.recv().await?;
