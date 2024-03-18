@@ -213,7 +213,8 @@ async fn picomux_inner(
 
             async move {
                 let mut remote_window = INIT_WINDOW;
-                let mut target_remote_window = INIT_WINDOW;
+                let mut target_remote_window = MAX_WINDOW;
+                let mut last_window_adjust = Instant::now();
                 loop {
                     let min_quantum = (target_remote_window / 10).max(3).min(50);
                     let (frame, enqueued_time): (Frame, Instant) = recv_incoming.recv().await?;
@@ -228,11 +229,21 @@ async fn picomux_inner(
                     write_incoming.write_all(&frame.body).await?;
                     remote_window -= 1;
 
-                    // adjust the target remote window
-                    if queue_delay.as_millis() > 50 {
-                        target_remote_window = 3;
-                    } else {
-                        target_remote_window = (target_remote_window + 1).min(MAX_WINDOW);
+                    // adjust the target remote window once per window
+                    if last_window_adjust.elapsed().as_millis() > 250 {
+                        last_window_adjust = Instant::now();
+                        if queue_delay.as_millis() > 50 {
+                            target_remote_window = (target_remote_window / 2).max(3);
+                        } else {
+                            target_remote_window = (target_remote_window + 1).min(MAX_WINDOW);
+                        }
+                        tracing::debug!(
+                            stream_id,
+                            queue_delay = debug(queue_delay),
+                            remote_window,
+                            target_remote_window,
+                            "adjusting window"
+                        )
                     }
 
                     if remote_window + min_quantum <= target_remote_window {
