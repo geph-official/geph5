@@ -10,6 +10,6 @@ blake3 = {version="1.5.1", features=["serde"]}
 blind-rsa-signatures = "0.15.0"
 rand = "0.8.5"
 stdcode = "0.1.14"
-serde = {version="1.0.197", features=["derive"]}
+serde = {version="1.0.197", features=["derive", "rc"]}
 anyhow = "1.0.81"
 rayon = "1.9.0"
