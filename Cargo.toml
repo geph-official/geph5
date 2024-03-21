@@ -12,6 +12,10 @@ panic = "abort"
 [profile.dev]
 panic = "abort"
 
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+
+
 [profile.release-dbg]
 inherits = "dev"
 opt-level = 3 

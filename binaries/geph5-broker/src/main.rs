@@ -2,9 +2,10 @@ use anyhow::Context;
 use argh::FromArgs;
 use axum::{routing::post, Json, Router};
 use database::database_gc_loop;
+use ed25519_dalek::SigningKey;
 use geph5_broker_protocol::BrokerService;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use rpc_impl::BrokerImpl;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
@@ -18,12 +19,46 @@ mod rpc_impl;
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 
+/// The master secret.
+static MASTER_SECRET: Lazy<SigningKey> = Lazy::new(|| {
+    SigningKey::from_bytes(
+        std::fs::read(&CONFIG_FILE.wait().master_secret)
+            .unwrap()
+            .as_slice()
+            .try_into()
+            .unwrap(),
+    )
+});
+
+/// The Plus mizaru SK.
+static PLUS_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| load_mizaru_sk("plus.bin"));
+
+/// The Free mizaru SK.
+static FREE_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| load_mizaru_sk("free.bin"));
+
+fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
+    let mizaru_keys_dir = &CONFIG_FILE.wait().mizaru_keys;
+    let plus_file_path = mizaru_keys_dir.join(name);
+
+    if plus_file_path.exists() {
+        // If the file exists, read it
+        let file_content = fs::read(&plus_file_path).unwrap();
+        stdcode::deserialize(&file_content).unwrap()
+    } else {
+        // If the file doesn't exist, generate a new secret key and write it to the file
+        let new_key = mizaru2::SecretKey::generate();
+        fs::write(&plus_file_path, stdcode::serialize(&new_key).unwrap()).unwrap();
+        new_key
+    }
+}
+
 /// This struct defines the structure of our configuration file
 #[derive(Deserialize)]
 struct ConfigFile {
     listen: SocketAddr,
     tcp_listen: SocketAddr,
     master_secret: PathBuf,
+    mizaru_keys: PathBuf,
     postgres_url: String,
     postgres_root_cert: PathBuf,
 
@@ -61,6 +96,9 @@ async fn main() -> anyhow::Result<()> {
         serde_yaml::from_str(&config_contents).context("Failed to parse the config file")?;
 
     let _ = CONFIG_FILE.set(config);
+
+    Lazy::force(&PLUS_MIZARU_SK);
+    Lazy::force(&FREE_MIZARU_SK);
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 

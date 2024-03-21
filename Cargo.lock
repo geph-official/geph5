@@ -1503,11 +1503,13 @@ dependencies = [
  "async-trait",
  "axum",
  "blake3",
+ "bytes",
  "ed25519-dalek",
  "futures-util",
  "geph5-broker-protocol",
  "geph5-misc-rpc",
  "isocountry",
+ "mizaru2",
  "moka",
  "nanorpc",
  "nanorpc-sillad",
@@ -1522,6 +1524,7 @@ dependencies = [
  "smol-timeout",
  "smolscale",
  "sqlx",
+ "stdcode",
  "thiserror",
  "tokio",
  "tracing",
@@ -1539,6 +1542,7 @@ dependencies = [
  "ed25519-dalek",
  "isocountry",
  "language-tags",
+ "mizaru2",
  "nanorpc",
  "serde",
  "serde_json",
@@ -2230,8 +2234,13 @@ dependencies = [
 name = "mizaru2"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "blake3",
  "blind-rsa-signatures",
+ "rand",
+ "rayon",
+ "serde",
+ "stdcode",
 ]
 
 [[package]]
@@ -2414,6 +2423,9 @@ name = "once_cell"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
+dependencies = [
+ "parking_lot_core 0.9.9",
+]
 
 [[package]]
 name = "oneshot"
@@ -2805,6 +2817,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d86a7c4638d42c44551f4791a20e687dbb4c3de1f33c43dd71e355cd429def1"
 dependencies = [
  "bitflags 2.4.2",
+]
+
+[[package]]
+name = "rayon"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4963ed1bc86e4f3ee217022bd855b297cef07fb9eac5dfa1f788b220b49b3bd"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
 ]
 
 [[package]]

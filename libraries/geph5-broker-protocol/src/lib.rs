@@ -1,6 +1,8 @@
 use std::{fmt::Display, net::SocketAddr};
 
 use async_trait::async_trait;
+use bytes::Bytes;
+use mizaru2::{BlindedClientToken, BlindedSignature};
 use nanorpc::nanorpc_derive;
 mod route;
 pub use route::*;
@@ -14,10 +16,21 @@ mod mac;
 pub use mac::*;
 mod bridge;
 pub use bridge::*;
+use thiserror::Error;
 
 #[nanorpc_derive]
 #[async_trait]
 pub trait BrokerProtocol {
+    async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
+    async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
+    async fn get_connect_token(
+        &self,
+        auth_token: String,
+        level: AccountLevel,
+        epoch: u16,
+        blind_token: BlindedClientToken,
+    ) -> Result<BlindedSignature, AuthError>;
+
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError>;
     async fn get_routes(&self, exit_b2e: SocketAddr) -> Result<RouteDescriptor, GenericError>;
     async fn insert_exit(
@@ -25,6 +38,27 @@ pub trait BrokerProtocol {
         descriptor: Mac<Signed<ExitDescriptor>>,
     ) -> Result<(), GenericError>;
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum AccountLevel {
+    Free,
+    Plus,
+}
+
+#[derive(Clone, Debug, Error, Serialize, Deserialize)]
+pub enum AuthError {
+    #[error("rate limited")]
+    RateLimited,
+    #[error("forbidden")]
+    Forbidden,
+    #[error("wrong level")]
+    WrongLevel,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Credential {
+    TestDummy,
 }
 
 pub const DOMAIN_EXIT_DESCRIPTOR: &str = "exit-descriptor";

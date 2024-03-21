@@ -1,36 +1,72 @@
 use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use geph5_broker_protocol::{
-    BridgeDescriptor, BrokerProtocol, ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor,
-    Signed, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, Credential, ExitDescriptor,
+    ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
+use mizaru2::{BlindedClientToken, BlindedSignature};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
+use rand::Rng as _;
 
 use crate::{
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
     routes::bridge_to_leaf_route,
-    CONFIG_FILE,
+    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
 };
 
 pub struct BrokerImpl {}
 
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {
-    async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError> {
-        static MASTER_SECRET: Lazy<SigningKey> = Lazy::new(|| {
-            SigningKey::from_bytes(
-                std::fs::read(&CONFIG_FILE.wait().master_secret)
-                    .unwrap()
-                    .as_slice()
-                    .try_into()
-                    .unwrap(),
-            )
-        });
+    async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes {
+        match level {
+            AccountLevel::Free => &FREE_MIZARU_SK,
+            AccountLevel::Plus => &PLUS_MIZARU_SK,
+        }
+        .get_subkey(epoch)
+        .public_key()
+        .unwrap()
+        .to_der()
+        .unwrap()
+        .into()
+    }
+    async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError> {
+        let user_id = match credential {
+            Credential::TestDummy => 42, // User ID for TestDummy
+        };
 
+        let token: String = std::iter::repeat(())
+            .map(|()| rand::thread_rng().sample(rand::distributions::Alphanumeric))
+            .map(char::from)
+            .take(30)
+            .collect();
+
+        match sqlx::query("INSERT INTO auth_tokens (token, user_id) VALUES ($1, $2)")
+            .bind(&token)
+            .bind(user_id)
+            .execute(POSTGRES.deref())
+            .await
+        {
+            Ok(_) => Ok(token),
+            Err(_) => Err(AuthError::RateLimited), // If insertion fails, return RateLimited error
+        }
+    }
+    async fn get_connect_token(
+        &self,
+        auth_token: String,
+        level: AccountLevel,
+        epoch: u16,
+        blind_token: BlindedClientToken,
+    ) -> Result<BlindedSignature, AuthError> {
+        todo!()
+    }
+
+    async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError> {
         static EXIT_CACHE: Lazy<Cache<(), Signed<ExitList>>> = Lazy::new(|| {
             Cache::builder()
                 .time_to_live(Duration::from_secs(10))
