@@ -1,10 +1,15 @@
 use std::net::SocketAddr;
 
+use anyctx::AnyCtx;
+use anyhow::Context;
 use async_trait::async_trait;
+use geph5_broker_protocol::BrokerClient;
 use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
+
+use crate::client::{Config, CtxField};
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -29,6 +34,19 @@ impl BrokerSource {
         }
     }
 }
+
+pub fn broker_client(ctx: &AnyCtx<Config>) -> anyhow::Result<&BrokerClient> {
+    ctx.get(BROKER_CLIENT).as_ref().context(
+        "broker information not provided, so cannot use any broker-dependent functionality",
+    )
+}
+
+static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
+    ctx.init()
+        .broker
+        .as_ref()
+        .map(|src| BrokerClient::from(src.rpc_transport()))
+};
 
 struct HttpRpcTransport {
     url: String,

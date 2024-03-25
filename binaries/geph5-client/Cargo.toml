@@ -17,10 +17,11 @@ geph5-broker-protocol={path="../../libraries/geph5-broker-protocol"}
 geph5-misc-rpc={path="../../libraries/geph5-misc-rpc"}
 picomux={path="../../libraries/picomux"}
 sillad={path="../../libraries/sillad"}
+mizaru2={path="../../libraries/mizaru2"}
 sillad-sosistab3={path="../../libraries/sillad-sosistab3"}
 nanorpc-sillad={path="../../libraries/nanorpc-sillad"}
 reqwest = {version="0.11.24", default-features=false, features=["rustls-tls"]}
-
+sqlx = { version = "0.7.3", features = ["sqlite", "runtime-async-std"] }
 async-trait = "0.1.77"
 nanorpc = "0.1.12"
 thiserror = "1.0.57"
@@ -41,3 +42,5 @@ clone-macro = "0.1.0"
 ed25519-dalek = "2.1.1"
 hex = "0.4.3"
 nursery_macro = "0.1.0"
+event-listener = "5.2.0"
+blind-rsa-signatures = "0.15.0"

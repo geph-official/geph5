@@ -12,6 +12,7 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fs, net::SocketAddr, path::PathBuf};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+mod auth_token;
 mod database;
 mod routes;
 mod rpc_impl;

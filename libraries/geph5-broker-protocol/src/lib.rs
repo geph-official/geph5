@@ -2,7 +2,7 @@ use std::{fmt::Display, net::SocketAddr};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use mizaru2::{BlindedClientToken, BlindedSignature};
+use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use nanorpc::nanorpc_derive;
 mod route;
 pub use route::*;
@@ -32,7 +32,12 @@ pub trait BrokerProtocol {
     ) -> Result<BlindedSignature, AuthError>;
 
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError>;
-    async fn get_routes(&self, exit_b2e: SocketAddr) -> Result<RouteDescriptor, GenericError>;
+    async fn get_routes(
+        &self,
+        token: ClientToken,
+        sig: UnblindedSignature,
+        exit_b2e: SocketAddr,
+    ) -> Result<RouteDescriptor, GenericError>;
     async fn insert_exit(
         &self,
         descriptor: Mac<Signed<ExitDescriptor>>,

@@ -2,13 +2,25 @@ use blind_rsa_signatures as brs;
 use brs::reexports::rsa::pkcs1::EncodeRsaPublicKey as _;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::SystemTime,
 };
 use stdcode::StdcodeSerializeExt;
 const KEY_COUNT: usize = 65536;
-const KEY_BITS: usize = 1536;
+const KEY_BITS: usize = 2048;
+
+/// Obtains the current epoch.
+pub fn current_epoch() -> u16 {
+    (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        / 86400) as u16
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretKey {
@@ -114,14 +126,18 @@ pub struct BlindedSignature {
 
 impl BlindedSignature {
     /// Unblinds the signature, given the unblinding factor.
-    pub fn unblind(self, secret: &brs::Secret, msg: &[u8]) -> anyhow::Result<UnblindedSignature> {
+    pub fn unblind(
+        self,
+        secret: &brs::Secret,
+        msg: ClientToken,
+    ) -> anyhow::Result<UnblindedSignature> {
         let pk = brs::PublicKey::from_der(&self.used_key)?;
         let blind_sig = brs::BlindSignature::new(self.blinded_sig.clone());
         let unblinded = pk.finalize(
             &blind_sig,
             secret,
             None,
-            msg,
+            msg.0,
             &brs::Options::new(brs::Hash::Sha256, true, 32),
         )?;
 

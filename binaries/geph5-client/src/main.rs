@@ -4,9 +4,13 @@ use argh::FromArgs;
 use client::{Client, Config};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+mod auth;
 mod broker;
 mod client;
-mod exit;
+mod client_inner;
+mod database;
+mod route;
+mod socks5;
 
 /// Run the Geph5 broker.
 #[derive(FromArgs)]

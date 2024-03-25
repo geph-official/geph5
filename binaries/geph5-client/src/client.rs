@@ -1,21 +1,21 @@
-mod inner;
-mod socks5;
 use anyctx::AnyCtx;
 use clone_macro::clone;
 use futures_util::TryFutureExt;
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
-use crate::{broker::BrokerSource, exit::ExitConstraint};
-
-use self::{inner::client_once, socks5::socks5_loop};
+use crate::{
+    auth::auth_loop, broker::BrokerSource, client_inner::client_once, route::ExitConstraint,
+    socks5::socks5_loop,
+};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub socks5_listen: SocketAddr,
     pub exit_constraint: ExitConstraint,
+    pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
 }
 
@@ -40,14 +40,15 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let _client_loops: Vec<_> = (0..6)
-        .map(|_| {
-            Immortal::respawn(
-                RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-                clone!([ctx], move || client_once(ctx.clone())
-                    .inspect_err(|e| tracing::warn!("client_inner died: {:?}", e))),
-            )
-        })
-        .collect();
-    socks5_loop(ctx).await
+    // let _client_loops: Vec<_> = (0..6)
+    //     .map(|_| {
+    //         Immortal::respawn(
+    //             RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
+    //             clone!([ctx], move || client_once(ctx.clone())
+    //                 .inspect_err(|e| tracing::warn!("client_inner died: {:?}", e))),
+    //         )
+    //     })
+    //     .collect();
+    // socks5_loop(ctx).await
+    auth_loop(&ctx).await
 }
