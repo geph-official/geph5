@@ -12,7 +12,7 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
         .cache
         .as_ref()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| ":memory:".into());
+        .unwrap_or_else(|| ":memory:?cache=shared".into());
     tracing::debug!("INITIALIZING DATABASE");
     let options = SqliteConnectOptions::from_str(&db_path)
         .unwrap()

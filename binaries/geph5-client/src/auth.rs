@@ -4,16 +4,23 @@ use anyctx::AnyCtx;
 use anyhow::Context as _;
 use blind_rsa_signatures as brs;
 use geph5_broker_protocol::{AccountLevel, AuthError, Credential};
-use mizaru2::ClientToken;
+use mizaru2::{BlindedSignature, ClientToken, UnblindedSignature};
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
     broker::broker_client,
     client::Config,
-    database::{db_read, db_write},
+    database::{db_read, db_read_or_wait, db_write},
 };
 
-// Basic workflow, we have a maintenance task that, given an auth token, refreshes the connection token for this and the next epoch, every 24 hours.
+pub async fn get_connect_token(
+    ctx: &AnyCtx<Config>,
+) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
+    let epoch = mizaru2::current_epoch();
+    Ok(stdcode::deserialize(
+        &db_read_or_wait(ctx, &format!("conn_token_{epoch}")).await?,
+    )?)
+}
 
 pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     // Dummy authentication for now!
@@ -64,7 +71,7 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
                         db_write(
                             ctx,
                             &format!("conn_token_{epoch}"),
-                            &(token, u_sig).stdcode(),
+                            &(level, token, u_sig).stdcode(),
                         )
                         .await?;
                         break;

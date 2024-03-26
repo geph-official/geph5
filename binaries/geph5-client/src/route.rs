@@ -14,7 +14,7 @@ use sillad::{
 };
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
-use crate::{broker::broker_client, client::Config};
+use crate::{auth::get_connect_token, broker::broker_client, client::Config};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -97,8 +97,9 @@ pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, D
     };
 
     // Also obtain the bridges
+    let (_, conn_token, sig) = get_connect_token(ctx).await?;
     let bridge_routes = broker
-        .get_routes(todo!(), todo!(), exit.b2e_listen)
+        .get_routes(conn_token, sig, exit.b2e_listen)
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
     tracing::debug!(

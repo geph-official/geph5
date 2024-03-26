@@ -13,7 +13,7 @@ use std::net::Ipv4Addr;
 use super::Config;
 
 #[tracing::instrument(skip_all)]
-pub async fn socks5_loop(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let mut listener = sillad::tcp::TcpListener::bind(ctx.init().socks5_listen).await?;
     nursery!({
         loop {
