@@ -1,6 +1,6 @@
 use anyctx::AnyCtx;
 use event_listener::Event;
-use sqlx::Row;
+use sqlx::{pool::PoolOptions, Row};
 use sqlx::{sqlite::SqliteConnectOptions, Pool, SqlitePool};
 use std::str::FromStr;
 
@@ -14,12 +14,16 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| ":memory:?cache=shared".into());
     tracing::debug!("INITIALIZING DATABASE");
-    let options = SqliteConnectOptions::from_str(&db_path)
+    let options = dbg!(SqliteConnectOptions::from_str(&db_path))
         .unwrap()
         .create_if_missing(true);
 
     smol::future::block_on(async move {
-        let pool = Pool::connect_with(options).await.unwrap();
+        let pool = PoolOptions::new()
+            .min_connections(1)
+            .max_connections(100)
+            .connect_lazy_with(options);
+
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS misc (
                 key TEXT PRIMARY KEY,
