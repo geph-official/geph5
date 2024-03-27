@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn test_picomux_basic() {
         smolscale::block_on(async move {
-            let (picomux_a, mut picomux_b) = setup_picomux_pair().await;
+            let (picomux_a, picomux_b) = setup_picomux_pair().await;
 
             let a_proc = async move {
                 let mut stream_a = picomux_a.open(b"").await.unwrap();

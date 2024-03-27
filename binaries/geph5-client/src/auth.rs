@@ -4,7 +4,7 @@ use anyctx::AnyCtx;
 use anyhow::Context as _;
 use blind_rsa_signatures as brs;
 use geph5_broker_protocol::{AccountLevel, AuthError, Credential};
-use mizaru2::{BlindedSignature, ClientToken, UnblindedSignature};
+use mizaru2::{ClientToken, UnblindedSignature};
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
@@ -28,7 +28,7 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         String::from_utf8_lossy(&token).to_string()
     } else {
         let auth_token = broker_client(ctx)?
-            .get_auth_token(Credential::TestDummy)
+            .get_auth_token(ctx.init().credentials.clone())
             .await??;
         db_write(ctx, "auth_token", auth_token.as_bytes()).await?;
         auth_token

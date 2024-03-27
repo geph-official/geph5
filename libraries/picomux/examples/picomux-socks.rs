@@ -71,7 +71,7 @@ fn main() -> anyhow::Result<()> {
                 loop {
                     let tcp_stream = listener.accept().await?;
                     let (read, write) = tcp_stream.split();
-                    let mut mux = PicoMux::new(read, write);
+                    let mux = PicoMux::new(read, write);
                     smolscale::spawn::<anyhow::Result<()>>(async move {
                         loop {
                             let client = mux.accept().await?;

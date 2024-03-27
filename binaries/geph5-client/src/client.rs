@@ -1,6 +1,7 @@
 use anyctx::AnyCtx;
 use clone_macro::clone;
 use futures_util::TryFutureExt;
+use geph5_broker_protocol::Credential;
 use smol::future::FutureExt as _;
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
@@ -8,10 +9,7 @@ use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
-    auth::{auth_loop, get_connect_token},
-    broker::BrokerSource,
-    client_inner::client_once,
-    route::ExitConstraint,
+    auth::auth_loop, broker::BrokerSource, client_inner::client_once, route::ExitConstraint,
     socks5::socks5_loop,
 };
 
@@ -21,6 +19,8 @@ pub struct Config {
     pub exit_constraint: ExitConstraint,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
+    #[serde(default)]
+    pub credentials: Credential,
 }
 
 pub struct Client {

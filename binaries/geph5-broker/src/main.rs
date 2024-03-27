@@ -9,10 +9,10 @@ use once_cell::sync::{Lazy, OnceCell};
 use rpc_impl::BrokerImpl;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
-use std::{fs, net::SocketAddr, path::PathBuf};
+use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-mod auth_token;
+mod auth;
 mod database;
 mod routes;
 mod rpc_impl;
@@ -116,4 +116,8 @@ async fn main() -> anyhow::Result<()> {
 
 async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
     Json(BrokerService(BrokerImpl {}).respond_raw(payload).await)
+}
+
+fn log_error(e: &impl Debug) {
+    tracing::warn!(err = debug(e), "transient error")
 }

@@ -9,7 +9,7 @@ use std::{
     },
     time::SystemTime,
 };
-use stdcode::StdcodeSerializeExt;
+
 const KEY_COUNT: usize = 65536;
 const KEY_BITS: usize = 2048;
 
@@ -245,7 +245,7 @@ mod tests {
     fn test_blind_sign() {
         let secret_key = SecretKey::generate();
         let token = ClientToken::random();
-        let (blinded_digest, secret) = token.blind(&secret_key.get_subkey(0).public_key().unwrap());
+        let (blinded_digest, _secret) = token.blind(&secret_key.get_subkey(0).public_key().unwrap());
         let blinded_signature = secret_key.blind_sign(0, &blinded_digest);
 
         assert_eq!(blinded_signature.epoch, 0);

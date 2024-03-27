@@ -1,7 +1,7 @@
 use anyctx::AnyCtx;
 use event_listener::Event;
 use sqlx::{pool::PoolOptions, Row};
-use sqlx::{sqlite::SqliteConnectOptions, Pool, SqlitePool};
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
 use crate::client::{Config, CtxField};

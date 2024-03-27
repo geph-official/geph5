@@ -52,6 +52,7 @@ pub enum AccountLevel {
 }
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AuthError {
     #[error("rate limited")]
     RateLimited,
@@ -62,8 +63,16 @@ pub enum AuthError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Credential {
     TestDummy,
+    LegacyUsernamePassword { username: String, password: String },
+}
+
+impl Default for Credential {
+    fn default() -> Self {
+        Self::TestDummy
+    }
 }
 
 pub const DOMAIN_EXIT_DESCRIPTOR: &str = "exit-descriptor";

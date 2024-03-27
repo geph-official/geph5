@@ -113,7 +113,7 @@ async fn b2e_loop() -> anyhow::Result<()> {
     loop {
         let b2e_raw = listener.accept().await?;
         let (read, write) = b2e_raw.split();
-        let mut b2e_mux = PicoMux::new(read, write);
+        let b2e_mux = PicoMux::new(read, write);
         let b2e_table = b2e_table.clone();
         smolscale::spawn::<anyhow::Result<()>>(async move {
             loop {
@@ -176,7 +176,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     };
 
     let (client_read, client_write) = client.split();
-    let mut mux = PicoMux::new(client_read, client_write);
+    let mux = PicoMux::new(client_read, client_write);
     loop {
         let stream = mux.accept().await?;
         smolscale::spawn(proxy_stream(stream).map_err(|e| tracing::debug!("stream died with {e}")))

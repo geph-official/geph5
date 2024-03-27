@@ -2,7 +2,7 @@ use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{VerifyingKey};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, Credential, ExitDescriptor,
     ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
@@ -11,10 +11,10 @@ use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
-use rand::Rng as _;
+
 
 use crate::{
-    auth_token::{self, new_auth_token, valid_auth_token},
+    auth::{new_auth_token, valid_auth_token, validate_username_pwd},
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
     routes::bridge_to_leaf_route,
     CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
@@ -39,7 +39,10 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError> {
         let user_id = match credential {
-            Credential::TestDummy => 42, // User ID for TestDummy
+            Credential::TestDummy => 42,
+            Credential::LegacyUsernamePassword { username, password } => {
+                validate_username_pwd(&username, &password).await?
+            }
         };
 
         let token = new_auth_token(user_id)
@@ -124,7 +127,7 @@ impl BrokerProtocol for BrokerImpl {
         exit: SocketAddr,
     ) -> Result<RouteDescriptor, GenericError> {
         // authenticate the token
-        let account_level = if PLUS_MIZARU_SK
+        let _account_level = if PLUS_MIZARU_SK
             .to_public_key()
             .blind_verify(token, &sig)
             .is_ok()

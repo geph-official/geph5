@@ -20,3 +20,4 @@ isocountry = "0.3.2"
 language-tags = {version="0.3.2", features=["serde"]}
 serde_with = {version="3.6.1", features=["hex"]}
 mizaru2={path="../mizaru2"}
+tracing = "0.1.40"
