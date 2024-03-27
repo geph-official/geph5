@@ -130,14 +130,10 @@ impl BrokerProtocol for BrokerImpl {
             .is_ok()
         {
             AccountLevel::Plus
-        } else if FREE_MIZARU_SK
-            .to_public_key()
-            .blind_verify(token, &sig)
-            .is_ok()
-        {
-            AccountLevel::Free
         } else {
-            return Err(GenericError("cannot validate token and sig".into()));
+            FREE_MIZARU_SK.to_public_key().blind_verify(token, &sig)?;
+
+            AccountLevel::Free
         };
 
         // TODO filter out plus only

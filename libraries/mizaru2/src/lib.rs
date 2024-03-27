@@ -187,7 +187,7 @@ impl PublicKey {
         subkey: &[u8],
         merkle_branch: &[blake3::Hash],
     ) -> anyhow::Result<()> {
-        let mut accumulator = blake3::hash(&subkey.stdcode());
+        let mut accumulator = blake3::hash(subkey);
         for (i, hash) in merkle_branch.iter().enumerate() {
             if epoch >> i & 1 == 0 {
                 // the hash is on the "odd" position
