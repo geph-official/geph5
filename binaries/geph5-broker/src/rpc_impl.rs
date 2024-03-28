@@ -1,4 +1,9 @@
-use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    ops::Deref,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -70,11 +75,14 @@ impl BrokerProtocol for BrokerImpl {
                 return Err(AuthError::RateLimited);
             }
         }
-        Ok(match level {
+        let start = Instant::now();
+        let signed = match level {
             AccountLevel::Free => &FREE_MIZARU_SK,
             AccountLevel::Plus => &PLUS_MIZARU_SK,
         }
-        .blind_sign(epoch, &blind_token))
+        .blind_sign(epoch, &blind_token);
+        tracing::debug!(elapsed = debug(start.elapsed()), "blind signing done");
+        Ok(signed)
     }
 
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError> {

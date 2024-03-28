@@ -6,7 +6,7 @@ use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Instant};
 use tap::Pipe;
 
 use crate::client::{Config, CtxField};
@@ -65,7 +65,8 @@ struct HttpRpcTransport {
 impl RpcTransport for HttpRpcTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::trace!(req = serde_json::to_string(&req).unwrap(), "calling broker");
+        tracing::trace!(method = req.method, "calling broker");
+        let start = Instant::now();
         let resp = self
             .client
             .request(Method::POST, &self.url)
@@ -82,9 +83,10 @@ impl RpcTransport for HttpRpcTransport {
             .await?;
         let resp = resp.bytes().await?;
         tracing::trace!(
-            req = serde_json::to_string(&req).unwrap(),
-            resp = debug(&resp),
-            "response got"
+            method = req.method,
+            resp_len = resp.len(),
+            elapsed = debug(start.elapsed()),
+            "response received"
         );
         Ok(serde_json::from_slice(&resp)?)
     }

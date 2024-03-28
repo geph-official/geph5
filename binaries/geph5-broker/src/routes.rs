@@ -42,7 +42,7 @@ pub async fn bridge_to_leaf_route(
                         expiry: SystemTime::now() + Duration::from_secs(86400),
                     },
                 )
-                .timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(1))
                 .await
                 .context("timeout")??;
             anyhow::Ok(RouteDescriptor::Sosistab3 {
