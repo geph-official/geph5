@@ -39,7 +39,7 @@ impl Listener for TcpListener {
 fn set_tcp_options(conn: &Async<TcpStream>) -> std::io::Result<()> {
     conn.get_ref().set_nodelay(true)?;
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     unsafe {
         use std::os::fd::AsRawFd;
         let lowat: libc::c_int = 32768;
