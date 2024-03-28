@@ -10,10 +10,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            dir: musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            dir: windows
           - os: macos-latest
             target: x86_64-apple-darwin
+            dir: macos
 
     runs-on: ${{ matrix.os }}
 
@@ -85,4 +88,4 @@ jobs:
           r2-bucket: geph5
           source-dir: ./artifacts/
           # Use a more dynamic destination directory naming based on the runner OS
-          destination-dir: ./${{ matrix.os }}-latest/
+          destination-dir: ./${{ matrix.dir }}-latest/
