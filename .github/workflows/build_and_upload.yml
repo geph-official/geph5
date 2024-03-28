@@ -91,6 +91,26 @@ jobs:
           r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           r2-bucket: geph5
-          source-dir: artifacts
+          source-dir: artifacts/musl-latest
           # Adjust 'destination-dir' as per need
-          destination-dir: ./
+          destination-dir: ./musl-latest
+      - name: Upload to Cloudflare R2
+        uses: ryand56/r2-upload-action@v1.2.2
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          r2-bucket: geph5
+          source-dir: artifacts/macos-latest
+          # Adjust 'destination-dir' as per need
+          destination-dir: ./macos-latest
+      - name: Upload to Cloudflare R2
+        uses: ryand56/r2-upload-action@v1.2.2
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          r2-bucket: geph5
+          source-dir: artifacts/windows-latest
+          # Adjust 'destination-dir' as per need
+          destination-dir: ./windows-latest
