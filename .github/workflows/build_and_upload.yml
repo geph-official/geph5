@@ -87,5 +87,4 @@ jobs:
           r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           r2-bucket: geph5
           source-dir: ./artifacts/
-          # Use a more dynamic destination directory naming based on the runner OS
-          destination-dir: ./${{ matrix.dir }}-latest/
+          destination-dir: ./${{ matrix.dir }}-latest
