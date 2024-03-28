@@ -1640,6 +1640,7 @@ dependencies = [
  "sqlx",
  "stdcode",
  "tachyonix",
+ "tap",
  "thiserror",
  "tracing",
  "tracing-subscriber",

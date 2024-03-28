@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use anyctx::AnyCtx;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -8,6 +6,8 @@ use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
+use std::net::SocketAddr;
+use tap::Pipe;
 
 use crate::client::{Config, CtxField};
 
@@ -15,6 +15,7 @@ use crate::client::{Config, CtxField};
 #[serde(rename_all = "snake_case")]
 pub enum BrokerSource {
     Direct(String),
+    Fronted { front: String, host: String },
     DirectTcp(SocketAddr),
 }
 
@@ -24,6 +25,7 @@ impl BrokerSource {
         match self {
             BrokerSource::Direct(s) => DynRpcTransport::new(HttpRpcTransport {
                 url: s.clone(),
+                host: None,
                 client: reqwest::Client::new(),
             }),
             BrokerSource::DirectTcp(dest_addr) => {
@@ -31,6 +33,11 @@ impl BrokerSource {
                     dest_addr: *dest_addr,
                 }))
             }
+            BrokerSource::Fronted { front, host } => DynRpcTransport::new(HttpRpcTransport {
+                url: front.clone(),
+                host: Some(host.clone()),
+                client: reqwest::Client::new(),
+            }),
         }
     }
 }
@@ -50,6 +57,7 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
 
 struct HttpRpcTransport {
     url: String,
+    host: Option<String>,
     client: reqwest::Client,
 }
 
@@ -62,9 +70,22 @@ impl RpcTransport for HttpRpcTransport {
             .client
             .request(Method::POST, &self.url)
             .header("content-type", "application/json")
+            .pipe(|s| {
+                if let Some(host) = self.host.as_ref() {
+                    s.header("host", host)
+                } else {
+                    s
+                }
+            })
             .body(serde_json::to_vec(&req).unwrap())
             .send()
             .await?;
-        Ok(serde_json::from_slice(&resp.bytes().await?)?)
+        let resp = resp.bytes().await?;
+        tracing::trace!(
+            req = serde_json::to_string(&req).unwrap(),
+            resp = debug(&resp),
+            "response got"
+        );
+        Ok(serde_json::from_slice(&resp)?)
     }
 }

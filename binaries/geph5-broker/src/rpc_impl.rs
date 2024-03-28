@@ -2,7 +2,8 @@ use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use ed25519_dalek::{VerifyingKey};
+use ed25519_dalek::VerifyingKey;
+use futures_util::future::join_all;
 use geph5_broker_protocol::{
     AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, Credential, ExitDescriptor,
     ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
@@ -11,7 +12,6 @@ use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
-
 
 use crate::{
     auth::{new_auth_token, valid_auth_token, validate_username_pwd},
@@ -143,18 +143,21 @@ impl BrokerProtocol for BrokerImpl {
 
         let raw_descriptors = query_bridges(&format!("{:?}", token)).await?;
         let mut routes = vec![];
-        for desc in raw_descriptors {
-            match bridge_to_leaf_route(&desc, exit).await {
+        for route in join_all(
+            raw_descriptors
+                .into_iter()
+                .map(|desc| bridge_to_leaf_route(desc, exit)),
+        )
+        .await
+        {
+            match route {
                 Ok(route) => routes.push(route),
                 Err(err) => {
-                    tracing::warn!(
-                        err = debug(err),
-                        bridge = debug(desc),
-                        "could not communicate"
-                    )
+                    tracing::warn!(err = debug(err), "could not communicate")
                 }
             }
         }
+
         Ok(RouteDescriptor::Race(routes))
     }
 

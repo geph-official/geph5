@@ -13,7 +13,7 @@ use std::{
 };
 
 pub async fn bridge_to_leaf_route(
-    bridge: &BridgeDescriptor,
+    bridge: BridgeDescriptor,
     exit_b2e: SocketAddr,
 ) -> anyhow::Result<RouteDescriptor> {
     static CACHE: Lazy<Cache<(SocketAddr, SocketAddr), RouteDescriptor>> = Lazy::new(|| {
