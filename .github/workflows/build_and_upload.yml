@@ -64,7 +64,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ matrix.dir }}-artifacts
+          name: ${{ matrix.dir }}
           path: artifacts/${{ matrix.dir }}
 
   upload:
@@ -91,6 +91,6 @@ jobs:
           r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           r2-bucket: geph5
-          source-dir: ./artifacts/
+          source-dir: artifacts
           # Adjust 'destination-dir' as per need
-          destination-dir: "/"
+          destination-dir: ./
