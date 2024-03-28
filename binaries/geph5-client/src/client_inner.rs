@@ -1,7 +1,10 @@
 use anyctx::AnyCtx;
 use anyhow::Context;
 use ed25519_dalek::VerifyingKey;
-use futures_util::AsyncReadExt as _;
+use futures_util::{
+    future::{join_all, try_join_all},
+    AsyncReadExt as _,
+};
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
@@ -45,26 +48,33 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
     let start = Instant::now();
-    let authed_pipe = async {
-        let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
-        tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
-        let raw_pipe = raw_dialer.dial().await?;
-        tracing::debug!(
-            elapsed = debug(start.elapsed()),
-            protocol = raw_pipe.protocol(),
-            "dial completed"
-        );
-        let authed_pipe = client_auth(raw_pipe, pubkey).await?;
-        tracing::debug!(
-            elapsed = debug(start.elapsed()),
-            "authentication done, starting mux system"
-        );
-        anyhow::Ok(authed_pipe)
-    }
-    .timeout(Duration::from_secs(60))
-    .await
-    .context("overall dial/mux/auth timeout")??;
-    client_inner(ctx, authed_pipe).await
+    let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
+    tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
+
+    let once = || async {
+        let authed_pipe = async {
+            let raw_pipe = raw_dialer.dial().await?;
+            tracing::debug!(
+                elapsed = debug(start.elapsed()),
+                protocol = raw_pipe.protocol(),
+                "dial completed"
+            );
+            let authed_pipe = client_auth(raw_pipe, pubkey).await?;
+            tracing::debug!(
+                elapsed = debug(start.elapsed()),
+                "authentication done, starting mux system"
+            );
+            anyhow::Ok(authed_pipe)
+        }
+        .timeout(Duration::from_secs(60))
+        .await
+        .context("overall dial/mux/auth timeout")??;
+        client_inner(ctx.clone(), authed_pipe).await?;
+        anyhow::Ok(())
+    };
+
+    try_join_all((0..6).map(|_| once())).await?;
+    Ok(())
 }
 
 #[tracing::instrument(skip_all, fields(remote=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
@@ -77,17 +87,10 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
     });
     let mux = Arc::new(mux);
 
-    let (send_stop, mut recv_stop) = tachyonix::channel(1);
-    // run a socks5 loop
     async {
-        let err: std::io::Error = recv_stop.recv().await?;
-        Err(err.into())
-    }
-    .race(async {
         nursery!({
             loop {
                 let mux = mux.clone();
-                let send_stop = send_stop.clone();
                 let ctx = ctx.clone();
                 let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
                 smol::future::yield_now().await;
@@ -100,7 +103,6 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
                         }
                         Err(err) => {
                             tracing::warn!(remote_addr = display(&remote_addr), err = debug(&err), "session is dead, hot-potatoing the connection request to somebody else");
-                            let _ = send_stop.try_send(err);
                             let _ = ctx.get(CONN_REQ_CHAN).0.try_send((remote_addr, send_back));
                         }
                     }
@@ -109,7 +111,7 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
                 .detach();
             }
         })
-    })
+    }.or(mux.wait_until_dead())
     .await
 }
 

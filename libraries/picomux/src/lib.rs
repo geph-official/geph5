@@ -96,6 +96,11 @@ impl PicoMux {
         self.task.peek().is_none()
     }
 
+    /// Waits for the whole mux to die of some error.
+    pub async fn wait_until_dead(&self) -> anyhow::Result<()> {
+        self.wait_error().await?
+    }
+
     /// Sets the liveness maintenance configuration for this session.
     pub fn set_liveness(&mut self, liveness: LivenessConfig) {
         self.liveness = liveness;

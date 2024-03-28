@@ -45,3 +45,5 @@ nursery_macro = "0.1.0"
 event-listener = "5.2.0"
 blind-rsa-signatures = "0.15.0"
 tap = "1.0.1"
+dirs = "5.0.1"
+moka = {version="0.12.5", features=["future"]}

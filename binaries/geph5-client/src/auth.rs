@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyctx::AnyCtx;
 use anyhow::Context as _;
 use blind_rsa_signatures as brs;
-use geph5_broker_protocol::{AccountLevel, AuthError, Credential};
+use geph5_broker_protocol::{AccountLevel, AuthError};
 use mizaru2::{ClientToken, UnblindedSignature};
 use stdcode::StdcodeSerializeExt;
 
