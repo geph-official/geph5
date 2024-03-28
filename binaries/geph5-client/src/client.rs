@@ -48,8 +48,9 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         .map(|_| {
             Immortal::respawn(
                 RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-                clone!([ctx], move || client_once(ctx.clone())
-                    .inspect_err(|e| tracing::warn!("client_inner died: {:?}", e))),
+                clone!([ctx], move || client_once(ctx.clone()).inspect_err(
+                    |e| tracing::warn!("client died and restarted: {:?}", e)
+                )),
             )
         })
         .collect();

@@ -34,7 +34,9 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         auth_token
     };
     loop {
-        refresh_conn_token(ctx, &auth_token).await?;
+        if let Err(err) = refresh_conn_token(ctx, &auth_token).await {
+            tracing::warn!(err = debug(err), "failed to refresh conn token");
+        }
         smol::Timer::after(Duration::from_secs(10)).await;
     }
 }

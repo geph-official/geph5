@@ -7,12 +7,13 @@ use std::str::FromStr;
 use crate::client::{Config, CtxField};
 
 static DATABASE: CtxField<SqlitePool> = |ctx| {
+    // TODO this somehow does not make all the connections share the same db?
     let db_path = ctx
         .init()
         .cache
         .as_ref()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file:memdb1?mode=memory&cache=shared".into());
+        .unwrap_or_else(|| ":memory:".into());
     tracing::debug!("INITIALIZING DATABASE");
     let options = dbg!(SqliteConnectOptions::from_str(&db_path))
         .unwrap()
@@ -21,7 +22,8 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
     smol::future::block_on(async move {
         let pool = PoolOptions::new()
             .min_connections(1)
-            .max_connections(100)
+            .max_connections(1)
+            .max_lifetime(None)
             .idle_timeout(None)
             .connect_lazy_with(options);
 
