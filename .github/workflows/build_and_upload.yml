@@ -1,4 +1,3 @@
-# .github/workflows/build_and_upload.yml
 name: Build and Upload
 
 on: [push]
@@ -24,12 +23,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Install prerequisites
       - name: Install musl-tools (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y musl-tools
 
-      # Setup Rust
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -38,47 +35,55 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
-      # Caching
       - name: Cache cargo registry
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         uses: actions/cache@v2
         with:
           path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo build
         uses: actions/cache@v2
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
-      # Build steps for each specific application, including conditions for OS
-      - name: Build geph5-client (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-client/Cargo.toml
+      - name: Build project
+        run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
 
-      - name: Build geph5-client (Windows)
-        if: matrix.os == 'windows-latest'
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc --manifest-path binaries/geph5-client/Cargo.toml
-
-      - name: Build geph5-client (macOS)
-        if: matrix.os == 'macos-latest'
-        run: cargo build --locked --release --target x86_64-apple-darwin --manifest-path binaries/geph5-client/Cargo.toml
-
-      - name: Move binaries
+      - name: Move binaries to artifacts directory
         run: |
-          mkdir artifacts
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then mv target/x86_64-unknown-linux-musl/release/geph5-client artifacts; fi
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then mv target/x86_64-pc-windows-msvc/release/geph5-client.exe artifacts; fi
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then mv target/x86_64-apple-darwin/release/geph5-client artifacts; fi
-        shell: bash
+          mkdir -p artifacts/${{ matrix.dir }}
+          mv target/${{ matrix.target }}/release/geph5-client* artifacts/${{ matrix.dir }}/
 
-      # Upload to Cloudflare R2
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.dir }}-artifacts
+          path: artifacts/${{ matrix.dir }}
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v2
+        with:
+          path: artifacts
+
+      # - name: Prep and correct paths for upload
+      #   run: |
+      #     mv artifacts/musl/* artifacts/
+      #     mv artifacts/windows/* artifacts/
+      #     mv artifacts/macos/* artifacts/
+      #     rm -rf artifacts/musl artifacts/windows artifacts/macos
+      #   shell: bash
+
       - name: Upload to Cloudflare R2
         uses: ryand56/r2-upload-action@v1.2.2
         with:
@@ -87,4 +92,5 @@ jobs:
           r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           r2-bucket: geph5
           source-dir: ./artifacts/
-          destination-dir: ./${{ matrix.dir }}-latest
+          # Adjust 'destination-dir' as per need
+          destination-dir: "/"
