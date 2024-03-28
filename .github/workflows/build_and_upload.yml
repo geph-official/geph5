@@ -73,6 +73,7 @@ jobs:
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then mv target/x86_64-unknown-linux-musl/release/geph5-client artifacts; fi
           if [ "${{ matrix.os }}" = "windows-latest" ]; then mv target/x86_64-pc-windows-msvc/release/geph5-client.exe artifacts; fi
           if [ "${{ matrix.os }}" = "macos-latest" ]; then mv target/x86_64-apple-darwin/release/geph5-client artifacts; fi
+        shell: bash
 
       # Upload to Cloudflare R2
       - name: Upload to Cloudflare R2
