@@ -23,6 +23,9 @@ pub async fn get_connect_token(
 }
 
 pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
+    if ctx.init().broker.is_none() {
+        return smol::future::pending().await;
+    }
     // Dummy authentication for now!
     let auth_token = if let Some(token) = db_read(ctx, "auth_token").await? {
         String::from_utf8_lossy(&token).to_string()
