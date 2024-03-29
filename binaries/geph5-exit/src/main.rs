@@ -11,6 +11,7 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _
 mod broker;
 mod listen;
 mod proxy;
+mod ratelimit;
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
