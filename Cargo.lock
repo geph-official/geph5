@@ -366,15 +366,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-rw-adapter"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "pollster",
- "recycle-box",
-]
-
-[[package]]
 name = "async-signal"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1713,7 +1704,6 @@ name = "geph5-misc-rpc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-rw-adapter",
  "async-task",
  "async-trait",
  "bipe",
