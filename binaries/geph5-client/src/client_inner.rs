@@ -44,6 +44,8 @@ static CONN_REQ_CHAN: CtxField<(
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+static CONCURRENCY: usize = 4;
+
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
@@ -73,7 +75,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         anyhow::Ok(())
     };
 
-    try_join_all((0..6).map(|_| once())).await?;
+    try_join_all((0..CONCURRENCY).map(|_| once())).await?;
     Ok(())
 }
 
