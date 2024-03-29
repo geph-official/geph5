@@ -38,3 +38,4 @@ hex = "0.4.3"
 nursery_macro = "0.1.0"
 moka = {version="0.12.5", features=["future"]}
 tachyonix = "0.2.1"
+mizaru2={path="../../libraries/mizaru2"}

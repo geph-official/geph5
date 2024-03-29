@@ -1676,6 +1676,7 @@ dependencies = [
  "geph5-misc-rpc",
  "hex",
  "isocountry",
+ "mizaru2",
  "moka",
  "nanorpc",
  "nursery_macro",

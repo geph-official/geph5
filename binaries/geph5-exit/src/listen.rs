@@ -1,12 +1,15 @@
 use anyhow::Context;
 use ed25519_dalek::{Signer, VerifyingKey};
 use futures_util::{AsyncReadExt, TryFutureExt};
-use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{
+    AccountLevel, BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR,
+};
 use geph5_misc_rpc::{
     bridge::B2eMetadata,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
 };
+use mizaru2::{ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use picomux::PicoMux;
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
@@ -99,7 +102,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
     loop {
         let c2e_raw = listener.accept().await?;
         smolscale::spawn(
-            handle_client(c2e_raw).map_err(|e| tracing::debug!("client died suddenly with {e}")),
+            handle_client(c2e_raw).map_err(|e| tracing::warn!("client died suddenly with {e}")),
         )
         .detach()
     }
@@ -163,6 +166,11 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             ExitHelloInner::X25519(my_epk)
         }
     };
+
+    let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
+        stdcode::deserialize(&client_hello.credentials)?;
+    // TODO authenticate against broker's public key
+
     let exit_hello = ExitHello {
         inner: exit_hello_inner.clone(),
         signature: SIGNING_SECRET.sign(&(client_hello, exit_hello_inner).stdcode()),

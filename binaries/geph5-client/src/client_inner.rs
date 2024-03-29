@@ -21,7 +21,7 @@ use std::{
 
 use stdcode::StdcodeSerializeExt;
 
-use crate::{client::CtxField, route::get_dialer};
+use crate::{auth::get_connect_token, client::CtxField, route::get_dialer};
 
 use super::Config;
 
@@ -58,7 +58,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 protocol = raw_pipe.protocol(),
                 "dial completed"
             );
-            let authed_pipe = client_auth(raw_pipe, pubkey).await?;
+            let authed_pipe = client_auth(&ctx, raw_pipe, pubkey).await?;
             tracing::debug!(
                 elapsed = debug(start.elapsed()),
                 "authentication done, starting mux system"
@@ -115,7 +115,12 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
 }
 
 #[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
-async fn client_auth(mut pipe: impl Pipe, pubkey: VerifyingKey) -> anyhow::Result<impl Pipe> {
+async fn client_auth(
+    ctx: &AnyCtx<Config>,
+    mut pipe: impl Pipe,
+    pubkey: VerifyingKey,
+) -> anyhow::Result<impl Pipe> {
+    let (level, token, sig) = get_connect_token(ctx).await?;
     match pipe.shared_secret().map(|s| s.to_owned()) {
         Some(ss) => {
             tracing::debug!("using shared secret for authentication");
@@ -145,7 +150,7 @@ async fn client_auth(mut pipe: impl Pipe, pubkey: VerifyingKey) -> anyhow::Resul
             tracing::debug!("requiring full authentication");
             let my_esk = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
             let client_hello = ClientHello {
-                credentials: Default::default(), // no authentication support yet
+                credentials: (level, token, sig).stdcode().into(),
                 crypt_hello: ClientCryptHello::X25519((&my_esk).into()),
             };
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
