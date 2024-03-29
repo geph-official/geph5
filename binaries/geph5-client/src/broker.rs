@@ -2,8 +2,8 @@ use anyctx::AnyCtx;
 use anyhow::Context;
 use async_trait::async_trait;
 use geph5_broker_protocol::BrokerClient;
+use isahc::{AsyncReadResponseExt, HttpClient, Request};
 use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
 use std::{net::SocketAddr, time::Instant};
@@ -26,7 +26,7 @@ impl BrokerSource {
             BrokerSource::Direct(s) => DynRpcTransport::new(HttpRpcTransport {
                 url: s.clone(),
                 host: None,
-                client: reqwest::Client::new(),
+                client: HttpClient::new().unwrap(),
             }),
             BrokerSource::DirectTcp(dest_addr) => {
                 DynRpcTransport::new(nanorpc_sillad::DialerTransport(TcpDialer {
@@ -36,7 +36,7 @@ impl BrokerSource {
             BrokerSource::Fronted { front, host } => DynRpcTransport::new(HttpRpcTransport {
                 url: front.clone(),
                 host: Some(host.clone()),
-                client: reqwest::Client::new(),
+                client: HttpClient::new().unwrap(),
             }),
         }
     }
@@ -58,7 +58,7 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
 struct HttpRpcTransport {
     url: String,
     host: Option<String>,
-    client: reqwest::Client,
+    client: HttpClient,
 }
 
 #[async_trait]
@@ -67,21 +67,16 @@ impl RpcTransport for HttpRpcTransport {
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
         tracing::trace!(method = req.method, "calling broker");
         let start = Instant::now();
-        let resp = self
-            .client
-            .request(Method::POST, &self.url)
-            .header("content-type", "application/json")
-            .pipe(|s| {
-                if let Some(host) = self.host.as_ref() {
-                    s.header("host", host)
-                } else {
-                    s
-                }
-            })
-            .body(serde_json::to_vec(&req).unwrap())
-            .send()
-            .await?;
-        let resp = resp.bytes().await?;
+        let mut request = Request::post(&self.url).header("content-type", "application/json");
+
+        if let Some(host) = self.host.as_ref() {
+            request = request.header("Host", host);
+        }
+
+        let request = request.body(serde_json::to_vec(&req).unwrap())?;
+
+        let mut response = self.client.send_async(request).await?;
+        let resp = response.bytes().await?;
         tracing::trace!(
             method = req.method,
             resp_len = resp.len(),
