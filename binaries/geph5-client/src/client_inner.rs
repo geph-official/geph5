@@ -126,7 +126,7 @@ async fn client_auth(
             tracing::debug!("using shared secret for authentication");
             let challenge = rand::random();
             let client_hello = ClientHello {
-                credentials: Default::default(), // no authentication support yet
+                credentials: (level, token, sig).stdcode().into(),
                 crypt_hello: ClientCryptHello::SharedSecretChallenge(challenge),
             };
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
