@@ -90,14 +90,6 @@ jobs:
         with:
           path: artifacts
 
-      # - name: Prep and correct paths for upload
-      #   run: |
-      #     mv artifacts/musl/* artifacts/
-      #     mv artifacts/windows/* artifacts/
-      #     mv artifacts/macos/* artifacts/
-      #     rm -rf artifacts/musl artifacts/windows artifacts/macos
-      #   shell: bash
-
       - name: Upload to Cloudflare R2
         uses: ryand56/r2-upload-action@v1.2.2
         with:
