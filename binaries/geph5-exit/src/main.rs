@@ -6,6 +6,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::Deserialize;
 use std::{net::SocketAddr, path::PathBuf};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 mod broker;
 mod listen;
@@ -60,7 +61,14 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().compact())
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive("geph5_exit=debug".parse()?)
+                .from_env_lossy(),
+        )
+        .init();
     let args: CliArgs = argh::from_env();
     CONFIG_FILE
         .set(serde_yaml::from_slice(&std::fs::read(args.config)?)?)

@@ -21,7 +21,7 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
                 .to_string()
         });
     tracing::debug!("INITIALIZING DATABASE");
-    let options = dbg!(SqliteConnectOptions::from_str(&db_path))
+    let options = SqliteConnectOptions::from_str(&db_path)
         .unwrap()
         .create_if_missing(true);
 
