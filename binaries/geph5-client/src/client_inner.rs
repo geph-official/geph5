@@ -1,10 +1,7 @@
 use anyctx::AnyCtx;
 use anyhow::Context;
 use ed25519_dalek::VerifyingKey;
-use futures_util::{
-    future::{join_all, try_join_all},
-    AsyncReadExt as _,
-};
+use futures_util::{future::try_join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,

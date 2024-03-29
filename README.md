@@ -16,12 +16,6 @@ Geph5 is a major rewrite with a few big architectural differences from Geph4 tha
 Unlike Geph4, Geph5 is organized in a Cargo workspace, "monorepo"-style:
 
 - `libraries/` contains library crates that may depend on each other. All of these crates also receive crates.io releases.
-  - `picomux` is a smux-style crate to multiplex multiple TCP-like streams over one TCP-like stream
-  - `sillad` (Estonian for _bridges_) providing traits for "pluggable transports", like dialer, listener, etc
-  - `sillad-sosistab3`, providing a state-of-the-art obfuscation protocol
-  - `sillad-native-tls`, providing a minimal layer over native-tls, which can be composed with sosistab3
-  - `sillad-picomux`, providing a helper `sillad` implementation for amortizing connection setup cost of any `sillad` backend by using `picomux`
-  - `geph5-e2e`, providing high-level types for both ends of Geph sessions, including the end to end encryption and pluggable authentication.
 - `binaries/` contains binary crates.
   - `geph5-client`
   - `geph5-exit`
