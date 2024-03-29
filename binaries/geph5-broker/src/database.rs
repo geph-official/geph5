@@ -38,11 +38,11 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
         let sleep_time = Duration::from_secs_f64(rand::thread_rng().gen_range(60.0..120.0));
         tracing::debug!("sleeping {:?}", sleep_time);
         Timer::after(sleep_time).await;
-        let res = sqlx::query("delete from exits_new where expiry > extract(epoch from now())")
+        let res = sqlx::query("delete from exits_new where expiry < extract(epoch from now())")
             .execute(POSTGRES.deref())
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up exits");
-        let res = sqlx::query("delete from bridges_new where expiry > extract(epoch from now())")
+        let res = sqlx::query("delete from bridges_new where expiry < extract(epoch from now())")
             .execute(POSTGRES.deref())
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
