@@ -53,16 +53,25 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build project
-        run: |
-          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
-          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
-          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-exit/Cargo.toml
+      - name: Build client
+        run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
 
-      - name: Move binaries to artifacts directory
+      - name: Move client binaries to artifacts directory
+        shell: bash
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
+
+      - name: Build bridge and exit
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
+          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-exit/Cargo.toml
+
+      - name: Move client binaries to artifacts directory
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-bridge artifacts/${{ matrix.dir }}/
           mv target/${{ matrix.target }}/release/geph5-exit artifacts/${{ matrix.dir }}/
 
