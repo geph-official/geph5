@@ -68,7 +68,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(60))
         .await
         .context("overall dial/mux/auth timeout")??;
-        client_inner(ctx.clone(), authed_pipe).await?;
+        smolscale::spawn(client_inner(ctx.clone(), authed_pipe)).await?;
         anyhow::Ok(())
     };
 
