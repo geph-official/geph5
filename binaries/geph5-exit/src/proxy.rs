@@ -27,8 +27,8 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
     let (read_stream, mut write_stream) = stream.split();
     let (read_dest, mut write_dest) = dest_tcp.split();
     smol::future::race(
-        futures_util::io::copy(read_stream, &mut write_dest),
-        futures_util::io::copy(read_dest, &mut write_stream),
+        ratelimit.io_copy(read_stream, &mut write_dest),
+        ratelimit.io_copy(read_dest, &mut write_stream),
     )
     .await?;
     Ok(())
