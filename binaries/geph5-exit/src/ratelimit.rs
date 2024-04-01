@@ -55,11 +55,8 @@ impl RateLimiter {
                 .unwrap()
                 .is_err()
             {
-                eprintln!("wait {}", bytes);
                 smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() * 0.05)).await;
             }
-        } else {
-            eprintln!("no inner here lol");
         }
     }
 
