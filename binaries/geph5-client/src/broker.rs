@@ -7,7 +7,6 @@ use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
 use std::{net::SocketAddr, time::Instant};
-use tap::Pipe;
 
 use crate::client::{Config, CtxField};
 
