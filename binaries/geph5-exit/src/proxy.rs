@@ -5,8 +5,10 @@ use futures_util::AsyncReadExt;
 use rand::seq::SliceRandom;
 use sillad::{dialer::Dialer, tcp::TcpDialer};
 
-#[tracing::instrument(skip(stream))]
-pub async fn proxy_stream(stream: picomux::Stream) -> anyhow::Result<()> {
+use crate::ratelimit::RateLimiter;
+
+#[tracing::instrument(skip_all)]
+pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> anyhow::Result<()> {
     let dest_host = String::from_utf8_lossy(stream.metadata());
     let dest_addr = dns_resolve(&dest_host).await?;
     tracing::debug!(

@@ -25,7 +25,10 @@ use tap::Tap;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
 
-use crate::{broker::BrokerRpcTransport, proxy::proxy_stream, CONFIG_FILE, SIGNING_SECRET};
+use crate::{
+    broker::BrokerRpcTransport, proxy::proxy_stream, ratelimit::get_ratelimiter, CONFIG_FILE,
+    SIGNING_SECRET,
+};
 
 pub async fn listen_main() -> anyhow::Result<()> {
     let c2e = c2e_loop();
@@ -173,6 +176,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
     let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
         stdcode::deserialize(&client_hello.credentials)?;
+    let ratelimit = get_ratelimiter(level, token).await;
     // TODO authenticate against broker's public key
 
     let exit_hello = ExitHello {
@@ -191,7 +195,10 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     let mux = PicoMux::new(client_read, client_write);
     loop {
         let stream = mux.accept().await?;
-        smolscale::spawn(proxy_stream(stream).map_err(|e| tracing::debug!("stream died with {e}")))
-            .detach();
+        smolscale::spawn(
+            proxy_stream(ratelimit.clone(), stream)
+                .map_err(|e| tracing::debug!("stream died with {e}")),
+        )
+        .detach();
     }
 }
