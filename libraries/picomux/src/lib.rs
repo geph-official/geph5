@@ -401,12 +401,7 @@ async fn picomux_inner(
         .race(open_req_loop)
         .race(ping_loop)
         .race(async {
-            let mut death_after = Duration::from_secs(3600);
-
-            let mut death_timer = Timer::after(death_after);
             loop {
-                death_timer.set_after(death_after);
-                tracing::trace!(death_after = debug(death_after), "setting death");
                 let inner = async {
                     let frame = Frame::read(&mut inner_read).await?;
                     let stream_id = frame.header.stream_id;
@@ -486,7 +481,7 @@ async fn picomux_inner(
                                 next_ping_in_ms = ping_info.next_ping_in_ms,
                                 "responding to a PING"
                             );
-                            death_after = Duration::from_millis(ping_info.next_ping_in_ms as _);
+
                             let _ = send_outgoing.send(Frame::new_empty(0, CMD_PONG)).await;
                         }
                         CMD_PONG => {
@@ -501,12 +496,7 @@ async fn picomux_inner(
                     }
                     Ok(())
                 };
-                inner
-                    .or(async {
-                        (&mut death_timer).await;
-                        Err(std::io::Error::new(ErrorKind::TimedOut, "watchdog dead"))
-                    })
-                    .await?;
+                inner.await?;
             }
         })
         .await
