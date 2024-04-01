@@ -77,6 +77,7 @@ fn main() -> anyhow::Result<()> {
                 .from_env_lossy(),
         )
         .init();
+    tracing::info!("**** START GEPH EXIT ****");
     let args: CliArgs = argh::from_env();
     CONFIG_FILE
         .set(serde_yaml::from_slice(&std::fs::read(args.config)?)?)

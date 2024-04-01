@@ -2,6 +2,9 @@
 name = "sillad-sosistab3"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/geph-official/geph5"
+license="ISC"
+description="A scramblesuit-like obfuscation protocol within the sillad framework"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
