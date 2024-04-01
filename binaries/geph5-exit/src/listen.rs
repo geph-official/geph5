@@ -11,7 +11,7 @@ use geph5_misc_rpc::{
 };
 use mizaru2::{ClientToken, UnblindedSignature};
 use moka::future::Cache;
-use picomux::PicoMux;
+use picomux::{LivenessConfig, PicoMux};
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use std::{
@@ -116,7 +116,11 @@ async fn b2e_loop() -> anyhow::Result<()> {
     loop {
         let b2e_raw = listener.accept().await?;
         let (read, write) = b2e_raw.split();
-        let b2e_mux = PicoMux::new(read, write);
+        let mut b2e_mux = PicoMux::new(read, write);
+        b2e_mux.set_liveness(LivenessConfig {
+            ping_interval: Duration::from_secs(3600),
+            timeout: Duration::from_secs(3600),
+        });
         let b2e_table = b2e_table.clone();
         smolscale::spawn::<anyhow::Result<()>>(async move {
             loop {
