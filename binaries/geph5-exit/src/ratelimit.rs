@@ -17,7 +17,7 @@ static RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
 pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLimiter {
     RL_CACHE
         .get_with(blake3::hash(&(level, token).stdcode()), async {
-            RateLimiter::new(1000, 10000)
+            RateLimiter::new(5000, 100000)
         })
         .await
 }
