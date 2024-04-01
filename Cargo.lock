@@ -3625,7 +3625,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arrayref",
  "async-executor",
