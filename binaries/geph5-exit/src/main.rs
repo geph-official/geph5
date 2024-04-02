@@ -66,10 +66,6 @@ struct CliArgs {
     /// path to a YAML-based config file
     #[argh(option, short = 'c')]
     config: PathBuf,
-
-    /// whether or not to "dry run"
-    #[argh(option)]
-    dry_run: bool,
 }
 
 fn main() -> anyhow::Result<()> {
