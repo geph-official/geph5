@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
-    auth::auth_loop, broker::BrokerSource, client_inner::client_once, route::ExitConstraint,
+    auth::auth_loop,
+    broker::{broker_client, BrokerSource},
+    client_inner::client_once,
+    route::ExitConstraint,
     socks5::socks5_loop,
 };
 
@@ -19,6 +22,8 @@ pub struct Config {
     pub exit_constraint: ExitConstraint,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
+    #[serde(default)]
+    pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,
 }
@@ -44,11 +49,22 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let _client_loop = Immortal::respawn(
-        RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-        clone!([ctx], move || client_once(ctx.clone()).inspect_err(
-            |e| tracing::warn!("client died and restarted: {:?}", e)
-        )),
-    );
-    socks5_loop(&ctx).race(auth_loop(&ctx)).await
+    if ctx.init().dry_run {
+        let broker_client = broker_client(&ctx)?;
+        let exits = broker_client
+            .get_exits()
+            .await?
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let exits = exits.inner;
+        println!("{}", serde_json::to_string(&exits)?);
+        Ok(())
+    } else {
+        let _client_loop = Immortal::respawn(
+            RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
+            clone!([ctx], move || client_once(ctx.clone()).inspect_err(
+                |e| tracing::warn!("client died and restarted: {:?}", e)
+            )),
+        );
+        socks5_loop(&ctx).race(auth_loop(&ctx)).await
+    }
 }

@@ -66,6 +66,10 @@ struct CliArgs {
     /// path to a YAML-based config file
     #[argh(option, short = 'c')]
     config: PathBuf,
+
+    /// whether or not to "dry run"
+    #[argh(option)]
+    dry_run: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -79,9 +83,9 @@ fn main() -> anyhow::Result<()> {
         .init();
     tracing::info!("**** START GEPH EXIT ****");
     let args: CliArgs = argh::from_env();
-    CONFIG_FILE
-        .set(serde_yaml::from_slice(&std::fs::read(args.config)?)?)
-        .ok()
-        .unwrap();
+    let config: ConfigFile = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
+
+    CONFIG_FILE.set(config).ok().unwrap();
+
     smolscale::block_on(listen_main())
 }

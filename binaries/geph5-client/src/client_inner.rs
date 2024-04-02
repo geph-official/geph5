@@ -165,9 +165,11 @@ async fn client_auth(
                 ExitHelloInner::Reject(reason) => {
                     anyhow::bail!("exit rejected our authentication attempt: {reason}")
                 }
-                ExitHelloInner::SharedSecretResponse(_) => anyhow::bail!(
-                    "exit sent a shared-secret response to our full authentication request"
-                ),
+                ExitHelloInner::SharedSecretResponse(_) => {
+                    anyhow::bail!(
+                        "exit sent a shared-secret response to our full authentication request"
+                    )
+                }
                 ExitHelloInner::X25519(their_epk) => {
                     let shared_secret = my_esk.diffie_hellman(&their_epk);
                     let read_key = blake3::derive_key("e2c", shared_secret.as_bytes());

@@ -18,6 +18,10 @@ struct CliArgs {
     /// path to a YAML-based config file
     #[argh(option, short = 'c')]
     config: PathBuf,
+
+    #[argh(switch)]
+    /// don't start the client, but instead dump authentication info
+    dry_run: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,7 +36,8 @@ fn main() -> anyhow::Result<()> {
     smolscale::permanently_single_threaded();
     let args: CliArgs = argh::from_env();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
-    let config: Config = serde_json::from_value(config)?;
+    let mut config: Config = serde_json::from_value(config)?;
+    config.dry_run = args.dry_run;
     let client = Client::start(config);
     smolscale::block_on(client.wait_until_dead())?;
     Ok(())
