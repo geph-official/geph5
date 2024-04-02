@@ -1,16 +1,8 @@
 use std::path::PathBuf;
 
 use argh::FromArgs;
-use client::{Client, Config};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-mod auth;
-mod broker;
-mod client;
-mod client_inner;
-mod database;
-mod route;
-mod socks5;
+use geph5_client::{Client, Config};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
 
 /// Run the Geph5 broker.
 #[derive(FromArgs)]
