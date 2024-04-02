@@ -1,7 +1,7 @@
 use anyctx::AnyCtx;
 use clone_macro::clone;
 use futures_util::TryFutureExt;
-use geph5_broker_protocol::Credential;
+use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
@@ -12,6 +12,7 @@ use crate::{
     auth::auth_loop,
     broker::{broker_client, BrokerSource},
     client_inner::client_once,
+    database::db_read_or_wait,
     route::ExitConstraint,
     socks5::socks5_loop,
 };
@@ -49,15 +50,32 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+    #[derive(Serialize)]
+    struct DryRunOutput {
+        auth_token: String,
+        exits: ExitList,
+    }
+
     if ctx.init().dry_run {
-        let broker_client = broker_client(&ctx)?;
-        let exits = broker_client
-            .get_exits()
-            .await?
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let exits = exits.inner;
-        println!("{}", serde_json::to_string(&exits)?);
-        Ok(())
+        auth_loop(&ctx)
+            .race(async {
+                let broker_client = broker_client(&ctx)?;
+                let exits = broker_client
+                    .get_exits()
+                    .await?
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let auth_token = db_read_or_wait(&ctx, "auth_token").await?;
+                let exits = exits.inner;
+                println!(
+                    "{}",
+                    serde_json::to_string(&DryRunOutput {
+                        auth_token: hex::encode(auth_token),
+                        exits,
+                    })?
+                );
+                anyhow::Ok(())
+            })
+            .await
     } else {
         let _client_loop = Immortal::respawn(
             RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),

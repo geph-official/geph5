@@ -26,7 +26,11 @@ struct CliArgs {
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().compact())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_writer(std::io::stderr),
+        )
         .with(
             EnvFilter::builder()
                 .with_default_directive("geph5_client=debug".parse()?)

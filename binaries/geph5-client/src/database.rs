@@ -3,6 +3,7 @@ use event_listener::Event;
 use sqlx::{pool::PoolOptions, Row};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
+use stdcode::StdcodeSerializeExt;
 
 use crate::client::{Config, CtxField};
 
@@ -16,7 +17,10 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
         .unwrap_or_else(|| {
             dirs::config_dir()
                 .unwrap()
-                .join("geph5-persist.db")
+                .join(format!(
+                    "geph5-persist-{}.db",
+                    hex::encode(blake3::hash(&ctx.init().credentials.stdcode()).as_bytes())
+                ))
                 .to_string_lossy()
                 .to_string()
         });

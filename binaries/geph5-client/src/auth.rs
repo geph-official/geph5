@@ -30,6 +30,7 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let auth_token = if let Some(token) = db_read(ctx, "auth_token").await? {
         String::from_utf8_lossy(&token).to_string()
     } else {
+        tracing::debug!("obtaining auth token");
         let auth_token = broker_client(ctx)?
             .get_auth_token(ctx.init().credentials.clone())
             .await??;
