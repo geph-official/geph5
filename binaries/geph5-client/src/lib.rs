@@ -1,3 +1,4 @@
+pub use broker::broker_client;
 pub use client::Client;
 pub use client::Config;
 

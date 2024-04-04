@@ -2272,10 +2272,15 @@ dependencies = [
  "native-dialog",
  "once_cell",
  "poll-promise",
+ "serde_json",
+ "serde_yaml",
  "smol 2.0.0",
+ "smol-timeout",
  "smol_str",
  "smolscale",
  "tap",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

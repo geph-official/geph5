@@ -1,6 +1,7 @@
 mod dashboard;
 mod l10n;
 mod prefs;
+mod settings;
 use std::time::Duration;
 
 use dashboard::Dashboard;
@@ -9,9 +10,23 @@ use egui::{Color32, FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
 use native_dialog::MessageType;
 use prefs::{pref_read, pref_write};
+use settings::render_settings;
 use tap::Tap as _;
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
 fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_writer(std::io::stderr),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive("geph5=debug".parse().unwrap())
+                .from_env_lossy(),
+        )
+        .init();
     // default prefs
     for (key, value) in [("lang", "en")] {
         if pref_read(key).is_err() {
@@ -98,7 +113,7 @@ impl eframe::App for App {
         let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
             TabName::Dashboard => self.dashboard.render(ui),
             TabName::Logs => Ok(()),
-            TabName::Settings => Ok(()),
+            TabName::Settings => render_settings(ui),
         });
 
         if let Err(err) = result.inner {
