@@ -1,22 +1,29 @@
+mod dashboard;
 mod l10n;
 mod prefs;
 use std::time::Duration;
 
+use dashboard::Dashboard;
+
 use egui::{Color32, FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
-use prefs::pref_write;
+use native_dialog::MessageType;
+use prefs::{pref_read, pref_write};
 use tap::Tap as _;
 
 fn main() {
     // default prefs
     for (key, value) in [("lang", "en")] {
-        pref_write(key, value).unwrap();
+        if pref_read(key).is_err() {
+            pref_write(key, value).unwrap();
+        }
     }
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 300.0])
             .with_min_inner_size([400.0, 300.0]),
+
         ..Default::default()
     };
     eframe::run_native(
@@ -27,7 +34,18 @@ fn main() {
     .unwrap();
 }
 
-pub struct App {}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TabName {
+    Dashboard,
+    Logs,
+    Settings,
+}
+
+pub struct App {
+    selected_tab: TabName,
+
+    dashboard: Dashboard,
+}
 
 impl App {
     /// Constructs the app.
@@ -37,6 +55,8 @@ impl App {
             Visuals::light()
                 .tap_mut(|vis| vis.widgets.noninteractive.fg_stroke.color = Color32::BLACK),
         );
+
+        cc.egui_ctx.set_zoom_factor(1.1);
 
         // set up fonts. currently this uses SC for CJK, but this can be autodetected instead.
         let mut fonts = FontDefinitions::default();
@@ -49,8 +69,13 @@ impl App {
             .get_mut(&FontFamily::Proportional)
             .unwrap()
             .insert(0, "sarasa_sc".into());
+
         cc.egui_ctx.set_fonts(fonts);
-        Self {}
+        Self {
+            selected_tab: TabName::Dashboard,
+
+            dashboard: Dashboard::new(),
+        }
     }
 }
 
@@ -58,8 +83,34 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.request_repaint_after(Duration::from_secs(1));
 
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {});
-        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {});
-        egui::CentralPanel::default().show(ctx, |ui| ui.label("hello world 你好你好"));
+        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut self.selected_tab,
+                    TabName::Dashboard,
+                    l10n("dashboard"),
+                );
+                ui.selectable_value(&mut self.selected_tab, TabName::Logs, l10n("logs"));
+                ui.selectable_value(&mut self.selected_tab, TabName::Settings, l10n("settings"));
+            })
+        });
+
+        let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
+            TabName::Dashboard => self.dashboard.render(ui),
+            TabName::Logs => Ok(()),
+            TabName::Settings => Ok(()),
+        });
+
+        if let Err(err) = result.inner {
+            let _ = native_dialog::MessageDialog::new()
+                .set_title("Fatal error")
+                .set_text(&format!(
+                    "Unfortunately, a fatal error occurred, so Geph must die:\n\n{:?}",
+                    err
+                ))
+                .set_type(MessageType::Error)
+                .show_alert();
+            std::process::exit(-1);
+        }
     }
 }
