@@ -1,3 +1,4 @@
+mod daemon;
 mod dashboard;
 mod l10n;
 mod prefs;
@@ -23,7 +24,7 @@ fn main() {
         )
         .with(
             EnvFilter::builder()
-                .with_default_directive("geph5=debug".parse().unwrap())
+                .with_default_directive("geph5".parse().unwrap())
                 .from_env_lossy(),
         )
         .init();
@@ -36,8 +37,9 @@ fn main() {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 300.0])
-            .with_min_inner_size([400.0, 300.0]),
+            .with_inner_size([300.0, 300.0])
+            .with_min_inner_size([300.0, 300.0])
+            .with_max_inner_size([300.0, 300.0]),
 
         ..Default::default()
     };
@@ -67,23 +69,24 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // light mode
         cc.egui_ctx.set_visuals(
-            Visuals::light()
-                .tap_mut(|vis| vis.widgets.noninteractive.fg_stroke.color = Color32::BLACK),
+            Visuals::light(), // .tap_mut(|vis| vis.widgets.noninteractive.fg_stroke.color = Color32::BLACK),
         );
-
-        cc.egui_ctx.set_zoom_factor(1.1);
 
         // set up fonts. currently this uses SC for CJK, but this can be autodetected instead.
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
-            "sarasa_sc".into(),
-            FontData::from_static(include_bytes!("assets/subset.ttf")),
+            "normal".into(),
+            FontData::from_static(include_bytes!("assets/normal.ttf")),
+        );
+        fonts.font_data.insert(
+            "chinese".into(),
+            FontData::from_static(include_bytes!("assets/chinese.ttf")),
         );
         fonts
             .families
             .get_mut(&FontFamily::Proportional)
             .unwrap()
-            .insert(0, "sarasa_sc".into());
+            .insert(0, "chinese".into());
 
         cc.egui_ctx.set_fonts(fonts);
         Self {

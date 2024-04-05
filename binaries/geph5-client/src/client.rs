@@ -1,9 +1,13 @@
 use anyctx::AnyCtx;
 use clone_macro::clone;
-use futures_util::TryFutureExt;
+use futures_util::{
+    future::{FusedFuture, Shared},
+    task::noop_waker,
+    FutureExt, TryFutureExt,
+};
 use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, task::Context, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
@@ -30,20 +34,36 @@ pub struct Config {
 }
 
 pub struct Client {
-    task: smol::Task<anyhow::Result<()>>,
+    task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
 }
 
 impl Client {
     /// Starts the client logic in the loop, returnign the handle.
     pub fn start(cfg: Config) -> Self {
         let ctx = AnyCtx::new(cfg);
-        let task = smolscale::spawn(client_main(ctx));
-        Client { task }
+        let task = smolscale::spawn(client_main(ctx).map_err(Arc::new));
+        Client {
+            task: task.shared(),
+        }
     }
 
     /// Wait until there's an error.
     pub async fn wait_until_dead(self) -> anyhow::Result<()> {
-        self.task.await
+        self.task.await.map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Check for an error.
+    pub fn check_dead(&self) -> anyhow::Result<()> {
+        match self
+            .task
+            .clone()
+            .poll(&mut Context::from_waker(&noop_waker()))
+        {
+            std::task::Poll::Ready(val) => val.map_err(|e| anyhow::anyhow!(e))?,
+            std::task::Poll::Pending => {}
+        }
+
+        Ok(())
     }
 }
 
