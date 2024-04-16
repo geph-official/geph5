@@ -35,6 +35,10 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
+      - name: Set default host
+        shell: bash
+        run: rustup set default-host ${{ matrix.target }}
+
       - name: Cache cargo registry
         uses: actions/cache@v2
         with:
