@@ -4,6 +4,7 @@ use chrono::Utc;
 use egui::mutex::RwLock;
 use once_cell::sync::Lazy;
 
+use smol_str::{SmolStr, ToSmolStr};
 use tracing::Level;
 use tracing_subscriber::Layer;
 
@@ -11,8 +12,9 @@ use tracing_subscriber::Layer;
 pub struct LogLine {
     pub timestamp: chrono::DateTime<Utc>,
     pub level: Level,
+    pub target: SmolStr,
 
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<SmolStr, String>,
 }
 
 pub static LOGS: Lazy<RwLock<VecDeque<LogLine>>> = Lazy::new(|| RwLock::new(VecDeque::new()));
@@ -36,6 +38,7 @@ where
         let line = LogLine {
             timestamp: chrono::Utc::now(),
             level: *event.metadata().level(),
+            target: event.metadata().target().to_smolstr(),
             fields,
         };
         let mut logs = LOGS.write();
@@ -46,11 +49,11 @@ where
     }
 }
 
-struct MapVisitor<'a>(&'a mut BTreeMap<String, String>);
+struct MapVisitor<'a>(&'a mut BTreeMap<SmolStr, String>);
 
 impl<'a> tracing::field::Visit for MapVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         self.0
-            .insert(field.name().to_string(), format!("{:?}", value));
+            .insert(field.name().to_smolstr(), format!("{:?}", value));
     }
 }

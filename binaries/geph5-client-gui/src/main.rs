@@ -16,6 +16,8 @@ use settings::render_settings;
 use tabs::{dashboard::Dashboard, logs::Logs};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
+// 0123456789
+
 fn main() {
     tracing_subscriber::registry()
         .with(
@@ -90,6 +92,11 @@ impl App {
             .get_mut(&FontFamily::Proportional)
             .unwrap()
             .insert(0, "chinese".into());
+        // fonts
+        //     .families
+        //     .get_mut(&FontFamily::Proportional)
+        //     .unwrap()
+        //     .insert(0, "normal".into());
 
         cc.egui_ctx.set_fonts(fonts);
         Self {
@@ -103,7 +110,7 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.request_repaint_after(Duration::from_secs(1));
+        ctx.request_repaint_after(Duration::from_millis(100));
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -112,13 +119,17 @@ impl eframe::App for App {
                     TabName::Dashboard,
                     l10n("dashboard"),
                 );
-                ui.selectable_value(&mut self.selected_tab, TabName::Logs, l10n("logs"));
+                // ui.selectable_value(&mut self.selected_tab, TabName::Logs, l10n("logs"));
                 ui.selectable_value(&mut self.selected_tab, TabName::Settings, l10n("settings"));
             })
         });
 
         let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
-            TabName::Dashboard => self.dashboard.render(ui),
+            TabName::Dashboard => {
+                self.dashboard.render(ui)?;
+                ui.add_space(20.0);
+                self.logs.render(ui)
+            }
             TabName::Logs => self.logs.render(ui),
             TabName::Settings => render_settings(ui),
         });

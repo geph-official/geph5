@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::{daemon::DAEMON, l10n::l10n, settings::get_config};
 
 pub struct Dashboard {}
@@ -14,6 +16,9 @@ impl Dashboard {
             match daemon.as_ref() {
                 Some(daemon) => {
                     columns[1].colored_label(egui::Color32::DARK_GREEN, l10n("connected"));
+                    let start_time = daemon.start_time().elapsed().as_secs() + 1;
+                    let start_time = Duration::from_secs(1) * start_time as _;
+                    columns[1].label(format!("{:?}", start_time));
                 }
                 None => {
                     columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));

@@ -7,7 +7,13 @@ use futures_util::{
 };
 use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, task::Context, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    task::Context,
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
@@ -35,6 +41,7 @@ pub struct Config {
 
 pub struct Client {
     task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
+    start_time: Instant,
 }
 
 impl Client {
@@ -44,6 +51,8 @@ impl Client {
         let task = smolscale::spawn(client_main(ctx).map_err(Arc::new));
         Client {
             task: task.shared(),
+
+            start_time: Instant::now(),
         }
     }
 
@@ -64,6 +73,11 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Gets the starting time.
+    pub fn start_time(&self) -> Instant {
+        self.start_time
     }
 }
 
