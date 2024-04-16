@@ -1,19 +1,19 @@
 mod daemon;
-mod dashboard;
 mod l10n;
 mod logs;
 mod prefs;
 mod refresh_cell;
 mod settings;
+mod tabs;
 use std::time::Duration;
-
-use dashboard::Dashboard;
 
 use egui::{FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
+use logs::LogLayer;
 use native_dialog::MessageType;
 use prefs::{pref_read, pref_write};
 use settings::render_settings;
+use tabs::{dashboard::Dashboard, logs::Logs};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
 fn main() {
@@ -28,6 +28,7 @@ fn main() {
                 .with_default_directive("geph5".parse().unwrap())
                 .from_env_lossy(),
         )
+        .with(LogLayer)
         .init();
     // default prefs
     for (key, value) in [("lang", "en")] {
@@ -63,6 +64,7 @@ pub struct App {
     selected_tab: TabName,
 
     dashboard: Dashboard,
+    logs: Logs,
 }
 
 impl App {
@@ -94,6 +96,7 @@ impl App {
             selected_tab: TabName::Dashboard,
 
             dashboard: Dashboard::new(),
+            logs: Logs::new(),
         }
     }
 }
@@ -116,7 +119,7 @@ impl eframe::App for App {
 
         let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
             TabName::Dashboard => self.dashboard.render(ui),
-            TabName::Logs => Ok(()),
+            TabName::Logs => self.logs.render(ui),
             TabName::Settings => render_settings(ui),
         });
 
