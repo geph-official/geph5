@@ -1,18 +1,19 @@
 mod daemon;
 mod dashboard;
 mod l10n;
+mod logs;
 mod prefs;
+mod refresh_cell;
 mod settings;
 use std::time::Duration;
 
 use dashboard::Dashboard;
 
-use egui::{Color32, FontData, FontDefinitions, FontFamily, Visuals};
+use egui::{FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
 use native_dialog::MessageType;
 use prefs::{pref_read, pref_write};
 use settings::render_settings;
-use tap::Tap as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
 fn main() {
@@ -98,7 +99,7 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(Duration::from_secs(1));
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {

@@ -11,8 +11,13 @@ impl Dashboard {
 
         ui.columns(2, |columns| {
             columns[0].label(l10n("status"));
-            if daemon.is_none() {
-                columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));
+            match daemon.as_ref() {
+                Some(daemon) => {
+                    columns[1].colored_label(egui::Color32::DARK_GREEN, l10n("connected"));
+                }
+                None => {
+                    columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));
+                }
             }
             columns[0].label(l10n("connection_time"));
             columns[0].label(l10n("data_used"));

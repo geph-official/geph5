@@ -2271,6 +2271,7 @@ dependencies = [
  "moka",
  "native-dialog",
  "once_cell",
+ "oneshot",
  "poll-promise",
  "serde_json",
  "serde_yaml",
