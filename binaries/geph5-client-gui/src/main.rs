@@ -45,7 +45,7 @@ fn main() {
             .with_inner_size([300.0, 300.0])
             .with_min_inner_size([300.0, 300.0])
             .with_max_inner_size([300.0, 300.0]),
-        shader_version: Some(ShaderVersion::Gl120),
+        shader_version: Some(ShaderVersion::Es100),
 
         ..Default::default()
     };
