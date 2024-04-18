@@ -85,9 +85,11 @@ jobs:
           mv target/${{ matrix.target }}/release/geph5-exit artifacts/${{ matrix.dir }}/
 
       - name: Build client GUI
+        if: matrix.dir != 'musl'
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client-gui/Cargo.toml
 
       - name: Move client GUI binaries to artifacts directory
+        if: matrix.dir != 'musl'
         shell: bash
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
