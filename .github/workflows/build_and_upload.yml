@@ -58,9 +58,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-${{ github.sha }}
+          key: ${{ runner.target }}-cargo-build-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-cargo-build-
+            ${{ runner.target }}-cargo-build-
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
