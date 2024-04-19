@@ -1,6 +1,8 @@
 use crate::client_inner::open_conn;
+use crate::stats::STAT_TOTAL_BYTES;
 use anyctx::AnyCtx;
-use futures_util::AsyncReadExt as _;
+use futures_util::AsyncWriteExt;
+use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
 use nursery_macro::nursery;
 use sillad::listener::Listener as _;
 use smol::future::FutureExt as _;
@@ -8,7 +10,7 @@ use socksv5::v5::{
     read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
     SocksV5Host, SocksV5RequestStatus,
 };
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, sync::atomic::Ordering};
 
 use super::Config;
 
@@ -48,12 +50,38 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 .await?;
                 tracing::trace!(remote_addr = display(&remote_addr), "connection opened");
                 let (read_stream, write_stream) = stream.split();
-                smol::io::copy(read_stream, write_client)
-                    .race(smol::io::copy(read_client, write_stream))
-                    .await?;
+                io_copy_with(read_stream, write_client, |n| {
+                    ctx.get(STAT_TOTAL_BYTES)
+                        .fetch_add(n as u64, Ordering::Relaxed);
+                })
+                .race(io_copy_with(read_client, write_stream, |n| {
+                    ctx.get(STAT_TOTAL_BYTES)
+                        .fetch_add(n as u64, Ordering::Relaxed);
+                }))
+                .await?;
                 anyhow::Ok(())
             })
             .detach();
         }
     })
+}
+
+async fn io_copy_with(
+    mut read: impl AsyncRead + Unpin,
+    mut write: impl AsyncWrite + Unpin,
+    mut on_copy: impl FnMut(usize),
+) -> anyhow::Result<()> {
+    let mut buffer = vec![0; 8192]; // Buffer size can be adjusted based on expected data sizes or performance testing
+
+    loop {
+        let bytes_read = read.read(&mut buffer).await?;
+
+        if bytes_read == 0 {
+            break; // End of input stream
+        }
+
+        write.write_all(&buffer[..bytes_read]).await?;
+        on_copy(bytes_read); // Invoke the callback
+    }
+    Ok(())
 }

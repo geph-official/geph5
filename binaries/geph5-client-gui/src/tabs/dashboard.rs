@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::{daemon::DAEMON, l10n::l10n, settings::get_config};
 
@@ -19,6 +19,8 @@ impl Dashboard {
                     let start_time = daemon.start_time().elapsed().as_secs() + 1;
                     let start_time = Duration::from_secs(1) * start_time as _;
                     columns[1].label(format!("{:?}", start_time));
+                    let mb_used = (daemon.bytes_used() as f64) / 1_000_000.0;
+                    columns[1].label(format!("{:.2} MB", mb_used));
                 }
                 None => {
                     columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));

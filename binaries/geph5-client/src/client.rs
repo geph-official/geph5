@@ -1,16 +1,12 @@
 use anyctx::AnyCtx;
 use clone_macro::clone;
-use futures_util::{
-    future::{FusedFuture, Shared},
-    task::noop_waker,
-    FutureExt, TryFutureExt,
-};
+use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     task::Context,
     time::{Duration, Instant},
 };
@@ -25,6 +21,7 @@ use crate::{
     database::db_read_or_wait,
     route::ExitConstraint,
     socks5::socks5_loop,
+    stats::STAT_TOTAL_BYTES,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -41,6 +38,7 @@ pub struct Config {
 
 pub struct Client {
     task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
+    ctx: AnyCtx<Config>,
     start_time: Instant,
 }
 
@@ -48,10 +46,10 @@ impl Client {
     /// Starts the client logic in the loop, returnign the handle.
     pub fn start(cfg: Config) -> Self {
         let ctx = AnyCtx::new(cfg);
-        let task = smolscale::spawn(client_main(ctx).map_err(Arc::new));
+        let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
             task: task.shared(),
-
+            ctx,
             start_time: Instant::now(),
         }
     }
@@ -78,6 +76,11 @@ impl Client {
     /// Gets the starting time.
     pub fn start_time(&self) -> Instant {
         self.start_time
+    }
+
+    /// Returns the count of all bytes used.
+    pub fn bytes_used(&self) -> u64 {
+        self.ctx.get(STAT_TOTAL_BYTES).load(Ordering::Relaxed)
     }
 }
 
