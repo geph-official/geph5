@@ -42,21 +42,21 @@ jobs:
         shell: bash
         run: rustup set default-host ${{ matrix.target }}
 
-      - name: Cache cargo registry
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/registry
-          key: ${{ matrix.target }}-cargo-registry-${{ github.sha }}
-          restore-keys: |
-            ${{ matrix.target }}-cargo-registry-
+      # - name: Cache cargo registry
+      #   uses: actions/cache@v2
+      #   with:
+      #     path: ~/.cargo/registry
+      #     key: ${{ matrix.target }}-cargo-registry-${{ github.sha }}
+      #     restore-keys: |
+      #       ${{ matrix.target }}-cargo-registry-
 
-      - name: Cache cargo index
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/git
-          key: ${{ matrix.target }}-cargo-index-${{ github.sha }}
-          restore-keys: |
-            ${{ matrix.target }}-cargo-index-
+      # - name: Cache cargo index
+      #   uses: actions/cache@v2
+      #   with:
+      #     path: ~/.cargo/git
+      #     key: ${{ matrix.target }}-cargo-index-${{ github.sha }}
+      #     restore-keys: |
+      #       ${{ matrix.target }}-cargo-index-
 
       - name: Cache cargo build
         uses: actions/cache@v2
