@@ -43,7 +43,7 @@ where
         };
         let mut logs = LOGS.write();
         logs.push_back(line);
-        if logs.len() > 1000 {
+        if logs.len() > 300 {
             logs.pop_front();
         }
     }

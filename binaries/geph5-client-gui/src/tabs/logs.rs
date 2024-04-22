@@ -18,15 +18,19 @@ impl Logs {
         {
             let raw_logs = LOGS.read();
             for log in raw_logs.iter() {
-                write!(
+                writeln!(
                     &mut self.log_cache,
-                    "{} {} ",
+                    "[{}] {}",
                     log.timestamp
                         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                     log.level
                 )?;
+                let msg = log.fields.get("message").map(|s| s.as_str()).unwrap_or("");
+                write!(&mut self.log_cache, "  {msg}")?;
                 for (k, v) in log.fields.iter() {
-                    write!(&mut self.log_cache, "{k}={v} ")?;
+                    if k != "message" {
+                        write!(&mut self.log_cache, "\n    {k} = {v}")?;
+                    }
                 }
                 writeln!(&mut self.log_cache)?;
             }

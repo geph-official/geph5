@@ -27,7 +27,7 @@ fn main() {
         )
         .with(
             EnvFilter::builder()
-                .with_default_directive("geph5".parse().unwrap())
+                .with_default_directive("geph5=debug".parse().unwrap())
                 .from_env_lossy(),
         )
         .with(LogLayer)
@@ -110,7 +110,8 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.request_repaint_after(Duration::from_millis(100));
+        // ctx.request_repaint_after(Duration::from_millis(100));
+        ctx.request_repaint();
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
