@@ -46,25 +46,25 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.target }}-cargo-registry-${{ github.sha }}
+          key: ${{ matrix.target }}-cargo-registry-${{ github.sha }}
           restore-keys: |
-            ${{ runner.target }}-cargo-registry-
+            ${{ matrix.target }}-cargo-registry-
 
       - name: Cache cargo index
         uses: actions/cache@v2
         with:
           path: ~/.cargo/git
-          key: ${{ runner.target }}-cargo-index-${{ github.sha }}
+          key: ${{ matrix.target }}-cargo-index-${{ github.sha }}
           restore-keys: |
-            ${{ runner.target }}-cargo-index-
+            ${{ matrix.target }}-cargo-index-
 
       - name: Cache cargo build
         uses: actions/cache@v2
         with:
           path: target
-          key: ${{ runner.target }}-cargo-build-${{ github.sha }}
+          key: ${{ matrix.target }}-cargo-build-${{ github.sha }}
           restore-keys: |
-            ${{ runner.target }}-cargo-build-
+            ${{ matrix.target }}-cargo-build-
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
