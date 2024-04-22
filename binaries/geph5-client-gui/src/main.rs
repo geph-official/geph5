@@ -5,7 +5,6 @@ mod prefs;
 mod refresh_cell;
 mod settings;
 mod tabs;
-use std::time::Duration;
 
 use egui::{FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;

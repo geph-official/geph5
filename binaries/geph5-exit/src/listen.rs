@@ -174,7 +174,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         }
     };
 
-    let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
+    let (level, token, _sig): (AccountLevel, ClientToken, UnblindedSignature) =
         stdcode::deserialize(&client_hello.credentials)?;
     let ratelimit = get_ratelimiter(level, token).await;
     // TODO authenticate against broker's public key
