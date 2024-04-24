@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
                 .from_env_lossy(),
         )
         .init();
-    smolscale::permanently_single_threaded();
+
     let args: CliArgs = argh::from_env();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
     let mut config: Config = serde_json::from_value(config)?;

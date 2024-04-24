@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 
 use smol_str::{SmolStr, ToSmolStr};
 use tracing::Level;
-use tracing_subscriber::Layer;
+use tracing_subscriber::{registry::LookupSpan, Layer};
 
 #[derive(Clone, Debug)]
 pub struct LogLine {
@@ -23,7 +23,7 @@ pub struct LogLayer;
 
 impl<S> Layer<S> for LogLayer
 where
-    S: tracing::Subscriber,
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_event(
         &self,
