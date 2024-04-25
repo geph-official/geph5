@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod daemon;
 mod l10n;
 mod logs;
