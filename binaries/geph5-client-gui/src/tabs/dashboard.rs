@@ -1,6 +1,11 @@
 use std::time::Duration;
 
-use crate::{daemon::DAEMON, l10n::l10n, settings::get_config};
+use crate::{
+    daemon::DAEMON,
+    l10n::l10n,
+    pac::{set_http_proxy, unset_http_proxy},
+    settings::get_config,
+};
 
 pub struct Dashboard {}
 
@@ -34,10 +39,12 @@ impl Dashboard {
             if daemon.is_none() {
                 if ui.button(l10n("connect")).clicked() {
                     tracing::warn!("connect clicked");
+                    set_http_proxy("127.0.0.1:11111".parse()?)?;
                     *daemon = Some(geph5_client::Client::start(get_config()?));
                 }
             } else if ui.button(l10n("disconnect")).clicked() {
                 tracing::warn!("disconnect clicked");
+                unset_http_proxy()?;
                 *daemon = None;
             }
             anyhow::Ok(())

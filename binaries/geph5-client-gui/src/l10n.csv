@@ -2,7 +2,7 @@
 label,en,zh,ru,fa
 about,About,关于,О программе,Darbāre
 account_info,Account Info,帐户信息,Информация об аккаунте,Eṭṭelā'āt-e ḥesāb
-auto_configure_proxy,Auto-configure proxy,自动配置代理,Автоматическая настройка прокси,Peykarbandī-ye xodkār-e proxy
+proxy_autoconf,Auto-configure proxy,自动配置代理,Автоматическая настройка прокси,Peykarbandī-ye xodkār-e proxy
 cancel,Cancel,取消,Отмена,Lagv
 connect,Connect,连接,Подключить,Etesāl
 connected,Connected,已连接,Подключено,Mottasel

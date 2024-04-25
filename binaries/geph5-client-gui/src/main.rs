@@ -3,6 +3,7 @@
 mod daemon;
 mod l10n;
 mod logs;
+mod pac;
 mod prefs;
 mod refresh_cell;
 mod settings;
