@@ -1,0 +1,7 @@
+socks5_listen: 127.0.0.1:9999
+exit_constraint: auto
+
+broker:
+  fronted:
+    front: https://vuejs.org/
+    host: svitania-naidallszei-2.netlify.app
