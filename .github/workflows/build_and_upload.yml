@@ -106,6 +106,7 @@ jobs:
           path: artifacts/${{ matrix.dir }}
 
   upload:
+    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-20.04
     strategy:
