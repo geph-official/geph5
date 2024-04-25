@@ -35,8 +35,7 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
     ctx.set_zoom_factor(ZOOM_FACTOR.get());
 
     // Account settings
-    ui.separator();
-    ui.heading(l10n("account_info"));
+    // ui.heading(l10n("account_info"));
     USERNAME.modify(|username| {
         ui.horizontal(|ui| {
             ui.label(l10n("username"));
@@ -52,7 +51,7 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
 
     // Preferences
     ui.separator();
-    ui.heading(l10n("preferences"));
+    // ui.label(l10n("preferences"));
     ZOOM_FACTOR.modify(|zoom_factor| {
         ui.horizontal(|ui| {
             ui.label(l10n("zoom_factor"));
@@ -82,7 +81,7 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
 
     // Network settings
     ui.separator();
-    ui.heading(l10n("network_settings"));
+    // ui.heading(l10n("network_settings"));
     PROXY_AUTOCONF.modify(|proxy_autoconf| {
         ui.horizontal(|ui| {
             ui.label(l10n("proxy_autoconf"));
