@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use once_cell::sync::Lazy;
 use smol_str::SmolStr;
 
-use crate::{prefs::pref_read, settings::LANG_CODE};
+use crate::settings::LANG_CODE;
 
 static L10N_TABLE: Lazy<BTreeMap<SmolStr, BTreeMap<SmolStr, SmolStr>>> = Lazy::new(|| {
     let csv = include_bytes!("l10n.csv");

@@ -1,4 +1,3 @@
-
 use geph5_broker_protocol::Credential;
 use geph5_client::Config;
 use once_cell::sync::Lazy;
@@ -7,7 +6,7 @@ use smol_str::{SmolStr, ToSmolStr};
 use crate::{l10n, store_cell::StoreCell};
 
 pub fn get_config() -> anyhow::Result<Config> {
-  let yaml: serde_yaml::Value = serde_yaml::from_str(include_str!("settings_default.yaml"))?;
+    let yaml: serde_yaml::Value = serde_yaml::from_str(include_str!("settings_default.yaml"))?;
     let json: serde_json::Value = serde_json::to_value(&yaml)?;
     let mut cfg: Config = serde_json::from_value(json)?;
     cfg.credentials = Credential::LegacyUsernamePassword {
@@ -34,6 +33,10 @@ pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
 
 pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     ctx.set_zoom_factor(ZOOM_FACTOR.get());
+
+    // Account settings
+    ui.separator();
+    ui.heading(l10n("account_info"));
     USERNAME.modify(|username| {
         ui.horizontal(|ui| {
             ui.label(l10n("username"));
@@ -46,12 +49,17 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
             ui.add(egui::TextEdit::singleline(password).password(true));
         })
     });
+
+    // Preferences
+    ui.separator();
+    ui.heading(l10n("preferences"));
     ZOOM_FACTOR.modify(|zoom_factor| {
         ui.horizontal(|ui| {
             ui.label(l10n("zoom_factor"));
-            ui.add(egui::Slider::new(zoom_factor, 1.0..=1.5));
+            ui.add(egui::Slider::new(zoom_factor, 0.5..=3.0)); // Adjusted range for better control
         })
     });
+
     ui.horizontal(|ui| {
         ui.label(l10n("language"));
         LANG_CODE.modify(|lang_code| {
@@ -68,21 +76,28 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
                     ui.selectable_value(lang_code, "zh".into(), "中文");
                     ui.selectable_value(lang_code, "fa".into(), "Fārsī");
                     ui.selectable_value(lang_code, "ru".into(), "Русский");
-                })
+                });
         });
     });
+
+    // Network settings
+    ui.separator();
+    ui.heading(l10n("network_settings"));
     PROXY_AUTOCONF.modify(|proxy_autoconf| {
         ui.horizontal(|ui| {
             ui.label(l10n("proxy_autoconf"));
             ui.add(egui::Checkbox::new(proxy_autoconf, ""));
         })
     });
+
+    // Configuration file
+    ui.separator();
+    // ui.heading(l10n("Configuration File"));
     let config = get_config()?;
     let config_json = serde_json::to_value(config)?;
     let config_yaml = serde_yaml::to_string(&config_json)?;
 
-    ui.centered_and_justified(|ui| {
-        egui::ScrollArea::vertical().show(ui, |ui| ui.code_editor(&mut config_yaml.as_str()))
-    });
+    egui::ScrollArea::vertical().show(ui, |ui| ui.code_editor(&mut config_yaml.as_str()));
+
     Ok(())
 }
