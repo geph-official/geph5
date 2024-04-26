@@ -40,7 +40,7 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     }));
     conn.set_on_write(clone!([ctx], move |n| {
         ctx.get(STAT_TOTAL_BYTES)
-            .fetch_sub(n as _, Ordering::Relaxed);
+            .fetch_add(n as _, Ordering::Relaxed);
     }));
     Ok(conn)
 }
