@@ -1,10 +1,9 @@
-use bytes::{Buf, BufMut, BytesMut};
+
 use std::{
     fmt::{self, Debug},
-    io::Cursor,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{SocketAddr},
 };
-use tokio::io::{self, AsyncRead, AsyncReadExt};
+use tokio::io::{self};
 /// SOCKS5 protocol error
 
 #[derive(Clone, PartialEq, Eq, Hash)]

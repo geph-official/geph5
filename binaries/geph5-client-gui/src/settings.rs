@@ -31,7 +31,7 @@ pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
 pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
     Lazy::new(|| StoreCell::new_persistent("proxy_autoconf", || false));
 
-pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
+pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     // Account settings
     // ui.heading(l10n("account_info"));
     USERNAME.modify(|username| {

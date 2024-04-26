@@ -118,7 +118,7 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_zoom_factor(ZOOM_FACTOR.get());
-        ctx.request_repaint_after(Duration::from_millis(300));
+        ctx.request_repaint_after(Duration::from_millis(100));
         // ctx.request_repaint();
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {

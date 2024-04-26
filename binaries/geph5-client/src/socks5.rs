@@ -1,8 +1,8 @@
 use crate::client_inner::open_conn;
-use crate::stats::STAT_TOTAL_BYTES;
+
 use anyctx::AnyCtx;
-use futures_util::AsyncWriteExt;
-use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
+
+use futures_util::{AsyncReadExt as _};
 use nursery_macro::nursery;
 use sillad::listener::Listener as _;
 use smol::future::FutureExt as _;
@@ -10,7 +10,7 @@ use socksv5::v5::{
     read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
     SocksV5Host, SocksV5RequestStatus,
 };
-use std::{net::Ipv4Addr, sync::atomic::Ordering};
+use std::{net::Ipv4Addr};
 
 use super::Config;
 
