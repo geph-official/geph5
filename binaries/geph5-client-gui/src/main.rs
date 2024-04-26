@@ -47,10 +47,7 @@ fn main() {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([320.0, 320.0])
-            .with_min_inner_size([320.0, 320.0])
-            // .with_max_inner_size([320.0, 320.0])
-            ,
-        // shader_version: Some(ShaderVersion::Es100),
+            .with_min_inner_size([320.0, 320.0]),
         ..Default::default()
     };
     eframe::run_native(
