@@ -50,38 +50,12 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 .await?;
                 tracing::trace!(remote_addr = display(&remote_addr), "connection opened");
                 let (read_stream, write_stream) = stream.split();
-                io_copy_with(read_stream, write_client, |n| {
-                    ctx.get(STAT_TOTAL_BYTES)
-                        .fetch_add(n as u64, Ordering::Relaxed);
-                })
-                .race(io_copy_with(read_client, write_stream, |n| {
-                    ctx.get(STAT_TOTAL_BYTES)
-                        .fetch_add(n as u64, Ordering::Relaxed);
-                }))
-                .await?;
+                smol::io::copy(read_stream, write_client)
+                    .race(smol::io::copy(read_client, write_stream))
+                    .await?;
                 anyhow::Ok(())
             })
             .detach();
         }
     })
-}
-
-async fn io_copy_with(
-    mut read: impl AsyncRead + Unpin,
-    mut write: impl AsyncWrite + Unpin,
-    mut on_copy: impl FnMut(usize),
-) -> anyhow::Result<()> {
-    let mut buffer = vec![0; 8192]; // Buffer size can be adjusted based on expected data sizes or performance testing
-
-    loop {
-        let bytes_read = read.read(&mut buffer).await?;
-
-        if bytes_read == 0 {
-            break; // End of input stream
-        }
-
-        write.write_all(&buffer[..bytes_read]).await?;
-        on_copy(bytes_read); // Invoke the callback
-    }
-    Ok(())
 }

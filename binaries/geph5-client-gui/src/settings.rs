@@ -22,7 +22,7 @@ static USERNAME: Lazy<StoreCell<String>> =
 static PASSWORD: Lazy<StoreCell<String>> =
     Lazy::new(|| StoreCell::new_persistent("password", || "".to_string()));
 
-static ZOOM_FACTOR: Lazy<StoreCell<f32>> =
+pub static ZOOM_FACTOR: Lazy<StoreCell<f32>> =
     Lazy::new(|| StoreCell::new_persistent("zoom_factor", || 1.0));
 
 pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
@@ -32,8 +32,6 @@ pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
     Lazy::new(|| StoreCell::new_persistent("proxy_autoconf", || false));
 
 pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
-    ctx.set_zoom_factor(ZOOM_FACTOR.get());
-
     // Account settings
     // ui.heading(l10n("account_info"));
     USERNAME.modify(|username| {
@@ -55,7 +53,15 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
     ZOOM_FACTOR.modify(|zoom_factor| {
         ui.horizontal(|ui| {
             ui.label(l10n("zoom_factor"));
-            ui.add(egui::Slider::new(zoom_factor, 0.5..=3.0)); // Adjusted range for better control
+            egui::ComboBox::from_id_source("zoom_factor_cmbx")
+                .selected_text(format!("{:.2}", zoom_factor))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(zoom_factor, 1.0, "1.0");
+                    ui.selectable_value(zoom_factor, 1.25, "1.25");
+                    ui.selectable_value(zoom_factor, 1.5, "1.5");
+                    ui.selectable_value(zoom_factor, 1.75, "1.75");
+                    ui.selectable_value(zoom_factor, 2.0, "2.0");
+                });
         })
     });
 
@@ -89,14 +95,14 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
         })
     });
 
-    // Configuration file
-    ui.separator();
-    // ui.heading(l10n("Configuration File"));
-    let config = get_config()?;
-    let config_json = serde_json::to_value(config)?;
-    let config_yaml = serde_yaml::to_string(&config_json)?;
+    // // Configuration file
+    // ui.separator();
+    // // ui.heading(l10n("Configuration File"));
+    // let config = get_config()?;
+    // let config_json = serde_json::to_value(config)?;
+    // let config_yaml = serde_yaml::to_string(&config_json)?;
 
-    egui::ScrollArea::vertical().show(ui, |ui| ui.code_editor(&mut config_yaml.as_str()));
+    // egui::ScrollArea::vertical().show(ui, |ui| ui.code_editor(&mut config_yaml.as_str()));
 
     Ok(())
 }

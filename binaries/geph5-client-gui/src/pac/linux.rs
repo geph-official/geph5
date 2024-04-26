@@ -31,6 +31,28 @@ pub fn set_http_proxy(proxy: SocketAddr) -> anyhow::Result<()> {
             .output()
             .context("Failed to set HTTP proxy port")?;
         Command::new("gsettings")
+            .args(["set", "org.gnome.system.proxy.https", "enabled", "true"])
+            .output()
+            .context("Failed to enable HTTPS proxy setting")?;
+        Command::new("gsettings")
+            .args([
+                "set",
+                "org.gnome.system.proxy.https",
+                "host",
+                proxy.ip().to_string().as_str(),
+            ])
+            .output()
+            .context("Failed to set HTTPS proxy host")?;
+        Command::new("gsettings")
+            .args([
+                "set",
+                "org.gnome.system.proxy.https",
+                "port",
+                &proxy.port().to_string(),
+            ])
+            .output()
+            .context("Failed to set HTTPS proxy port")?;
+        Command::new("gsettings")
             .args(["set", "org.gnome.system.proxy", "mode", "manual"])
             .output()
             .context("Failed to set proxy mode to manual")?;

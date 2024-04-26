@@ -1,5 +1,6 @@
 use anyctx::AnyCtx;
 use anyhow::Context;
+use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::try_join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
@@ -21,7 +22,9 @@ use std::{
 
 use stdcode::StdcodeSerializeExt;
 
-use crate::{auth::get_connect_token, client::CtxField, route::get_dialer};
+use crate::{
+    auth::get_connect_token, client::CtxField, route::get_dialer, stats::STAT_TOTAL_BYTES,
+};
 
 use super::Config;
 
@@ -29,7 +32,17 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     let (send, recv) = oneshot::channel();
     let elem = (dest_addr.to_string(), send);
     let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
-    Ok(recv.await?)
+    let mut conn = recv.await?;
+    let ctx = ctx.clone();
+    conn.set_on_read(clone!([ctx], move |n| {
+        ctx.get(STAT_TOTAL_BYTES)
+            .fetch_add(n as _, Ordering::Relaxed);
+    }));
+    conn.set_on_write(clone!([ctx], move |n| {
+        ctx.get(STAT_TOTAL_BYTES)
+            .fetch_sub(n as _, Ordering::Relaxed);
+    }));
+    Ok(conn)
 }
 
 type ChanElem = (String, oneshot::Sender<picomux::Stream>);

@@ -17,7 +17,7 @@ use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
 use prefs::{pref_read, pref_write};
-use settings::render_settings;
+use settings::{render_settings, ZOOM_FACTOR};
 use tabs::{dashboard::Dashboard, logs::Logs};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
@@ -46,9 +46,10 @@ fn main() {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([350.0, 350.0])
-            .with_min_inner_size([350.0, 350.0])
-            .with_max_inner_size([350.0, 350.0]),
+            .with_inner_size([320.0, 320.0])
+            .with_min_inner_size([320.0, 320.0])
+            // .with_max_inner_size([320.0, 320.0])
+            ,
         // shader_version: Some(ShaderVersion::Es100),
         ..Default::default()
     };
@@ -116,6 +117,7 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_zoom_factor(ZOOM_FACTOR.get());
         ctx.request_repaint_after(Duration::from_millis(300));
         // ctx.request_repaint();
 

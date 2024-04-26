@@ -19,6 +19,7 @@ use crate::{
     broker::{broker_client, BrokerSource},
     client_inner::client_once,
     database::db_read_or_wait,
+    http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
     stats::STAT_TOTAL_BYTES,
@@ -27,6 +28,7 @@ use crate::{
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub socks5_listen: SocketAddr,
+    pub http_proxy_listen: SocketAddr,
     pub exit_constraint: ExitConstraint,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
@@ -120,6 +122,9 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 |e| tracing::warn!("client died and restarted: {:?}", e)
             )),
         );
-        socks5_loop(&ctx).race(auth_loop(&ctx)).await
+        socks5_loop(&ctx)
+            .race(run_http_proxy(&ctx))
+            .race(auth_loop(&ctx))
+            .await
     }
 }

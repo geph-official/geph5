@@ -49,3 +49,9 @@ tap = "1.0.1"
 dirs = "5.0.1"
 moka = {version="0.12.5", features=["future"]}
 isahc = {version="1.7.2", features=["static-ssl"]}
+hyper = { version = "0.14.27", features = ["http1", "client", "server", "tcp", "stream"] }
+http = "0.2.9"
+tokio = { version = "1.33.0", features = ["rt", "net", "io-util"] }
+bytes = "1.6.0"
+pin-project = "1.1.5"
+async-compat = "0.2.3"
