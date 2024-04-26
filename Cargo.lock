@@ -2231,6 +2231,7 @@ dependencies = [
  "geph5-broker-protocol",
  "geph5-client",
  "http 1.1.0",
+ "isocountry",
  "moka",
  "native-dialog",
  "once_cell",

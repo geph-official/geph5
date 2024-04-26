@@ -31,6 +31,7 @@ serde_json = "1.0.115"
 oneshot = "0.1.6"
 chrono = "0.4.38"
 http = "1.1.0"
+isocountry = "0.3.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52.0"

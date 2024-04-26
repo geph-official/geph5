@@ -2,7 +2,7 @@
 label,en,zh,ru,fa
 about,About,关于,О программе,Darbāre
 account_info,Account Info,帐户信息,Информация об аккаунте,Eṭṭelā'āt-e ḥesāb
-proxy_autoconf,Auto-configure proxy,自动配置代理,Автоматическая настройка прокси,Peykarbandī-ye xodkār-e proxy
+auto,Auto,自动,Авто,Xodkār
 cancel,Cancel,取消,Отмена,Lagv
 connect,Connect,连接,Подключить,Etesāl
 connected,Connected,已连接,Подключено,Mottasel
@@ -13,6 +13,7 @@ disconnect,Disconnect,断开连接,Отключить,Qat'-e etesāl
 disconnected,Disconnected,已断开连接,Отключено,Qat' šode ast
 download_speed,Download speed,下载速度,Скорость загрузки,Sor'at-e dānlod
 exit,Exit,退出,Выход,Koruj
+exit_location,Exit location,出口位置,Выходная точка,Makān-e xoroj
 geph,Geph,迷雾通,Геф,Gef
 help,Help,帮助,Помощь,Rāhnamā
 language,Language,语言,Язык,Zabān
@@ -23,6 +24,7 @@ network_settings,Network Settings,网络设置,Настройки сети,Tanzi
 password,Password,密码,Пароль,Ramz-e 'obur
 preferences,Preferences,首选项,Настройки,Tanzimāt-e 'olaviyat
 protocol,Protocol,协议,Протокол,Protokol
+proxy_autoconf,Auto-configure proxy,自动配置代理,Автоматическая настройка прокси,Peykarbandī-ye xodkār-e proxy
 save,Save,保存,Сохранить,Zaxīre
 selected_server,Selected Server,选定的服务器,Выбранный сервер,Sarvar-e entexābī
 server,Server,服务器,Сервер,Sarvar
@@ -30,4 +32,4 @@ settings,Settings,设置,Настройки,Tanzimāt
 status,Status,状态,Статус,Vazīyat
 upload_speed,Upload Speed,上传速度,Скорость отдачи,Sor'at-e āplod
 username,Username,用户名,Имя пользователя,Nām-e karbarī
-zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī
+zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī 

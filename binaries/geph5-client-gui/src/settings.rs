@@ -1,9 +1,16 @@
-use geph5_broker_protocol::Credential;
-use geph5_client::Config;
+use std::{
+    collections::{BTreeSet, HashSet},
+    time::Duration,
+};
+
+use egui::mutex::Mutex;
+use geph5_broker_protocol::{BrokerClient, Credential};
+use geph5_client::{Config, ExitConstraint};
+use isocountry::CountryCode;
 use once_cell::sync::Lazy;
 use smol_str::{SmolStr, ToSmolStr};
 
-use crate::{l10n, store_cell::StoreCell};
+use crate::{l10n, refresh_cell::RefreshCell, store_cell::StoreCell};
 
 pub fn get_config() -> anyhow::Result<Config> {
     let yaml: serde_yaml::Value = serde_yaml::from_str(include_str!("settings_default.yaml"))?;
@@ -13,6 +20,10 @@ pub fn get_config() -> anyhow::Result<Config> {
         username: USERNAME.get(),
         password: PASSWORD.get(),
     };
+    cfg.exit_constraint = SELECTED_COUNTRY
+        .get()
+        .map(ExitConstraint::Country)
+        .unwrap_or_else(|| ExitConstraint::Auto);
     Ok(cfg)
 }
 
@@ -30,6 +41,12 @@ pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
 
 pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
     Lazy::new(|| StoreCell::new_persistent("proxy_autoconf", || false));
+
+static COUNTRY_LIST: Lazy<Mutex<RefreshCell<Vec<CountryCode>>>> =
+    Lazy::new(|| Mutex::new(RefreshCell::new()));
+
+static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
+    Lazy::new(|| StoreCell::new_persistent("selected_country", || None));
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     // Account settings
@@ -88,11 +105,61 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
     // Network settings
     ui.separator();
     // ui.heading(l10n("network_settings"));
+
+    #[cfg(not(target_os = "macos"))]
     PROXY_AUTOCONF.modify(|proxy_autoconf| {
         ui.horizontal(|ui| {
             ui.label(l10n("proxy_autoconf"));
             ui.add(egui::Checkbox::new(proxy_autoconf, ""));
         })
+    });
+
+    ui.horizontal(|ui| {
+        ui.label(l10n("exit_location"));
+        let mut country_list = COUNTRY_LIST.lock();
+        let resp = country_list.get_or_refresh(Duration::from_secs(10), || {
+            smol::future::block_on(async {
+                let rpc_transport = get_config().unwrap().broker.unwrap().rpc_transport();
+                let client = BrokerClient::from(rpc_transport);
+                loop {
+                    let fallible = async {
+                        let exits = client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
+                        let v: BTreeSet<_> =
+                            exits.inner.all_exits.iter().map(|s| s.1.country).collect();
+                        anyhow::Ok(v.into_iter().collect::<Vec<_>>())
+                    };
+                    match fallible.await {
+                        Ok(v) => return v,
+                        Err(err) => tracing::warn!("Failed to get country list: {}", err),
+                    }
+                }
+            })
+        });
+
+        match resp {
+            Some(countries) => {
+                egui::ComboBox::from_id_source("country")
+                    .selected_text(
+                        SELECTED_COUNTRY
+                            .get()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| l10n("auto").to_string()),
+                    )
+                    .show_ui(ui, |ui| {
+                        SELECTED_COUNTRY.modify(|selected| {
+                            ui.selectable_value(selected, None, l10n("auto"));
+                        });
+                        for country in countries {
+                            SELECTED_COUNTRY.modify(|selected| {
+                                ui.selectable_value(selected, Some(*country), country.to_string());
+                            })
+                        }
+                    });
+            }
+            None => {
+                ui.spinner();
+            }
+        }
     });
 
     // // Configuration file
