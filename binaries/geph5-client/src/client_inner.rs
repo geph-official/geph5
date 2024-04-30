@@ -13,8 +13,9 @@ use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
+    net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -23,7 +24,10 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, client::CtxField, route::get_dialer, stats::STAT_TOTAL_BYTES,
+    auth::get_connect_token,
+    client::CtxField,
+    route::{deprioritize_route, get_dialer},
+    stats::STAT_TOTAL_BYTES,
 };
 
 use super::Config;
@@ -71,7 +75,18 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 protocol = raw_pipe.protocol(),
                 "dial completed"
             );
+            let died = AtomicBool::new(true);
+            let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
+            scopeguard::defer!({
+                {
+                    if died.load(Ordering::SeqCst) {
+                        tracing::debug!(addr = display(addr), "deprioritizing route");
+                        deprioritize_route(addr);
+                    }
+                }
+            });
             let authed_pipe = client_auth(&ctx, raw_pipe, pubkey).await?;
+            died.store(false, Ordering::SeqCst);
             tracing::debug!(
                 elapsed = debug(start.elapsed()),
                 "authentication done, starting mux system"
@@ -89,7 +104,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all, fields(remote=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
+#[tracing::instrument(skip_all, fields(server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
 async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
@@ -107,7 +122,7 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
                 let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
                 smol::future::yield_now().await;
                 spawn!(async move {
-                    tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
+                    tracing::debug!(remote_addr = display(&remote_addr), "opening tunnel");
                     let stream = mux.open(remote_addr.as_bytes()).await;
                     match stream {
                         Ok(stream) => {
@@ -133,10 +148,11 @@ async fn client_auth(
     mut pipe: impl Pipe,
     pubkey: VerifyingKey,
 ) -> anyhow::Result<impl Pipe> {
+    let server = pipe.remote_addr().unwrap_or("").to_string();
     let (level, token, sig) = get_connect_token(ctx).await?;
     match pipe.shared_secret().map(|s| s.to_owned()) {
         Some(ss) => {
-            tracing::debug!("using shared secret for authentication");
+            tracing::debug!(server, "using shared secret for authentication");
             let challenge = rand::random();
             let client_hello = ClientHello {
                 credentials: (level, token, sig).stdcode().into(),
@@ -150,7 +166,7 @@ async fn client_auth(
             match exit_response.inner {
                 ExitHelloInner::SharedSecretResponse(response_mac) => {
                     if mac == response_mac {
-                        tracing::debug!("authentication successful with shared secret");
+                        tracing::debug!(server, "authentication successful with shared secret");
                         Ok(EitherPipe::Left(pipe))
                     } else {
                         anyhow::bail!("authentication failed with shared secret");
@@ -160,7 +176,7 @@ async fn client_auth(
             }
         }
         None => {
-            tracing::debug!("requiring full authentication");
+            tracing::debug!(server, "requiring full authentication");
             let my_esk = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
             let client_hello = ClientHello {
                 credentials: (level, token, sig).stdcode().into(),
