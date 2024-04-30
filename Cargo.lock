@@ -2232,6 +2232,7 @@ dependencies = [
  "geph5-client",
  "http 1.1.0",
  "isocountry",
+ "itertools 0.12.1",
  "moka",
  "native-dialog",
  "once_cell",

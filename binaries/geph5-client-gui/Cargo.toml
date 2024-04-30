@@ -32,6 +32,7 @@ oneshot = "0.1.6"
 chrono = "0.4.38"
 http = "1.1.0"
 isocountry = "0.3.2"
+itertools = "0.12.1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52.0"

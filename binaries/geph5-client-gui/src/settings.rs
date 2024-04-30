@@ -1,12 +1,10 @@
-use std::{
-    collections::{BTreeSet, HashSet},
-    time::Duration,
-};
+use std::{collections::BTreeSet, time::Duration};
 
 use egui::mutex::Mutex;
 use geph5_broker_protocol::{BrokerClient, Credential};
 use geph5_client::{Config, ExitConstraint};
 use isocountry::CountryCode;
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use smol_str::{SmolStr, ToSmolStr};
 
@@ -20,10 +18,11 @@ pub fn get_config() -> anyhow::Result<Config> {
         username: USERNAME.get(),
         password: PASSWORD.get(),
     };
-    cfg.exit_constraint = SELECTED_COUNTRY
-        .get()
-        .map(ExitConstraint::Country)
-        .unwrap_or_else(|| ExitConstraint::Auto);
+    cfg.exit_constraint = match (SELECTED_COUNTRY.get(), SELECTED_CITY.get()) {
+        (Some(country), Some(city)) => ExitConstraint::CountryCity(country, city),
+        (Some(country), None) => ExitConstraint::Country(country),
+        _ => ExitConstraint::Auto,
+    };
     Ok(cfg)
 }
 
@@ -42,11 +41,14 @@ pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
 pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
     Lazy::new(|| StoreCell::new_persistent("proxy_autoconf", || false));
 
-static COUNTRY_LIST: Lazy<Mutex<RefreshCell<Vec<CountryCode>>>> =
+static LOCATION_LIST: Lazy<Mutex<RefreshCell<Vec<(CountryCode, String)>>>> =
     Lazy::new(|| Mutex::new(RefreshCell::new()));
 
 static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_country", || None));
+
+static SELECTED_CITY: Lazy<StoreCell<Option<String>>> =
+    Lazy::new(|| StoreCell::new_persistent("selected_city", || None));
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     // Account settings
@@ -116,16 +118,20 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
 
     ui.horizontal(|ui| {
         ui.label(l10n("exit_location"));
-        let mut country_list = COUNTRY_LIST.lock();
-        let resp = country_list.get_or_refresh(Duration::from_secs(10), || {
+        let mut location_list = LOCATION_LIST.lock();
+        let locations = location_list.get_or_refresh(Duration::from_secs(10), || {
             smol::future::block_on(async {
                 let rpc_transport = get_config().unwrap().broker.unwrap().rpc_transport();
                 let client = BrokerClient::from(rpc_transport);
                 loop {
                     let fallible = async {
                         let exits = client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
-                        let v: BTreeSet<_> =
-                            exits.inner.all_exits.iter().map(|s| s.1.country).collect();
+                        let v: BTreeSet<_> = exits
+                            .inner
+                            .all_exits
+                            .iter()
+                            .map(|s| (s.1.country, s.1.city.clone()))
+                            .collect();
                         anyhow::Ok(v.into_iter().collect::<Vec<_>>())
                     };
                     match fallible.await {
@@ -136,29 +142,58 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
             })
         });
 
-        match resp {
-            Some(countries) => {
-                egui::ComboBox::from_id_source("country")
-                    .selected_text(
-                        SELECTED_COUNTRY
-                            .get()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| l10n("auto").to_string()),
-                    )
-                    .show_ui(ui, |ui| {
-                        SELECTED_COUNTRY.modify(|selected| {
-                            ui.selectable_value(selected, None, l10n("auto"));
-                        });
-                        for country in countries {
-                            SELECTED_COUNTRY.modify(|selected| {
-                                ui.selectable_value(selected, Some(*country), country.to_string());
-                            })
+        egui::ComboBox::from_id_source("country")
+            .selected_text(
+                SELECTED_COUNTRY
+                    .get()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| l10n("auto").to_string()),
+            )
+            .show_ui(ui, |ui| {
+                let former = SELECTED_COUNTRY.get();
+                SELECTED_COUNTRY.modify(|selected| {
+                    if let Some(locations) = locations {
+                        ui.selectable_value(selected, None, l10n("auto"));
+
+                        for country in locations.iter().map(|s| s.0).unique() {
+                            ui.selectable_value(selected, Some(country), country.to_string());
                         }
-                    });
-            }
-            None => {
-                ui.spinner();
-            }
+                    } else {
+                        ui.spinner();
+                    }
+                });
+                if SELECTED_COUNTRY.get() != former {
+                    SELECTED_CITY.set(None);
+                }
+            });
+        if let Some(country) = SELECTED_COUNTRY.get() {
+            egui::ComboBox::from_id_source("city")
+                .selected_text(
+                    SELECTED_CITY
+                        .get()
+                        .unwrap_or_else(|| l10n("auto").to_string()),
+                )
+                .show_ui(ui, |ui| {
+                    if let Some(locations) = locations {
+                        SELECTED_CITY.modify(|selected| {
+                            ui.selectable_value(selected, None, l10n("auto"));
+                            for city in locations
+                                .iter()
+                                .filter(|s| s.0 == country)
+                                .map(|s| &s.1)
+                                .unique()
+                            {
+                                ui.selectable_value(
+                                    selected,
+                                    Some(city.to_string()),
+                                    city.to_string(),
+                                );
+                            }
+                        })
+                    } else {
+                        ui.spinner();
+                    }
+                });
         }
     });
 
