@@ -47,7 +47,7 @@ event-listener = "5.2.0"
 blind-rsa-signatures = "0.15.0"
 tap = "1.0.1"
 dirs = "5.0.1"
-moka = {version="0.12.5", features=["future"]}
+moka = {version="0.12.5", features=["future", "sync"]}
 isahc = {version="1.7.2", features=["static-ssl"]}
 hyper = { version = "0.14.27", features = ["http1", "client", "server", "tcp", "stream"] }
 http = "0.2.9"
