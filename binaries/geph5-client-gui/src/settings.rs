@@ -1,7 +1,7 @@
-use std::{collections::BTreeSet, time::Duration};
+use std::time::Duration;
 
 use egui::mutex::Mutex;
-use geph5_broker_protocol::{BrokerClient, Credential};
+use geph5_broker_protocol::{BrokerClient, Credential, ExitList};
 use geph5_client::{Config, ExitConstraint};
 use isocountry::CountryCode;
 use itertools::Itertools;
@@ -41,7 +41,7 @@ pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
 pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
     Lazy::new(|| StoreCell::new_persistent("proxy_autoconf", || false));
 
-static LOCATION_LIST: Lazy<Mutex<RefreshCell<Vec<(CountryCode, String)>>>> =
+static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
     Lazy::new(|| Mutex::new(RefreshCell::new()));
 
 static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
@@ -126,13 +126,7 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
                 loop {
                     let fallible = async {
                         let exits = client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
-                        let v: BTreeSet<_> = exits
-                            .inner
-                            .all_exits
-                            .iter()
-                            .map(|s| (s.1.country, s.1.city.clone()))
-                            .collect();
-                        anyhow::Ok(v.into_iter().collect::<Vec<_>>())
+                        anyhow::Ok(exits.inner)
                     };
                     match fallible.await {
                         Ok(v) => return v,
@@ -155,7 +149,7 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
                     if let Some(locations) = locations {
                         ui.selectable_value(selected, None, l10n("auto"));
 
-                        for country in locations.iter().map(|s| s.0).unique() {
+                        for country in locations.all_exits.iter().map(|s| s.1.country).unique() {
                             ui.selectable_value(selected, Some(country), country.to_string());
                         }
                     } else {
@@ -178,9 +172,10 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
                         SELECTED_CITY.modify(|selected| {
                             ui.selectable_value(selected, None, l10n("auto"));
                             for city in locations
+                                .all_exits
                                 .iter()
-                                .filter(|s| s.0 == country)
-                                .map(|s| &s.1)
+                                .filter(|s| s.1.country == country)
+                                .map(|s| &s.1.city)
                                 .unique()
                             {
                                 ui.selectable_value(
