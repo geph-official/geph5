@@ -125,7 +125,7 @@ impl RateLimiter {
         if bytes == 0 {
             return;
         }
-        let multiplier = 1.0 / (1.0 - get_load().max(0.999));
+        let multiplier = (1.0 / (1.0 - get_load().max(0.999)) - 1.0) / 2.0;
         tracing::debug!(multiplier, "got multiplier");
         let bytes = bytes as f32 * (multiplier.max(1.0));
         if let Some(inner) = &self.inner {
