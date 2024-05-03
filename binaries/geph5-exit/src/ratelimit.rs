@@ -34,6 +34,13 @@ static PLUS_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
 static CPU_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 static CURRENT_SPEED: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 
+fn get_load() -> f32 {
+    let cpu = CPU_USAGE.load(Ordering::Relaxed);
+    let speed = CURRENT_SPEED.load(Ordering::Relaxed)
+        / (CONFIG_FILE.wait().total_ratelimit as f32 * 1000.0);
+    cpu.max(speed)
+}
+
 static TOTAL_BYTE_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
 pub fn update_load_loop() {
@@ -48,7 +55,8 @@ pub fn update_load_loop() {
             .iter()
             .map(|cpu| cpu.cpu_usage())
             .max_by_key(|s| (s * 1000.0) as u32 / 1000)
-            .unwrap_or(0.0);
+            .unwrap_or(0.0)
+            / 100.0;
         cpu_accum = cpu_accum * 0.9 + cpu_usage * 0.1;
 
         CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
@@ -59,7 +67,7 @@ pub fn update_load_loop() {
         last_byte_count = new_byte_count;
         CURRENT_SPEED.store(byte_rate, Ordering::Relaxed);
 
-        tracing::info!(byte_rate, cpu_accum, "updated load");
+        tracing::info!(load = get_load(), "updated load");
 
         std::thread::sleep(Duration::from_secs(1));
     }
@@ -117,6 +125,9 @@ impl RateLimiter {
         if bytes == 0 {
             return;
         }
+        let multiplier = 1.0 / (1.0 - get_load().max(0.999));
+        tracing::debug!(multiplier, "got multiplier");
+        let bytes = bytes as f32 * (multiplier.max(1.0));
         if let Some(inner) = &self.inner {
             while inner
                 .check_n((bytes as u32).try_into().unwrap())
