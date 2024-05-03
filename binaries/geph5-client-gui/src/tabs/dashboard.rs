@@ -24,7 +24,7 @@ impl Dashboard {
                     let start_time = daemon.start_time().elapsed().as_secs() + 1;
                     let start_time = Duration::from_secs(1) * start_time as _;
                     columns[1].label(format!("{:?}", start_time));
-                    let mb_used = (daemon.bytes_used() as f64) / 1_000_000.0;
+                    let mb_used = daemon.bytes_used() / 1_000_000.0;
                     columns[1].label(format!("{:.2} MB", mb_used));
                 }
                 None => {

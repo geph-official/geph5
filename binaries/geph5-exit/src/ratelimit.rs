@@ -1,5 +1,13 @@
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use std::{
+    num::NonZeroU32,
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
+use atomic_float::AtomicF32;
 use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use geph5_broker_protocol::AccountLevel;
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -7,19 +15,79 @@ use mizaru2::ClientToken;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use stdcode::StdcodeSerializeExt;
+use sysinfo::System;
 
-static RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
+use crate::CONFIG_FILE;
+
+static FREE_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
     Cache::builder()
         .time_to_idle(Duration::from_secs(86400))
         .build()
 });
 
+static PLUS_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
+    Cache::builder()
+        .time_to_idle(Duration::from_secs(86400))
+        .build()
+});
+
+static CPU_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
+static CURRENT_SPEED: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
+
+static TOTAL_BYTE_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+pub fn update_load_loop() {
+    let mut sys = System::new_all();
+    let mut cpu_accum = 0.0;
+    let mut last_count_time = Instant::now();
+    let mut last_byte_count = 0;
+    loop {
+        sys.refresh_all();
+        let cpu_usage: f32 = sys
+            .cpus()
+            .iter()
+            .map(|cpu| cpu.cpu_usage())
+            .max_by_key(|s| (s * 1000.0) as u32 / 1000)
+            .unwrap_or(0.0);
+        cpu_accum = cpu_accum * 0.9 + cpu_usage * 0.1;
+
+        CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
+        let new_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+        let byte_diff = new_byte_count - last_byte_count;
+        let byte_rate = byte_diff as f32 / last_count_time.elapsed().as_secs_f32();
+        last_count_time = Instant::now();
+        last_byte_count = new_byte_count;
+        CURRENT_SPEED.store(byte_rate, Ordering::Relaxed);
+
+        tracing::info!(byte_rate, cpu_accum, "updated load");
+
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
 pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLimiter {
-    RL_CACHE
-        .get_with(blake3::hash(&(level, token).stdcode()), async {
-            RateLimiter::new(50000, 100000)
-        })
-        .await
+    match level {
+        AccountLevel::Free => {
+            FREE_RL_CACHE
+                .get_with(blake3::hash(&(level, token).stdcode()), async {
+                    RateLimiter::new(
+                        CONFIG_FILE.wait().free_ratelimit,
+                        CONFIG_FILE.wait().free_ratelimit,
+                    )
+                })
+                .await
+        }
+        AccountLevel::Plus => {
+            PLUS_RL_CACHE
+                .get_with(blake3::hash(&(level, token).stdcode()), async {
+                    RateLimiter::new(
+                        CONFIG_FILE.wait().plus_ratelimit,
+                        CONFIG_FILE.wait().plus_ratelimit * 5,
+                    )
+                })
+                .await
+        }
+    }
 }
 
 /// A generic rate limiter.
@@ -76,6 +144,7 @@ impl RateLimiter {
             }
 
             self.wait(bytes_read).await;
+            TOTAL_BYTE_COUNT.fetch_add(bytes_read as _, Ordering::Relaxed);
 
             write_stream.write_all(&buf[..bytes_read]).await?;
             total_bytes += bytes_read as u64;

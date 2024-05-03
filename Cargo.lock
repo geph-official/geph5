@@ -533,6 +533,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atomic_float"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62af46d040ba9df09edc6528dae9d8e49f5f3e82f55b7d2ec31a733c38dbc49d"
+
+[[package]]
 name = "autocfg"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2172,10 +2178,12 @@ dependencies = [
  "argh",
  "async-compat",
  "async-trait",
+ "atomic_float",
  "blake3",
  "blind-rsa-signatures",
  "bytes",
  "clone-macro",
+ "dashmap",
  "dirs",
  "ed25519-dalek",
  "event-listener 5.3.0",
@@ -2206,6 +2214,7 @@ dependencies = [
  "sillad-sosistab3",
  "smol 2.0.0",
  "smol-timeout",
+ "smol_str",
  "smolscale",
  "socksv5",
  "sqlx",
@@ -2262,6 +2271,7 @@ dependencies = [
  "argh",
  "async-io 2.3.2",
  "async-trait",
+ "atomic_float",
  "blake3",
  "ed25519-dalek",
  "futures-util",
@@ -2287,6 +2297,7 @@ dependencies = [
  "smol 2.0.0",
  "smolscale",
  "stdcode",
+ "sysinfo",
  "tachyonix",
  "tap",
  "thiserror",
@@ -3436,6 +3447,15 @@ name = "nonzero_ext"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38bf9645c8b145698bb0b18a4637dcacbc421ea49bef2317e4fd8065a387cf21"
+
+[[package]]
+name = "ntapi"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8a3895c6391c39d7fe7ebc444a87eb2991b2a0bc718fdabd071eec617fc68e4"
+dependencies = [
+ "winapi",
+]
 
 [[package]]
 name = "nu-ansi-term"
@@ -5265,6 +5285,21 @@ name = "sync_wrapper"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7065abeca94b6a8a577f9bd45aa0867a2238b74e8eb67cf10d492bc39351394"
+
+[[package]]
+name = "sysinfo"
+version = "0.30.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87341a165d73787554941cd5ef55ad728011566fe714e987d1b976c15dbc3a83"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi",
+ "once_cell",
+ "rayon",
+ "windows 0.52.0",
+]
 
 [[package]]
 name = "system-configuration"

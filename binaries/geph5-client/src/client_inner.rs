@@ -27,7 +27,7 @@ use crate::{
     auth::get_connect_token,
     client::CtxField,
     route::{deprioritize_route, get_dialer},
-    stats::STAT_TOTAL_BYTES,
+    stats::stat_incr_num,
 };
 
 use super::Config;
@@ -39,12 +39,10 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
-        ctx.get(STAT_TOTAL_BYTES)
-            .fetch_add(n as _, Ordering::Relaxed);
+        stat_incr_num(&ctx, "total_bytes", n as _)
     }));
     conn.set_on_write(clone!([ctx], move |n| {
-        ctx.get(STAT_TOTAL_BYTES)
-            .fetch_add(n as _, Ordering::Relaxed);
+        stat_incr_num(&ctx, "total_bytes", n as _)
     }));
     Ok(conn)
 }

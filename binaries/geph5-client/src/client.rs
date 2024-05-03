@@ -6,7 +6,7 @@ use smol::future::FutureExt as _;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc},
     task::Context,
     time::{Duration, Instant},
 };
@@ -22,7 +22,7 @@ use crate::{
     http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
-    stats::STAT_TOTAL_BYTES,
+    stats::stat_get_num,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -81,8 +81,8 @@ impl Client {
     }
 
     /// Returns the count of all bytes used.
-    pub fn bytes_used(&self) -> u64 {
-        self.ctx.get(STAT_TOTAL_BYTES).load(Ordering::Relaxed)
+    pub fn bytes_used(&self) -> f64 {
+        stat_get_num(&self.ctx, "total_bytes")
     }
 }
 
