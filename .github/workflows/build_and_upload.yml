@@ -96,18 +96,13 @@ jobs:
           - dir: macos
           - dir: windows
 
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v2
+      - name: Configure AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          path: artifacts
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: auto # Cloudflare R2 does not require a specific AWS region, but this field is required by this action
 
       - name: Upload to Cloudflare R2
-        uses: ryand56/r2-upload-action@v1.2.2
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          r2-bucket: geph5
-          source-dir: artifacts/${{ matrix.dir }}-latest
-          destination-dir: ./${{ matrix.dir }}-latest
+        run: |
+          aws s3 cp ./artifacts/${{ matrix.dir }}-latest s3://geph5/${{ matrix.dir }}-latest --recursive --endpoint-url=https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com/
