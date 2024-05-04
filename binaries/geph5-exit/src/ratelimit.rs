@@ -48,6 +48,7 @@ pub fn update_load_loop() {
     let mut cpu_accum = 0.0;
     let mut last_count_time = Instant::now();
     let mut last_byte_count = 0;
+    let mut last_speed = 0.0;
     loop {
         sys.refresh_all();
         let cpu_usage: f32 = sys
@@ -57,19 +58,21 @@ pub fn update_load_loop() {
             .max_by_key(|s| (s * 1000.0) as u32 / 1000)
             .unwrap_or(0.0)
             / 100.0;
-        cpu_accum = cpu_accum * 0.9 + cpu_usage * 0.1;
+        cpu_accum = cpu_accum * 0.99 + cpu_usage * 0.01;
 
         CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
         let new_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
         let byte_diff = new_byte_count - last_byte_count;
         let byte_rate = byte_diff as f32 / last_count_time.elapsed().as_secs_f32();
+        last_speed = last_speed * 0.99 + byte_rate * 0.01; // Exponential decay for current speed
+        CURRENT_SPEED.store(last_speed, Ordering::Relaxed);
+
         last_count_time = Instant::now();
         last_byte_count = new_byte_count;
-        CURRENT_SPEED.store(byte_rate, Ordering::Relaxed);
 
         tracing::info!(load = get_load(), "updated load");
 
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -126,7 +129,7 @@ impl RateLimiter {
             return;
         }
         let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
-        // tracing::debug!(multiplier, "got multiplier");
+
         let bytes = bytes as f32 * (multiplier.max(1.0));
         if let Some(inner) = &self.inner {
             while inner
