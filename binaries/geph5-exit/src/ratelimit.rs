@@ -50,29 +50,30 @@ pub fn update_load_loop() {
     let mut last_byte_count = 0;
     let mut last_speed = 0.0;
     loop {
-        sys.refresh_all();
-        let cpu_usage: f32 = sys
-            .cpus()
-            .iter()
-            .map(|cpu| cpu.cpu_usage())
-            .max_by_key(|s| (s * 1000.0) as u32 / 1000)
-            .unwrap_or(0.0)
-            / 100.0;
-        cpu_accum = cpu_accum * 0.99 + cpu_usage * 0.01;
+        for _ in 0..100 {
+            sys.refresh_all();
+            let cpu_usage: f32 = sys
+                .cpus()
+                .iter()
+                .map(|cpu| cpu.cpu_usage())
+                .max_by_key(|s| (s * 1000.0) as u32 / 1000)
+                .unwrap_or(0.0)
+                / 100.0;
+            cpu_accum = cpu_accum * 0.99 + cpu_usage * 0.01;
 
-        CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
-        let new_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-        let byte_diff = new_byte_count - last_byte_count;
-        let byte_rate = byte_diff as f32 / last_count_time.elapsed().as_secs_f32();
-        last_speed = last_speed * 0.99 + byte_rate * 0.01; // Exponential decay for current speed
-        CURRENT_SPEED.store(last_speed, Ordering::Relaxed);
+            CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
+            let new_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+            let byte_diff = new_byte_count - last_byte_count;
+            let byte_rate = byte_diff as f32 / last_count_time.elapsed().as_secs_f32();
+            last_speed = last_speed * 0.99 + byte_rate * 0.01; // Exponential decay for current speed
+            CURRENT_SPEED.store(last_speed, Ordering::Relaxed);
 
-        last_count_time = Instant::now();
-        last_byte_count = new_byte_count;
+            last_count_time = Instant::now();
+            last_byte_count = new_byte_count;
 
+            std::thread::sleep(Duration::from_millis(100));
+        }
         tracing::info!(load = get_load(), "updated load");
-
-        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
