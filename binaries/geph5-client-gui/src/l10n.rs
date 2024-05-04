@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use isocountry::CountryCode;
 use once_cell::sync::Lazy;
 use smol_str::SmolStr;
 
@@ -17,6 +18,15 @@ static L10N_TABLE: Lazy<BTreeMap<SmolStr, BTreeMap<SmolStr, SmolStr>>> = Lazy::n
     toret
 });
 
-pub fn l10n(label: &str) -> &str {
-    &L10N_TABLE[label][&LANG_CODE.get()]
+pub fn l10n(label: &str) -> &'static str {
+    if let Some(inner) = L10N_TABLE.get(label) {
+        if let Some(inner) = inner.get(&LANG_CODE.get()) {
+            return inner;
+        }
+    }
+    "(unk)"
+}
+
+pub fn l10n_country(country: CountryCode) -> &'static str {
+    l10n(&format!("country_{}", country.alpha2().to_lowercase()))
 }

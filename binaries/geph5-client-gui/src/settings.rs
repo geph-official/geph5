@@ -8,7 +8,11 @@ use itertools::Itertools;
 use once_cell::sync::Lazy;
 use smol_str::{SmolStr, ToSmolStr};
 
-use crate::{l10n, refresh_cell::RefreshCell, store_cell::StoreCell};
+use crate::{
+    l10n::{l10n, l10n_country},
+    refresh_cell::RefreshCell,
+    store_cell::StoreCell,
+};
 
 pub fn get_config() -> anyhow::Result<Config> {
     let yaml: serde_yaml::Value = serde_yaml::from_str(include_str!("settings_default.yaml"))?;
@@ -126,7 +130,11 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
                 loop {
                     let fallible = async {
                         let exits = client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
-                        anyhow::Ok(exits.inner)
+                        let mut inner = exits.inner;
+                        inner
+                            .all_exits
+                            .sort_unstable_by_key(|s| (s.1.country, s.1.city.clone()));
+                        anyhow::Ok(inner)
                     };
                     match fallible.await {
                         Ok(v) => return v,
@@ -140,8 +148,8 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
             .selected_text(
                 SELECTED_COUNTRY
                     .get()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| l10n("auto").to_string()),
+                    .map(l10n_country)
+                    .unwrap_or_else(|| l10n("auto")),
             )
             .show_ui(ui, |ui| {
                 let former = SELECTED_COUNTRY.get();
@@ -150,7 +158,7 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
                         ui.selectable_value(selected, None, l10n("auto"));
 
                         for country in locations.all_exits.iter().map(|s| s.1.country).unique() {
-                            ui.selectable_value(selected, Some(country), country.to_string());
+                            ui.selectable_value(selected, Some(country), l10n_country(country));
                         }
                     } else {
                         ui.spinner();
