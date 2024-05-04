@@ -107,7 +107,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: auto # Cloudflare R2 does not require a specific AWS region, but this field is required by this action
+          aws-region: us-west-2 # Using us-west-2 as a placeholder
 
       - name: Upload to Cloudflare R2
         run: |
