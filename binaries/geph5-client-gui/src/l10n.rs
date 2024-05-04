@@ -24,6 +24,7 @@ pub fn l10n(label: &str) -> &'static str {
             return inner;
         }
     }
+
     "(unk)"
 }
 
