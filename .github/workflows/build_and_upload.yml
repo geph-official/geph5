@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install musl-tools (Linux)
         if: matrix.dir == 'musl'
@@ -42,29 +42,8 @@ jobs:
         shell: bash
         run: rustup set default-host ${{ matrix.target }}
 
-      # - name: Cache cargo registry
-      #   uses: actions/cache@v2
-      #   with:
-      #     path: ~/.cargo/registry
-      #     key: ${{ matrix.target }}-cargo-registry-${{ github.sha }}
-      #     restore-keys: |
-      #       ${{ matrix.target }}-cargo-registry-
-
-      # - name: Cache cargo index
-      #   uses: actions/cache@v2
-      #   with:
-      #     path: ~/.cargo/git
-      #     key: ${{ matrix.target }}-cargo-index-${{ github.sha }}
-      #     restore-keys: |
-      #       ${{ matrix.target }}-cargo-index-
-
       - name: Cache cargo build
-        uses: actions/cache@v2
-        with:
-          path: target
-          key: ${{ matrix.target }}-cargo-build-${{ github.sha }}
-          restore-keys: |
-            ${{ matrix.target }}-cargo-build-
+        uses: Swatinem/rust-cache@v2
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
