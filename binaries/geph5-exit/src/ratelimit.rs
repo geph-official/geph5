@@ -1,7 +1,7 @@
 use std::{
     num::NonZeroU32,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -34,7 +34,7 @@ static PLUS_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
 static CPU_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 static CURRENT_SPEED: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 
-fn get_load() -> f32 {
+pub fn get_load() -> f32 {
     let cpu = CPU_USAGE.load(Ordering::Relaxed);
     let speed = CURRENT_SPEED.load(Ordering::Relaxed)
         / (CONFIG_FILE.wait().total_ratelimit as f32 * 1000.0);

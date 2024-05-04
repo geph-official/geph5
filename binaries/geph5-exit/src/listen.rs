@@ -26,8 +26,10 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
 
 use crate::{
-    broker::BrokerRpcTransport, proxy::proxy_stream, ratelimit::get_ratelimiter, CONFIG_FILE,
-    SIGNING_SECRET,
+    broker::BrokerRpcTransport,
+    proxy::proxy_stream,
+    ratelimit::{get_load, get_ratelimiter},
+    CONFIG_FILE, SIGNING_SECRET,
 };
 
 pub async fn listen_main() -> anyhow::Result<()> {
@@ -74,7 +76,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                         .tap_mut(|addr| addr.set_ip(my_ip)),
                     country: CONFIG_FILE.wait().country,
                     city: CONFIG_FILE.wait().city.clone(),
-                    load: 0.0,
+                    load: get_load(),
                     expiry: SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
