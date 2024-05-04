@@ -103,10 +103,14 @@ async fn main() -> anyhow::Result<()> {
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 
-    let _tcp_loop = smolscale::spawn(nanorpc_sillad::rpc_serve(
-        sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
-        BrokerService(BrokerImpl {}),
-    ));
+    let _tcp_loop = Immortal::respawn(RespawnStrategy::Immediate, || async {
+        nanorpc_sillad::rpc_serve(
+            sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
+            BrokerService(BrokerImpl {}),
+        )
+        .await?;
+        anyhow::Ok(())
+    });
 
     let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
     let app = Router::new().route("/", post(rpc));
