@@ -10,8 +10,8 @@ use std::{
     time::SystemTime,
 };
 
-const KEY_COUNT: usize = 65536;
-const KEY_BITS: usize = 2048;
+pub const KEY_COUNT: usize = 65536;
+pub const KEY_BITS: usize = 2048;
 
 /// Obtains the current epoch.
 pub fn current_epoch() -> u16 {
@@ -29,14 +29,14 @@ pub struct SecretKey {
 }
 
 impl SecretKey {
-    pub fn generate(name: &str) -> Self {
+    pub fn generate(name: &str, key_count: usize, key_bits: usize) -> Self {
         let count = AtomicUsize::new(0);
-        let rsa_keys: Vec<brs::SecretKey> = (0..KEY_COUNT)
+        let rsa_keys: Vec<brs::SecretKey> = (0..key_count)
             .into_par_iter()
             .map(|_| {
                 let count = count.fetch_add(1, Ordering::Relaxed);
-                eprintln!("generating {name} {count}/{KEY_COUNT}");
-                brs::KeyPair::generate(&mut rand::thread_rng(), KEY_BITS)
+                eprintln!("generating {name} {count}/{key_count}");
+                brs::KeyPair::generate(&mut rand::thread_rng(), key_bits)
                     .unwrap()
                     .sk
             })
@@ -237,15 +237,16 @@ mod tests {
 
     #[test]
     fn test_generate_secret_key() {
-        let secret_key = SecretKey::generate("test_generate_secret_key");
+        let secret_key = SecretKey::generate("test_generate_secret_key", KEY_COUNT, KEY_BITS);
         assert_eq!(secret_key.rsa_keys_der.len(), KEY_COUNT);
     }
 
     #[test]
     fn test_blind_sign() {
-        let secret_key = SecretKey::generate("test_blind_sign");
+        let secret_key = SecretKey::generate("test_blind_sign", KEY_COUNT, KEY_BITS);
         let token = ClientToken::random();
-        let (blinded_digest, _secret) = token.blind(&secret_key.get_subkey(0).public_key().unwrap());
+        let (blinded_digest, _secret) =
+            token.blind(&secret_key.get_subkey(0).public_key().unwrap());
         let blinded_signature = secret_key.blind_sign(0, &blinded_digest);
 
         assert_eq!(blinded_signature.epoch, 0);
