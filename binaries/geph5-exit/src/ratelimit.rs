@@ -41,7 +41,7 @@ pub fn get_load() -> f32 {
     cpu.max(speed)
 }
 
-static TOTAL_BYTE_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+pub static TOTAL_BYTE_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
 pub fn update_load_loop() {
     let mut sys = System::new_all();

@@ -65,6 +65,8 @@ struct ConfigFile {
 
     bridge_token: String,
     exit_token: String,
+
+    statsd_addr: SocketAddr,
 }
 
 /// Run the Geph5 broker.

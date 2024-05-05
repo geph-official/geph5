@@ -6,7 +6,7 @@ use smol::future::FutureExt as _;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc},
+    sync::Arc,
     task::Context,
     time::{Duration, Instant},
 };

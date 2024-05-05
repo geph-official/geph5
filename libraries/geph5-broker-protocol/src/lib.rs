@@ -43,6 +43,8 @@ pub trait BrokerProtocol {
         descriptor: Mac<Signed<ExitDescriptor>>,
     ) -> Result<(), GenericError>;
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
+
+    async fn incr_stat(&self, stat: String, value: i32);
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
