@@ -123,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
     Lazy::force(&database::POSTGRES);
+    database::init_schema().await?;
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 

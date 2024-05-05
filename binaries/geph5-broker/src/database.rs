@@ -34,6 +34,24 @@ pub static POSTGRES: Lazy<PgPool> = Lazy::new(|| {
     .unwrap()
 });
 
+pub async fn init_schema() -> anyhow::Result<()> {
+    sqlx::query(r"CREATE TABLE IF NOT EXISTS exits_new (pubkey BYTEA UNIQUE, c2e_listen VARCHAR(256), b2e_listen VARCHAR(256), country VARCHAR(4), city VARCHAR(16), load FLOAT4, expiry BIGINT)")
+    .execute(POSTGRES.deref())
+    .await?;
+    sqlx::query(r"CREATE TABLE IF NOT EXISTS bridges_new (listen VARCHAR(256), cookie VARCHAR(256), pool VARCHAR(256), expiry BIGINT)")
+    .execute(POSTGRES.deref())
+    .await?;
+    sqlx::query(r"CREATE TABLE IF NOT EXISTS auth_password (user_id INTEGER UNIQUE, username VARCHAR(256) UNIQUE, pwdhash VARCHAR(768))")
+    .execute(POSTGRES.deref())
+    .await?;
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS auth_tokens (token VARCHAR(32), user_id INTEGER UNIQUE)",
+    )
+    .execute(POSTGRES.deref())
+    .await?;
+    Ok(())
+}
+
 /// This loop is used for garbage-collecting stale data from the database.
 #[tracing::instrument]
 pub async fn database_gc_loop() -> anyhow::Result<()> {
