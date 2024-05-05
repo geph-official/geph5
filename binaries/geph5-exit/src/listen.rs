@@ -42,15 +42,19 @@ pub async fn listen_main() -> anyhow::Result<()> {
 
 #[tracing::instrument]
 async fn broker_loop() -> anyhow::Result<()> {
-    let my_ip = IpAddr::from_str(
-        String::from_utf8_lossy(
-            &reqwest::get("https://checkip.amazonaws.com/")
-                .await?
-                .bytes()
-                .await?,
-        )
-        .trim(),
-    )?;
+    let my_ip = if let Some(ip_addr) = &CONFIG_FILE.wait().ip_addr {
+        ip_addr.clone()
+    } else {
+        IpAddr::from_str(
+            String::from_utf8_lossy(
+                &reqwest::get("https://checkip.amazonaws.com/")
+                    .await?
+                    .bytes()
+                    .await?,
+            )
+            .trim(),
+        )?
+    };
     let my_pubkey: VerifyingKey = (&*SIGNING_SECRET).into();
     tracing::info!(
         c2e_direct = format!(

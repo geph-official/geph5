@@ -5,7 +5,7 @@ use listen::listen_main;
 use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::Deserialize;
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::{IpAddr, SocketAddr}, path::PathBuf};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 mod broker;
@@ -33,6 +33,7 @@ struct ConfigFile {
 
     c2e_listen: SocketAddr,
     b2e_listen: SocketAddr,
+    ip_addr: Option<IpAddr>,
 
     country: CountryCode,
     city: String,
