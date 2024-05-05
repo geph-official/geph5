@@ -9,20 +9,20 @@ description="A protocol to multiplex multiple AsyncRead/Write streams over a sin
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ahash = "0.8.8"
-anyhow = "1.0.79"
+ahash = "0.8.11"
+anyhow = "1.0.82"
 async-dup = "1.2.4"
 async-event = "0.1.0"
-async-task = "4.7.0"
+async-task = "4.7.1"
 async_io_stream = "0.3.3"
 bipe = "0.2.2"
-bytemuck = {version="1.14.3", features=["derive", "min_const_generics"]}
-bytes = "1.5.0"
+bytemuck = {version="1.15.0", features=["derive", "min_const_generics"]}
+bytes = "1.6.0"
 dashmap = "5.5.3"
-futures-lite = "2.2.0"
+futures-lite = "2.3.0"
 futures-util = {version="0.3.30", features=["io"]}
 oneshot = "0.1.6"
-parking_lot = "0.12.1"
+parking_lot = "0.12.2"
 rand = "0.8.5"
 recycle-box = "0.2.0"
 scopeguard = "1.2.0"
@@ -32,14 +32,14 @@ tachyonix = "0.2.1"
 tracing = "0.1.40"
 tracing-test = "0.2.4"
 # async-rw-adapter={path="../async-rw-adapter"}
-fastrand = "2.0.1"
+fastrand = "2.1.0"
 tap = "1.0.1"
-serde = {version="1.0.197", features=["derive"]}
-serde_json = "1.0.114"
-async-io = "2.3.1"
+serde = {version="1.0.200", features=["derive"]}
+serde_json = "1.0.116"
+async-io = "2.3.2"
 sillad={version="0.1", path="../sillad"}
 futures-intrusive = "0.5.0"
-async-channel = "2.2.0"
+async-channel = "2.2.1"
 pin-project = "1.1.5"
 
 [dev-dependencies]

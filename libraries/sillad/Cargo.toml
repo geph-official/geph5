@@ -9,10 +9,10 @@ description="A framework for talking about TCP-like dialers and listeners, withi
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-io = "2.3.1"
-async-trait = "0.1.77"
-futures-lite = "2.2.0"
+async-io = "2.3.2"
+async-trait = "0.1.80"
+futures-lite = "2.3.0"
 futures-util = {version="0.3.30", features=["io"]}
-libc = "0.2.153"
-pin-project = "1.1.4"
+libc = "0.2.154"
+pin-project = "1.1.5"
 smol-timeout = "0.6.0"
