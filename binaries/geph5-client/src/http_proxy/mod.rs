@@ -420,7 +420,7 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
     }
 
     for header in extra_headers {
-        while let Some(..) = headers.remove(&header) {}
+        while headers.remove(&header).is_some() {}
     }
 
     // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
@@ -437,7 +437,7 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
     ];
 
     for header in &HOP_BY_HOP_HEADERS {
-        while let Some(..) = headers.remove(*header) {}
+        while headers.remove(*header).is_some() {}
     }
 }
 

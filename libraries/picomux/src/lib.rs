@@ -224,7 +224,7 @@ async fn picomux_inner(
                 let mut target_remote_window = MAX_WINDOW;
                 let mut last_window_adjust = Instant::now();
                 loop {
-                    let min_quantum = (target_remote_window / 10).max(3).min(50);
+                    let min_quantum = (target_remote_window / 10).clamp(3, 50);
                     let (frame, enqueued_time): (Frame, Instant) = recv_incoming.recv().await?;
                     let queue_delay = enqueued_time.elapsed();
                     tracing::trace!(
