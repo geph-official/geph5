@@ -52,6 +52,9 @@ fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
             (cfg.mizaru_key_count, cfg.mizaru_key_bits)
         };
         let new_key = mizaru2::SecretKey::generate(name, key_count, key_bits);
+        if let Some(parent) = plus_file_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
         fs::write(&plus_file_path, stdcode::serialize(&new_key).unwrap()).unwrap();
         new_key
     }
