@@ -20,12 +20,16 @@ pub static POSTGRES: Lazy<PgPool> = Lazy::new(|| {
             .max_connections(160)
             .acquire_timeout(Duration::from_secs(10))
             .max_lifetime(Duration::from_secs(600))
-            .connect_with(
-                PgConnectOptions::from_str(&CONFIG_FILE.wait().postgres_url)
-                    .unwrap()
-                    .ssl_mode(PgSslMode::VerifyFull)
-                    .ssl_root_cert(&CONFIG_FILE.wait().postgres_root_cert),
-            ),
+            .connect_with({
+                let cfg = CONFIG_FILE.wait();
+                let mut opts = PgConnectOptions::from_str(&cfg.postgres_url).unwrap();
+                if let Some(postgres_root_cert) = &cfg.postgres_root_cert {
+                    opts = opts
+                        .ssl_mode(PgSslMode::VerifyFull)
+                        .ssl_root_cert(postgres_root_cert);
+                }
+                opts
+            }),
     )
     .unwrap()
 });

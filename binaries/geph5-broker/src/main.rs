@@ -61,7 +61,8 @@ struct ConfigFile {
     master_secret: PathBuf,
     mizaru_keys: PathBuf,
     postgres_url: String,
-    postgres_root_cert: PathBuf,
+    #[serde(default)]
+    postgres_root_cert: Option<PathBuf>,
 
     bridge_token: String,
     exit_token: String,
