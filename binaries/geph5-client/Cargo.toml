@@ -60,3 +60,6 @@ scopeguard = "1.2.0"
 smol_str = {version="0.2.1", features=["serde"]}
 dashmap = "5.5.3"
 atomic_float = "1.0.0"
+hyper-util = { version = "0.1.3", features = ["http1", "client", "server"] }
+http-body-util = "0.1.1"
+tower-service = "0.3.2"

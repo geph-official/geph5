@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use deadpool::managed::Pool;
+use deadpool::managed::{Metrics, Pool, RecycleResult};
 use futures_util::AsyncReadExt as _;
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
 use moka::future::Cache;
@@ -116,7 +116,6 @@ struct MuxManager {
     underlying: TcpDialer,
 }
 
-#[async_trait]
 impl deadpool::managed::Manager for MuxManager {
     type Type = picomux::PicoMux;
     type Error = std::io::Error;
@@ -127,11 +126,7 @@ impl deadpool::managed::Manager for MuxManager {
         let mux = PicoMux::new(read, write);
         Ok(mux)
     }
-    async fn recycle(
-        &self,
-        conn: &mut Self::Type,
-        _: &deadpool::managed::Metrics,
-    ) -> deadpool::managed::RecycleResult<Self::Error> {
+    async fn recycle(&self, conn: &mut Self::Type, _: &Metrics) -> RecycleResult<Self::Error> {
         tracing::debug!(alive = conn.is_alive(), "trying to recycle");
         if !conn.is_alive() {
             let error = conn.open(b"").await.expect_err("dude");
