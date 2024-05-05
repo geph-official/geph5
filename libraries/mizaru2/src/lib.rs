@@ -29,13 +29,13 @@ pub struct SecretKey {
 }
 
 impl SecretKey {
-    pub fn generate() -> Self {
+    pub fn generate(name: &str) -> Self {
         let count = AtomicUsize::new(0);
         let rsa_keys: Vec<brs::SecretKey> = (0..KEY_COUNT)
             .into_par_iter()
             .map(|_| {
                 let count = count.fetch_add(1, Ordering::Relaxed);
-                eprintln!("generating {count}/{KEY_COUNT}");
+                eprintln!("generating {name} {count}/{KEY_COUNT}");
                 brs::KeyPair::generate(&mut rand::thread_rng(), KEY_BITS)
                     .unwrap()
                     .sk
@@ -237,13 +237,13 @@ mod tests {
 
     #[test]
     fn test_generate_secret_key() {
-        let secret_key = SecretKey::generate();
+        let secret_key = SecretKey::generate("test_generate_secret_key");
         assert_eq!(secret_key.rsa_keys_der.len(), KEY_COUNT);
     }
 
     #[test]
     fn test_blind_sign() {
-        let secret_key = SecretKey::generate();
+        let secret_key = SecretKey::generate("test_blind_sign");
         let token = ClientToken::random();
         let (blinded_digest, _secret) = token.blind(&secret_key.get_subkey(0).public_key().unwrap());
         let blinded_signature = secret_key.blind_sign(0, &blinded_digest);

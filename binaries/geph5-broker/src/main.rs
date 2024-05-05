@@ -47,7 +47,7 @@ fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
         stdcode::deserialize(&file_content).unwrap()
     } else {
         // If the file doesn't exist, generate a new secret key and write it to the file
-        let new_key = mizaru2::SecretKey::generate();
+        let new_key = mizaru2::SecretKey::generate(name);
         fs::write(&plus_file_path, stdcode::serialize(&new_key).unwrap()).unwrap();
         new_key
     }
