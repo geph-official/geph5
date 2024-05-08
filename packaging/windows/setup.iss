@@ -42,10 +42,7 @@ Type: filesandordirs; Name: "{app}\*"
 
 [Files]
 Source: "geph5-client-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
-;Source: "E:\geph-electron-win32-ia32\geph-electron.exe"; DestDir: "{app}"; Flags: ignoreversion
-;Source: "..\blobs\win-ia32\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-;Source: "..\blobs\win-drivers\*"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs
-; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+Source: "vulkan-1.dll"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{cm:MyAppName}"; Filename: "{app}\{#MyAppExeName}"
