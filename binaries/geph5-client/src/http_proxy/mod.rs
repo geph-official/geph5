@@ -6,21 +6,25 @@ use std::{convert::Infallible, net::SocketAddr, str::FromStr as _};
 pub async fn run_http_proxy(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let shared_server: SharedProxyServer = ProxyServer::new_shared(ctx.clone());
     let listen = ctx.init().http_proxy_listen;
-    let make_service = make_service_fn(move |socket: &AddrStream| {
-        let client_addr = socket.remote_addr();
-        let cloned_server = shared_server.clone();
-        let ctx = ctx.clone();
-        async move {
-            Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
-                server_dispatch(req, client_addr, cloned_server.clone(), ctx.clone())
-            }))
-        }
-    });
-    let server = hyper::Server::bind(&listen)
-        .http1_only(true)
-        .serve(make_service);
-    server.await?;
-    Ok(())
+    if let Some(listen) = listen {
+        let make_service = make_service_fn(move |socket: &AddrStream| {
+            let client_addr = socket.remote_addr();
+            let cloned_server = shared_server.clone();
+            let ctx = ctx.clone();
+            async move {
+                Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
+                    server_dispatch(req, client_addr, cloned_server.clone(), ctx.clone())
+                }))
+            }
+        });
+        let server = hyper::Server::bind(&listen)
+            .http1_only(true)
+            .serve(make_service);
+        server.await?;
+        Ok(())
+    } else {
+        smol::future::pending().await
+    }
 }
 type SharedProxyServer = std::sync::Arc<ProxyServer>;
 
@@ -179,7 +183,7 @@ async fn server_dispatch(
     }
 }
 use anyctx::AnyCtx;
-use async_compat::{CompatExt};
+use async_compat::CompatExt;
 use futures_util::{
     future::{self, Either},
     FutureExt,

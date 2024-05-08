@@ -27,8 +27,9 @@ use crate::{
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
-    pub socks5_listen: SocketAddr,
-    pub http_proxy_listen: SocketAddr,
+    pub socks5_listen: Option<SocketAddr>,
+    pub http_proxy_listen: Option<SocketAddr>,
+    pub stats_listen: Option<SocketAddr>,
     pub exit_constraint: ExitConstraint,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,

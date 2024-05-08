@@ -49,3 +49,17 @@ pub trait ClientControlProtocol {
     /// Get the current statistics.
     async fn stat_num(&self, stat: SmolStr) -> f64;
 }
+
+#[tracing::instrument(skip_all)]
+pub async fn stat_serve_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
+    if let Some(listen) = ctx.init().stats_listen {
+        nanorpc_sillad::rpc_serve(
+            sillad::tcp::TcpListener::bind(listen).await?,
+            ClientControlService(ClientControlImpl(ctx.clone())),
+        )
+        .await?;
+        Ok(())
+    } else {
+        smol::future::pending().await
+    }
+}

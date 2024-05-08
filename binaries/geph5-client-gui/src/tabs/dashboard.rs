@@ -40,7 +40,7 @@ impl Dashboard {
                 if ui.button(l10n("connect")).clicked() {
                     tracing::warn!("connect clicked");
                     if PROXY_AUTOCONF.get() {
-                        set_http_proxy(get_config()?.http_proxy_listen)?;
+                        set_http_proxy(get_config()?.http_proxy_listen.unwrap())?;
                     }
                     *daemon = Some(geph5_client::Client::start(get_config()?));
                 }
