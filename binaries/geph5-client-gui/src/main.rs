@@ -1,6 +1,9 @@
+#![windows_subsystem = "windows"]
+
 mod daemon;
 mod l10n;
 mod logs;
+mod pac;
 mod prefs;
 mod refresh_cell;
 mod settings;
@@ -14,7 +17,7 @@ use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
 use prefs::{pref_read, pref_write};
-use settings::render_settings;
+use settings::{render_settings, ZOOM_FACTOR};
 use tabs::{dashboard::Dashboard, logs::Logs};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
@@ -43,10 +46,8 @@ fn main() {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([300.0, 300.0])
-            .with_min_inner_size([300.0, 300.0])
-            .with_max_inner_size([300.0, 300.0]),
-        // shader_version: Some(ShaderVersion::Es100),
+            .with_inner_size([320.0, 320.0])
+            .with_min_inner_size([320.0, 320.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -83,24 +84,25 @@ impl App {
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
             "normal".into(),
-            FontData::from_static(include_bytes!("assets/normal.ttf")),
+            FontData::from_static(include_bytes!("assets/normal.otf")),
         );
         fonts.font_data.insert(
             "chinese".into(),
             FontData::from_static(include_bytes!("assets/chinese.ttf")),
         );
-        fonts
-            .families
-            .get_mut(&FontFamily::Proportional)
-            .unwrap()
-            .insert(0, "chinese".into());
-        // fonts
-        //     .families
-        //     .get_mut(&FontFamily::Proportional)
-        //     .unwrap()
-        //     .insert(0, "normal".into());
+        // fonts.font_data.insert(
+        //     "persian".into(),
+        //     FontData::from_static(include_bytes!("assets/persian.ttf")),
+        // );
+        {
+            let fonts = fonts.families.get_mut(&FontFamily::Proportional).unwrap();
+            fonts.insert(0, "chinese".into());
+            // fonts.insert(0, "persian".into());
+            fonts.insert(0, "normal".into());
+        }
 
         cc.egui_ctx.set_fonts(fonts);
+
         Self {
             selected_tab: TabName::Dashboard,
 
@@ -112,6 +114,7 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_zoom_factor(ZOOM_FACTOR.get());
         ctx.request_repaint_after(Duration::from_millis(100));
         // ctx.request_repaint();
 
@@ -134,7 +137,7 @@ impl eframe::App for App {
                 self.logs.render(ui)
             }
             TabName::Logs => self.logs.render(ui),
-            TabName::Settings => render_settings(ui),
+            TabName::Settings => render_settings(ctx, ui),
         });
 
         if let Err(err) = result.inner {

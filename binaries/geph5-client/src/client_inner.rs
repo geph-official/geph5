@@ -1,5 +1,7 @@
 use anyctx::AnyCtx;
 use anyhow::Context;
+use bytes::Bytes;
+use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::try_join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
@@ -12,8 +14,9 @@ use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
+    net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -21,7 +24,12 @@ use std::{
 
 use stdcode::StdcodeSerializeExt;
 
-use crate::{auth::get_connect_token, client::CtxField, route::get_dialer};
+use crate::{
+    auth::get_connect_token,
+    client::CtxField,
+    route::{deprioritize_route, get_dialer},
+    stats::stat_incr_num,
+};
 
 use super::Config;
 
@@ -29,7 +37,15 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     let (send, recv) = oneshot::channel();
     let elem = (dest_addr.to_string(), send);
     let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
-    Ok(recv.await?)
+    let mut conn = recv.await?;
+    let ctx = ctx.clone();
+    conn.set_on_read(clone!([ctx], move |n| {
+        stat_incr_num(&ctx, "total_bytes", n as _)
+    }));
+    conn.set_on_write(clone!([ctx], move |n| {
+        stat_incr_num(&ctx, "total_bytes", n as _)
+    }));
+    Ok(conn)
 }
 
 type ChanElem = (String, oneshot::Sender<picomux::Stream>);
@@ -58,7 +74,18 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 protocol = raw_pipe.protocol(),
                 "dial completed"
             );
+            let died = AtomicBool::new(true);
+            let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
+            scopeguard::defer!({
+                {
+                    if died.load(Ordering::SeqCst) {
+                        tracing::debug!(addr = display(addr), "deprioritizing route");
+                        deprioritize_route(addr);
+                    }
+                }
+            });
             let authed_pipe = client_auth(&ctx, raw_pipe, pubkey).await?;
+            died.store(false, Ordering::SeqCst);
             tracing::debug!(
                 elapsed = debug(start.elapsed()),
                 "authentication done, starting mux system"
@@ -76,7 +103,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all, fields(remote=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
+#[tracing::instrument(skip_all, fields(server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
 async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
@@ -94,7 +121,7 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
                 let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
                 smol::future::yield_now().await;
                 spawn!(async move {
-                    tracing::debug!(remote_addr = display(&remote_addr), "connecting to remote");
+                    tracing::debug!(remote_addr = display(&remote_addr), "opening tunnel");
                     let stream = mux.open(remote_addr.as_bytes()).await;
                     match stream {
                         Ok(stream) => {
@@ -120,13 +147,20 @@ async fn client_auth(
     mut pipe: impl Pipe,
     pubkey: VerifyingKey,
 ) -> anyhow::Result<impl Pipe> {
-    let (level, token, sig) = get_connect_token(ctx).await?;
+    let server = pipe.remote_addr().unwrap_or("").to_string();
+
+    let credentials = if ctx.init().broker.is_none() {
+        Bytes::new()
+    } else {
+        let (level, token, sig) = get_connect_token(ctx).await?;
+        (level, token, sig).stdcode().into()
+    };
     match pipe.shared_secret().map(|s| s.to_owned()) {
         Some(ss) => {
-            tracing::debug!("using shared secret for authentication");
+            tracing::debug!(server, "using shared secret for authentication");
             let challenge = rand::random();
             let client_hello = ClientHello {
-                credentials: (level, token, sig).stdcode().into(),
+                credentials,
                 crypt_hello: ClientCryptHello::SharedSecretChallenge(challenge),
             };
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
@@ -137,7 +171,7 @@ async fn client_auth(
             match exit_response.inner {
                 ExitHelloInner::SharedSecretResponse(response_mac) => {
                     if mac == response_mac {
-                        tracing::debug!("authentication successful with shared secret");
+                        tracing::debug!(server, "authentication successful with shared secret");
                         Ok(EitherPipe::Left(pipe))
                     } else {
                         anyhow::bail!("authentication failed with shared secret");
@@ -147,10 +181,10 @@ async fn client_auth(
             }
         }
         None => {
-            tracing::debug!("requiring full authentication");
+            tracing::debug!(server, "requiring full authentication");
             let my_esk = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
             let client_hello = ClientHello {
-                credentials: (level, token, sig).stdcode().into(),
+                credentials,
                 crypt_hello: ClientCryptHello::X25519((&my_esk).into()),
             };
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;

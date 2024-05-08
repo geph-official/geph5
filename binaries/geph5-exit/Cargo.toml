@@ -42,6 +42,9 @@ tachyonix = "0.2.1"
 mizaru2={path="../../libraries/mizaru2"}
 governor = "0.6.3"
 quanta = "0.12.2"
+sysinfo = "0.30.11"
+atomic_float = "0.1.0"
+fastrand = "2.1.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

@@ -42,3 +42,4 @@ bytes = {version="1.5.0", features=["serde"]}
 argon2 = "0.5.3"
 rusty_pool = "0.7.0"
 oneshot = "0.1.6"
+cadence = "1.4.0"

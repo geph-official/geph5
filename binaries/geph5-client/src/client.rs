@@ -6,7 +6,7 @@ use smol::future::FutureExt as _;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc},
+    sync::Arc,
     task::Context,
     time::{Duration, Instant},
 };
@@ -19,14 +19,16 @@ use crate::{
     broker::{broker_client, BrokerSource},
     client_inner::client_once,
     database::db_read_or_wait,
+    http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
-    stats::STAT_TOTAL_BYTES,
+    stats::stat_get_num,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub socks5_listen: SocketAddr,
+    pub http_proxy_listen: SocketAddr,
     pub exit_constraint: ExitConstraint,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
@@ -45,6 +47,10 @@ pub struct Client {
 impl Client {
     /// Starts the client logic in the loop, returnign the handle.
     pub fn start(cfg: Config) -> Self {
+        std::env::remove_var("http_proxy");
+        std::env::remove_var("https_proxy");
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("HTTPS_PROXY");
         let ctx = AnyCtx::new(cfg);
         let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
@@ -79,8 +85,8 @@ impl Client {
     }
 
     /// Returns the count of all bytes used.
-    pub fn bytes_used(&self) -> u64 {
-        self.ctx.get(STAT_TOTAL_BYTES).load(Ordering::Relaxed)
+    pub fn bytes_used(&self) -> f64 {
+        stat_get_num(&self.ctx, "total_bytes")
     }
 }
 
@@ -120,6 +126,9 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 |e| tracing::warn!("client died and restarted: {:?}", e)
             )),
         );
-        socks5_loop(&ctx).race(auth_loop(&ctx)).await
+        socks5_loop(&ctx)
+            .race(run_http_proxy(&ctx))
+            .race(auth_loop(&ctx))
+            .await
     }
 }

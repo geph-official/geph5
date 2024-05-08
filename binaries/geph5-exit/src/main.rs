@@ -16,6 +16,8 @@ mod ratelimit;
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
+use crate::ratelimit::update_load_loop;
+
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -34,6 +36,27 @@ struct ConfigFile {
 
     country: CountryCode,
     city: String,
+
+    #[serde(default = "default_free_ratelimit")]
+    free_ratelimit: u32,
+
+    #[serde(default = "default_plus_ratelimit")]
+    plus_ratelimit: u32,
+
+    #[serde(default = "default_total_ratelimit")]
+    total_ratelimit: u32,
+}
+
+fn default_free_ratelimit() -> u32 {
+    1000
+}
+
+fn default_plus_ratelimit() -> u32 {
+    100000
+}
+
+fn default_total_ratelimit() -> u32 {
+    100000
 }
 
 #[derive(Deserialize)]
@@ -69,6 +92,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    std::thread::spawn(update_load_loop);
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
         .with(

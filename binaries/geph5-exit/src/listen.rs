@@ -17,6 +17,7 @@ use smol::future::FutureExt as _;
 use std::{
     net::IpAddr,
     str::FromStr,
+    sync::atomic::Ordering,
     time::{Duration, SystemTime},
 };
 use stdcode::StdcodeSerializeExt;
@@ -26,8 +27,10 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
 
 use crate::{
-    broker::BrokerRpcTransport, proxy::proxy_stream, ratelimit::get_ratelimiter, CONFIG_FILE,
-    SIGNING_SECRET,
+    broker::BrokerRpcTransport,
+    proxy::proxy_stream,
+    ratelimit::{get_load, get_ratelimiter, TOTAL_BYTE_COUNT},
+    CONFIG_FILE, SIGNING_SECRET,
 };
 
 pub async fn listen_main() -> anyhow::Result<()> {
@@ -58,11 +61,25 @@ async fn broker_loop() -> anyhow::Result<()> {
         ),
         "listen information gotten"
     );
+
+    let server_name = format!(
+        "{}-{}",
+        CONFIG_FILE.wait().country.alpha2().to_lowercase(),
+        my_ip.to_string().replace('.', "-")
+    );
     match &CONFIG_FILE.wait().broker {
         Some(broker) => {
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
+            let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
             loop {
+                let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+                let diff = byte_count - last_byte_count;
+                last_byte_count = byte_count;
+                client
+                    .incr_stat(format!("{server_name}.throughput"), diff as _)
+                    .await?;
+
                 let descriptor = ExitDescriptor {
                     c2e_listen: CONFIG_FILE
                         .wait()
@@ -74,12 +91,12 @@ async fn broker_loop() -> anyhow::Result<()> {
                         .tap_mut(|addr| addr.set_ip(my_ip)),
                     country: CONFIG_FILE.wait().country,
                     city: CONFIG_FILE.wait().city.clone(),
-                    load: 0.0,
+                    load: get_load(),
                     expiry: SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs()
-                        + 600,
+                        + 60,
                 };
                 let to_upload = Mac::new(
                     Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
@@ -90,7 +107,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                     .await?
                     .map_err(|e| anyhow::anyhow!(e.0))?;
 
-                smol::Timer::after(Duration::from_secs(10)).await;
+                smol::Timer::after(Duration::from_secs(1)).await;
             }
         }
         None => {

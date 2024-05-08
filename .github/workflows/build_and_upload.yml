@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install musl-tools (Linux)
         if: matrix.dir == 'musl'
@@ -42,29 +42,8 @@ jobs:
         shell: bash
         run: rustup set default-host ${{ matrix.target }}
 
-      # - name: Cache cargo registry
-      #   uses: actions/cache@v2
-      #   with:
-      #     path: ~/.cargo/registry
-      #     key: ${{ matrix.target }}-cargo-registry-${{ github.sha }}
-      #     restore-keys: |
-      #       ${{ matrix.target }}-cargo-registry-
-
-      # - name: Cache cargo index
-      #   uses: actions/cache@v2
-      #   with:
-      #     path: ~/.cargo/git
-      #     key: ${{ matrix.target }}-cargo-index-${{ github.sha }}
-      #     restore-keys: |
-      #       ${{ matrix.target }}-cargo-index-
-
       - name: Cache cargo build
-        uses: actions/cache@v2
-        with:
-          path: target
-          key: ${{ matrix.target }}-cargo-build-${{ github.sha }}
-          restore-keys: |
-            ${{ matrix.target }}-cargo-build-
+        uses: Swatinem/rust-cache@v2
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
@@ -106,6 +85,7 @@ jobs:
           path: artifacts/${{ matrix.dir }}
 
   upload:
+    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-20.04
     strategy:
@@ -122,12 +102,13 @@ jobs:
         with:
           path: artifacts
 
+      - name: Set up AWS configuration
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region apac
+          aws configure set output json # Set the default output format to JSON
+
       - name: Upload to Cloudflare R2
-        uses: ryand56/r2-upload-action@v1.2.2
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          r2-bucket: geph5
-          source-dir: artifacts/${{ matrix.dir }}-latest
-          destination-dir: ./${{ matrix.dir }}-latest
+        run: |
+          aws s3 cp ./artifacts/${{ matrix.dir }}-latest s3://geph5/${{ matrix.dir }}-latest --recursive --endpoint-url=https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com

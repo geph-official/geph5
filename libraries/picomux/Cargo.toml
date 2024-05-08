@@ -40,6 +40,7 @@ async-io = "2.3.1"
 sillad={version="0.1", path="../sillad"}
 futures-intrusive = "0.5.0"
 async-channel = "2.2.0"
+pin-project = "1.1.5"
 
 [dev-dependencies]
 argh = "0.1"

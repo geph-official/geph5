@@ -31,6 +31,7 @@ use futures_util::{
 
 use async_io::Timer;
 use parking_lot::Mutex;
+use pin_project::pin_project;
 use rand::Rng;
 use smol_timeout::TimeoutExt;
 use tachyonix::{Receiver, Sender, TrySendError};
@@ -209,6 +210,8 @@ async fn picomux_inner(
             write_outgoing,
             read_incoming,
             metadata,
+            on_write: Box::new(|_| {}),
+            on_read: Box::new(|_| {}),
         };
 
         let send_more = SharedSemaphore::new(false, INIT_WINDOW);
@@ -502,10 +505,15 @@ async fn picomux_inner(
         .await
 }
 
+#[pin_project]
 pub struct Stream {
+    #[pin]
     read_incoming: bipe::BipeReader,
+    #[pin]
     write_outgoing: bipe::BipeWriter,
     metadata: Bytes,
+    on_write: Box<dyn Fn(usize) + Send + Sync + 'static>,
+    on_read: Box<dyn Fn(usize) + Send + Sync + 'static>,
 }
 
 impl Debug for Stream {
@@ -519,14 +527,12 @@ impl Stream {
         &self.metadata
     }
 
-    fn pin_project_read(self: std::pin::Pin<&mut Self>) -> Pin<&mut bipe::BipeReader> {
-        // SAFETY: this is a safe pin-projection, since we never get a &mut sosistab2::Stream from a Pin<&mut Stream> elsewhere.
-        // Safety requires that we either consistently lose Pin or keep it.
-        // We could use the "pin_project" crate but I'm too lazy.
-        unsafe { self.map_unchecked_mut(|s| &mut s.read_incoming) }
+    pub fn set_on_write(&mut self, on_write: impl Fn(usize) + Send + Sync + 'static) {
+        self.on_write = Box::new(on_write);
     }
-    fn pin_project_write(self: std::pin::Pin<&mut Self>) -> Pin<&mut bipe::BipeWriter> {
-        unsafe { self.map_unchecked_mut(|s| &mut s.write_outgoing) }
+
+    pub fn set_on_read(&mut self, on_read: impl Fn(usize) + Send + Sync + 'static) {
+        self.on_read = Box::new(on_read);
     }
 }
 
@@ -540,7 +546,12 @@ impl AsyncRead for Stream {
             cx.waker().wake_by_ref();
             Poll::Pending
         } else {
-            self.pin_project_read().poll_read(cx, buf)
+            let this = self.project();
+            let r = this.read_incoming.poll_read(cx, buf);
+            if r.is_ready() {
+                (this.on_read)(buf.len());
+            }
+            r
         }
     }
 }
@@ -557,7 +568,12 @@ impl AsyncWrite for Stream {
             cx.waker().wake_by_ref();
             Poll::Pending
         } else {
-            self.pin_project_write().poll_write(cx, buf)
+            let this = self.project();
+            let r = this.write_outgoing.poll_write(cx, buf);
+            if r.is_ready() {
+                (this.on_write)(buf.len());
+            }
+            r
         }
     }
 
@@ -565,14 +581,14 @@ impl AsyncWrite for Stream {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        self.pin_project_write().poll_flush(cx)
+        self.project().write_outgoing.poll_flush(cx)
     }
 
     fn poll_close(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        self.pin_project_write().poll_close(cx)
+        self.project().write_outgoing.poll_close(cx)
     }
 }
 
