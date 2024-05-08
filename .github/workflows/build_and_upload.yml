@@ -71,6 +71,14 @@ jobs:
         if: matrix.dir != 'musl'
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client-gui/Cargo.toml
 
+      - name: Build Windows installer
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          choco install innosetup
+          cp target/${{ matrix.target }}/release/geph5-client-gui packaging/windows
+          iscc packaging/windows/setup.iss
+
       - name: Move client GUI binaries to artifacts directory
         if: matrix.dir != 'musl'
         shell: bash
