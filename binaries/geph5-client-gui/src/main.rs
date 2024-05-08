@@ -16,10 +16,13 @@ use egui::{FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
+use once_cell::sync::Lazy;
 use prefs::{pref_read, pref_write};
-use settings::{render_settings, ZOOM_FACTOR};
-use tabs::{dashboard::Dashboard, logs::Logs};
+use settings::{USERNAME, ZOOM_FACTOR};
+use tabs::{dashboard::Dashboard, logs::Logs, settings::render_settings};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
+
+use crate::{settings::PASSWORD, store_cell::StoreCell};
 
 // 0123456789
 
@@ -116,7 +119,29 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_zoom_factor(ZOOM_FACTOR.get());
         ctx.request_repaint_after(Duration::from_millis(100));
-        // ctx.request_repaint();
+
+        if USERNAME.get().is_empty() {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                static TMP_UNAME: Lazy<StoreCell<String>> =
+                    Lazy::new(|| StoreCell::new("".to_string()));
+                static TMP_PWD: Lazy<StoreCell<String>> =
+                    Lazy::new(|| StoreCell::new("".to_string()));
+
+                ui.label(l10n("username"));
+                TMP_UNAME.modify(|username| ui.text_edit_singleline(username));
+
+                ui.label(l10n("password"));
+                TMP_PWD.modify(|pwd| ui.add(egui::TextEdit::singleline(pwd).password(true)));
+
+                if ui.button(l10n("save")).clicked() {
+                    // TODO verify
+                    USERNAME.set(TMP_UNAME.get().clone());
+                    PASSWORD.set(TMP_PWD.get().clone());
+                }
+            });
+
+            return;
+        }
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
