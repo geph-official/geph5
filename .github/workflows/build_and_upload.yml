@@ -44,6 +44,7 @@ jobs:
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
+        key: ${{ matrix.target }}
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
