@@ -34,6 +34,7 @@ chrono = "0.4.38"
 http = "1.1.0"
 isocountry = "0.3.2"
 itertools = "0.12.1"
+image = {version="0.25.1", default-features=false, features=["ico"]}
 
 [build-dependencies]
 winresource = "0.1"

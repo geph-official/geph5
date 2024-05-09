@@ -1590,7 +1590,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "egui_glow",
- "image",
+ "image 0.24.9",
  "js-sys",
  "log",
  "objc",
@@ -2252,6 +2252,7 @@ dependencies = [
  "geph5-broker-protocol",
  "geph5-client",
  "http 1.1.0",
+ "image 0.25.1",
  "isocountry",
  "itertools 0.12.1",
  "moka",
@@ -2823,6 +2824,18 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "color_quant",
+ "num-traits",
+ "png",
+]
+
+[[package]]
+name = "image"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd54d660e773627692c524beaad361aca785a4f9f5730ce91f42aabe5bce3d11"
+dependencies = [
+ "bytemuck",
+ "byteorder",
  "num-traits",
  "png",
 ]

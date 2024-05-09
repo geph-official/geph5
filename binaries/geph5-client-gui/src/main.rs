@@ -12,7 +12,7 @@ mod tabs;
 
 use std::time::Duration;
 
-use egui::{FontData, FontDefinitions, FontFamily, Visuals};
+use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
@@ -47,10 +47,25 @@ fn main() {
         }
     }
 
+    let (icon_rgba, icon_width, icon_height) = {
+        let icon = include_bytes!("../icon.ico");
+        let image = image::load_from_memory(icon)
+            .expect("Failed to open icon path")
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([320.0, 320.0])
-            .with_min_inner_size([320.0, 320.0]),
+            .with_min_inner_size([320.0, 320.0])
+            .with_icon(IconData {
+                rgba: icon_rgba,
+                width: icon_width,
+                height: icon_height,
+            }),
         ..Default::default()
     };
     eframe::run_native(
