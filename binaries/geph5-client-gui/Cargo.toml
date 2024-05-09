@@ -2,6 +2,7 @@
 name = "geph5-client-gui"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -33,6 +34,10 @@ chrono = "0.4.38"
 http = "1.1.0"
 isocountry = "0.3.2"
 itertools = "0.12.1"
+
+[build-dependencies]
+winresource = "0.1"
+
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52.0"
