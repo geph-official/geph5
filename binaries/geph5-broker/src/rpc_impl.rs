@@ -65,9 +65,11 @@ impl BrokerProtocol for BrokerImpl {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError> {
-        match valid_auth_token(&auth_token).await {
+        let user_level = match valid_auth_token(&auth_token).await {
             Ok(auth) => {
-                if !auth {
+                if let Some(level) = auth {
+                    level
+                } else {
                     return Err(AuthError::Forbidden);
                 }
             }
@@ -75,8 +77,11 @@ impl BrokerProtocol for BrokerImpl {
                 tracing::warn!(err = debug(err), "database failed");
                 return Err(AuthError::RateLimited);
             }
-        }
+        };
         let start = Instant::now();
+        if user_level != level {
+            return Err(AuthError::WrongLevel);
+        }
         let signed = match level {
             AccountLevel::Free => &FREE_MIZARU_SK,
             AccountLevel::Plus => &PLUS_MIZARU_SK,

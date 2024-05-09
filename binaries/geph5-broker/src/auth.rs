@@ -1,9 +1,10 @@
 use std::ops::Deref as _;
 
 use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
-use geph5_broker_protocol::AuthError;
+use geph5_broker_protocol::{AccountLevel, AuthError};
 
 use rand::Rng as _;
+use tracing::Level;
 
 use crate::{database::POSTGRES, log_error};
 
@@ -51,11 +52,20 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-pub async fn valid_auth_token(token: &str) -> anyhow::Result<bool> {
-    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM auth_tokens WHERE token = $1")
+pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<AccountLevel>> {
+    let user_id: Option<(i32, i64)> = sqlx::query_as("SELECT user_id, (select count(*) from subscriptions where id = user_id) FROM auth_tokens WHERE token = $1")
         .bind(token)
-        .fetch_one(POSTGRES.deref())
+        .fetch_optional(POSTGRES.deref())
         .await?;
 
-    Ok(row.0 > 0)
+    if let Some((user_id, is_plus)) = user_id {
+        tracing::debug!(user_id, is_plus, "valid auth token");
+        if is_plus == 0 {
+            Ok(Some(AccountLevel::Free))
+        } else {
+            Ok(Some(AccountLevel::Plus))
+        }
+    } else {
+        Ok(None)
+    }
 }

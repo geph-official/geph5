@@ -47,7 +47,7 @@ pub trait BrokerProtocol {
     async fn incr_stat(&self, stat: String, value: i32);
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AccountLevel {
     Free,
     Plus,
