@@ -1,18 +1,11 @@
-use std::time::Duration;
-
-use egui::mutex::Mutex;
-use geph5_broker_protocol::{BrokerClient, Credential, ExitList};
+use geph5_broker_protocol::Credential;
 use geph5_client::{Config, ExitConstraint};
 use isocountry::CountryCode;
-use itertools::Itertools;
+
 use once_cell::sync::Lazy;
 use smol_str::{SmolStr, ToSmolStr};
 
-use crate::{
-    l10n::{l10n, l10n_country},
-    refresh_cell::RefreshCell,
-    store_cell::StoreCell,
-};
+use crate::store_cell::StoreCell;
 
 pub fn get_config() -> anyhow::Result<Config> {
     let yaml: serde_yaml::Value = serde_yaml::from_str(include_str!("settings_default.yaml"))?;

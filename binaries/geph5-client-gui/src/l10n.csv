@@ -1,4 +1,3 @@
-
 label,en,zh,ru,fa
 about,About,关于,О программе,Darbāre
 account_info,Account Info,帐户信息,Информация об аккаунте,Eṭṭelā'āt-e ḥesāb
@@ -69,6 +68,7 @@ help,Help,帮助,Помощь,Rāhnamā
 language,Language,语言,Язык,Zabān
 loading,Loading,加载中,Загрузка,Dar hāl-e bārgozārī
 loading_exit_list,Loading exit list...,正在加载出口列表...,Загрузка списка выходов...,Dar hāl-e bārgozārī-ye liste xuruji-hā
+login,Login,登录,Вход,Vorūd
 logs,Logs,日志,Журналы,Lāg-hā
 network_settings,Network Settings,网络设置,Настройки сети,Tanzimāt-e šabake
 password,Password,密码,Пароль,Ramz-e 'obur
@@ -82,4 +82,4 @@ settings,Settings,设置,Настройки,Tanzimāt
 status,Status,状态,Статус,Vazīyat
 upload_speed,Upload Speed,上传速度,Скорость отдачи,Sor'at-e āplod
 username,Username,用户名,Имя пользователя,Nām-e karbarī
-zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī 
+zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī

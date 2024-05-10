@@ -4,7 +4,6 @@ use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
 use geph5_broker_protocol::{AccountLevel, AuthError};
 
 use rand::Rng as _;
-use tracing::Level;
 
 use crate::{database::POSTGRES, log_error};
 

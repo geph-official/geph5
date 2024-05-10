@@ -19,7 +19,7 @@ use native_dialog::MessageType;
 use once_cell::sync::Lazy;
 use prefs::{pref_read, pref_write};
 use settings::{USERNAME, ZOOM_FACTOR};
-use tabs::{dashboard::Dashboard, logs::Logs, settings::render_settings};
+use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
 use crate::{settings::PASSWORD, store_cell::StoreCell};
@@ -85,6 +85,7 @@ enum TabName {
 
 pub struct App {
     selected_tab: TabName,
+    login: Login,
 
     dashboard: Dashboard,
     logs: Logs,
@@ -123,6 +124,7 @@ impl App {
 
         Self {
             selected_tab: TabName::Dashboard,
+            login: Login::new(),
 
             dashboard: Dashboard::new(),
             logs: Logs::new(),
@@ -137,22 +139,7 @@ impl eframe::App for App {
 
         if USERNAME.get().is_empty() {
             egui::CentralPanel::default().show(ctx, |ui| {
-                static TMP_UNAME: Lazy<StoreCell<String>> =
-                    Lazy::new(|| StoreCell::new("".to_string()));
-                static TMP_PWD: Lazy<StoreCell<String>> =
-                    Lazy::new(|| StoreCell::new("".to_string()));
-
-                ui.label(l10n("username"));
-                TMP_UNAME.modify(|username| ui.text_edit_singleline(username));
-
-                ui.label(l10n("password"));
-                TMP_PWD.modify(|pwd| ui.add(egui::TextEdit::singleline(pwd).password(true)));
-
-                if ui.button(l10n("save")).clicked() {
-                    // TODO verify
-                    USERNAME.set(TMP_UNAME.get().clone());
-                    PASSWORD.set(TMP_PWD.get().clone());
-                }
+                self.login.render(ui).unwrap();
             });
 
             return;
