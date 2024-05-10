@@ -11,7 +11,6 @@ use crate::{
     refresh_cell::RefreshCell,
     settings::{
         get_config, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY, SELECTED_COUNTRY, USERNAME,
-        ZOOM_FACTOR,
     },
 };
 
@@ -28,20 +27,6 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
     // Preferences
     ui.separator();
     // ui.label(l10n("preferences"));
-    ZOOM_FACTOR.modify(|zoom_factor| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("zoom_factor"));
-            egui::ComboBox::from_id_source("zoom_factor_cmbx")
-                .selected_text(format!("{:.2}", zoom_factor))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(zoom_factor, 1.0, "1.0");
-                    ui.selectable_value(zoom_factor, 1.25, "1.25");
-                    ui.selectable_value(zoom_factor, 1.5, "1.5");
-                    ui.selectable_value(zoom_factor, 1.75, "1.75");
-                    ui.selectable_value(zoom_factor, 2.0, "2.0");
-                });
-        })
-    });
 
     ui.horizontal(|ui| {
         ui.label(l10n("language"));
@@ -99,60 +84,63 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
             })
         });
 
-        egui::ComboBox::from_id_source("country")
-            .selected_text(
-                SELECTED_COUNTRY
-                    .get()
-                    .map(l10n_country)
-                    .unwrap_or_else(|| l10n("auto")),
-            )
-            .show_ui(ui, |ui| {
-                let former = SELECTED_COUNTRY.get();
-                SELECTED_COUNTRY.modify(|selected| {
-                    if let Some(locations) = locations {
-                        ui.selectable_value(selected, None, l10n("auto"));
-
-                        for country in locations.all_exits.iter().map(|s| s.1.country).unique() {
-                            ui.selectable_value(selected, Some(country), l10n_country(country));
-                        }
-                    } else {
-                        ui.spinner();
-                    }
-                });
-                if SELECTED_COUNTRY.get() != former {
-                    SELECTED_CITY.set(None);
-                }
-            });
-        if let Some(country) = SELECTED_COUNTRY.get() {
-            egui::ComboBox::from_id_source("city")
+        ui.vertical(|ui| {
+            egui::ComboBox::from_id_source("country")
                 .selected_text(
-                    SELECTED_CITY
+                    SELECTED_COUNTRY
                         .get()
-                        .unwrap_or_else(|| l10n("auto").to_string()),
+                        .map(l10n_country)
+                        .unwrap_or_else(|| l10n("auto")),
                 )
                 .show_ui(ui, |ui| {
-                    if let Some(locations) = locations {
-                        SELECTED_CITY.modify(|selected| {
+                    let former = SELECTED_COUNTRY.get();
+                    SELECTED_COUNTRY.modify(|selected| {
+                        if let Some(locations) = locations {
                             ui.selectable_value(selected, None, l10n("auto"));
-                            for city in locations
-                                .all_exits
-                                .iter()
-                                .filter(|s| s.1.country == country)
-                                .map(|s| &s.1.city)
-                                .unique()
+
+                            for country in locations.all_exits.iter().map(|s| s.1.country).unique()
                             {
-                                ui.selectable_value(
-                                    selected,
-                                    Some(city.to_string()),
-                                    city.to_string(),
-                                );
+                                ui.selectable_value(selected, Some(country), l10n_country(country));
                             }
-                        })
-                    } else {
-                        ui.spinner();
+                        } else {
+                            ui.spinner();
+                        }
+                    });
+                    if SELECTED_COUNTRY.get() != former {
+                        SELECTED_CITY.set(None);
                     }
                 });
-        }
+            if let Some(country) = SELECTED_COUNTRY.get() {
+                egui::ComboBox::from_id_source("city")
+                    .selected_text(
+                        SELECTED_CITY
+                            .get()
+                            .unwrap_or_else(|| l10n("auto").to_string()),
+                    )
+                    .show_ui(ui, |ui| {
+                        if let Some(locations) = locations {
+                            SELECTED_CITY.modify(|selected| {
+                                ui.selectable_value(selected, None, l10n("auto"));
+                                for city in locations
+                                    .all_exits
+                                    .iter()
+                                    .filter(|s| s.1.country == country)
+                                    .map(|s| &s.1.city)
+                                    .unique()
+                                {
+                                    ui.selectable_value(
+                                        selected,
+                                        Some(city.to_string()),
+                                        city.to_string(),
+                                    );
+                                }
+                            })
+                        } else {
+                            ui.spinner();
+                        }
+                    });
+            }
+        });
     });
 
     Ok(())

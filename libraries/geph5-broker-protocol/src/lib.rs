@@ -58,7 +58,7 @@ pub enum AccountLevel {
 pub enum AuthError {
     #[error("rate limited")]
     RateLimited,
-    #[error("forbidden")]
+    #[error("incorrect credentials")]
     Forbidden,
     #[error("wrong level")]
     WrongLevel,

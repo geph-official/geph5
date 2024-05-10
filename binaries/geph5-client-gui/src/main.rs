@@ -18,7 +18,7 @@ use logs::LogLayer;
 use native_dialog::MessageType;
 use once_cell::sync::Lazy;
 use prefs::{pref_read, pref_write};
-use settings::{USERNAME, ZOOM_FACTOR};
+use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
@@ -137,7 +137,7 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_zoom_factor(ZOOM_FACTOR.get());
+        ctx.set_zoom_factor(1.1);
         ctx.request_repaint_after(Duration::from_millis(100));
 
         if USERNAME.get().is_empty() {

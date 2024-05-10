@@ -29,9 +29,6 @@ pub static USERNAME: Lazy<StoreCell<String>> =
 pub static PASSWORD: Lazy<StoreCell<String>> =
     Lazy::new(|| StoreCell::new_persistent("password", || "".to_string()));
 
-pub static ZOOM_FACTOR: Lazy<StoreCell<f32>> =
-    Lazy::new(|| StoreCell::new_persistent("zoom_factor", || 1.0));
-
 pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
     Lazy::new(|| StoreCell::new_persistent("lang_code", || "en".to_smolstr()));
 
