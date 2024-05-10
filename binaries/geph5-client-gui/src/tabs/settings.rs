@@ -6,6 +6,7 @@ use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 
 use crate::{
+    daemon::stop_daemon,
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
@@ -18,18 +19,11 @@ pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
     Lazy::new(|| Mutex::new(RefreshCell::new()));
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
-    USERNAME.modify(|username| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("username"));
-            ui.text_edit_singleline(username);
-        })
-    });
-    PASSWORD.modify(|password| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("password"));
-            ui.add(egui::TextEdit::singleline(password).password(true));
-        })
-    });
+    if ui.button(l10n("logout")).clicked() {
+        stop_daemon()?;
+        USERNAME.set("".into());
+        PASSWORD.set("".into());
+    }
 
     // Preferences
     ui.separator();

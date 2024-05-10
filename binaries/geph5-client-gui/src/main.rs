@@ -12,7 +12,7 @@ mod tabs;
 
 use std::time::Duration;
 
-use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
+use egui::{style::Spacing, FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
@@ -121,6 +121,9 @@ impl App {
         }
 
         cc.egui_ctx.set_fonts(fonts);
+        cc.egui_ctx.style_mut(|style| {
+            style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        });
 
         Self {
             selected_tab: TabName::Dashboard,

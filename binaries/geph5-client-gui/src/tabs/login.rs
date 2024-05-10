@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use egui::{Align, Layout};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
@@ -34,23 +35,31 @@ impl Login {
                         PASSWORD.set(self.password.clone());
                     }
                     Err(err) => {
-                        ui.centered_and_justified(|ui| {
-                            ui.colored_label(egui::Color32::DARK_RED, format!("{:?}", err))
+                        let err = format!("{:?}", err);
+                        ui.vertical_centered(|ui| {
+                            ui.colored_label(egui::Color32::DARK_RED, err);
+                            if ui.button(l10n("ok")).clicked() {
+                                self.check_login = None;
+                            }
                         });
                     }
                 },
                 std::task::Poll::Pending => {
-                    ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
                         ui.spinner();
                     });
                 }
             }
         } else {
-            ui.label(l10n("username"));
-            ui.text_edit_singleline(&mut self.username);
+            ui.with_layout(Layout::top_down_justified(Align::LEFT), |ui| {
+                ui.label(l10n("username"));
+                ui.text_edit_singleline(&mut self.username);
 
-            ui.label(l10n("password"));
-            ui.text_edit_singleline(&mut self.password);
+                ui.label(l10n("password"));
+                ui.text_edit_singleline(&mut self.password);
+                anyhow::Ok(())
+            })
+            .inner?;
 
             if ui.button(l10n("login")).clicked() {
                 let username = self.username.clone();
@@ -60,6 +69,7 @@ impl Login {
                 }));
             }
         }
+
         Ok(())
     }
 }

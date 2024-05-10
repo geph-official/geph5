@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    daemon::DAEMON,
+    daemon::{start_daemon, stop_daemon, DAEMON},
     l10n::l10n,
     pac::{set_http_proxy, unset_http_proxy},
     settings::{get_config, PROXY_AUTOCONF},
@@ -14,10 +14,9 @@ impl Dashboard {
         Self {}
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> anyhow::Result<()> {
-        let mut daemon = DAEMON.lock();
-
         ui.columns(2, |columns| {
             columns[0].label(l10n("status"));
+            let mut daemon = DAEMON.lock();
             match daemon.as_ref() {
                 Some(daemon) => {
                     columns[1].colored_label(egui::Color32::DARK_GREEN, l10n("connected"));
@@ -36,25 +35,20 @@ impl Dashboard {
         });
         ui.add_space(10.);
         ui.vertical_centered(|ui| {
-            if daemon.is_none() {
+            if DAEMON.lock().is_none() {
                 if ui.button(l10n("connect")).clicked() {
                     tracing::warn!("connect clicked");
-                    if PROXY_AUTOCONF.get() {
-                        set_http_proxy(get_config()?.http_proxy_listen.unwrap())?;
-                    }
-                    *daemon = Some(geph5_client::Client::start(get_config()?));
+                    start_daemon()?;
                 }
             } else if ui.button(l10n("disconnect")).clicked() {
                 tracing::warn!("disconnect clicked");
-                if PROXY_AUTOCONF.get() {
-                    unset_http_proxy()?;
-                }
-                *daemon = None;
+                stop_daemon()?;
             }
             anyhow::Ok(())
         })
         .inner?;
 
+        let daemon = DAEMON.lock();
         if let Some(daemon) = daemon.as_ref() {
             if let Err(err) = daemon.check_dead() {
                 ui.colored_label(egui::Color32::RED, format!("{:?}", err));
