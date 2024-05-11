@@ -2,7 +2,7 @@ use anyctx::AnyCtx;
 use anyhow::Context;
 use async_trait::async_trait;
 use geph5_broker_protocol::BrokerClient;
-use isahc::{AsyncReadResponseExt, HttpClient, Request};
+use isahc::{config::Configurable, AsyncReadResponseExt, HttpClient, Request};
 use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
@@ -21,11 +21,12 @@ pub enum BrokerSource {
 impl BrokerSource {
     /// Converts to a RpcTransport.
     pub fn rpc_transport(&self) -> DynRpcTransport {
+        let client = HttpClient::builder().proxy(None).build().unwrap();
         match self {
             BrokerSource::Direct(s) => DynRpcTransport::new(HttpRpcTransport {
                 url: s.clone(),
                 host: None,
-                client: HttpClient::new().unwrap(),
+                client,
             }),
             BrokerSource::DirectTcp(dest_addr) => {
                 DynRpcTransport::new(nanorpc_sillad::DialerTransport(TcpDialer {
@@ -35,7 +36,7 @@ impl BrokerSource {
             BrokerSource::Fronted { front, host } => DynRpcTransport::new(HttpRpcTransport {
                 url: front.clone(),
                 host: Some(host.clone()),
-                client: HttpClient::new().unwrap(),
+                client,
             }),
         }
     }
