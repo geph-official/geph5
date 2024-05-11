@@ -78,7 +78,8 @@ struct ConfigFile {
     bridge_token: String,
     exit_token: String,
 
-    statsd_addr: SocketAddr,
+    #[serde(default)]
+    statsd_addr: Option<SocketAddr>,
 }
 
 fn default_mizaru_key_count() -> usize {

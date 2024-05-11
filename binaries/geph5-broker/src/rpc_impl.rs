@@ -218,14 +218,20 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn incr_stat(&self, stat: String, value: i32) {
-        STATSD_CLIENT.count(&stat, value).unwrap();
+        if let Some(client) = STATSD_CLIENT.as_ref() {
+            client.count(&stat, value).unwrap();
+        }
     }
 }
 
-static STATSD_CLIENT: Lazy<StatsdClient> = Lazy::new(|| {
-    let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-    StatsdClient::from_sink(
-        "geph5",
-        UdpMetricSink::from(CONFIG_FILE.wait().statsd_addr, socket).unwrap(),
-    )
+static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {
+    if let Some(statsd_addr) = CONFIG_FILE.wait().statsd_addr {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+        Some(StatsdClient::from_sink(
+            "geph5",
+            UdpMetricSink::from(statsd_addr, socket).unwrap(),
+        ))
+    } else {
+        None
+    }
 });
