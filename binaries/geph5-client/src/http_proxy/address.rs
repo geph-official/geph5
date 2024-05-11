@@ -1,7 +1,7 @@
 
 use std::{
     fmt::{self, Debug},
-    net::{SocketAddr},
+    net::SocketAddr,
 };
 use tokio::io::{self};
 /// SOCKS5 protocol error

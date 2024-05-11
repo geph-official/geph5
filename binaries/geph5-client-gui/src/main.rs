@@ -17,7 +17,6 @@ use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
-
 use prefs::{pref_read, pref_write};
 use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};

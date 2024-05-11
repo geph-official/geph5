@@ -43,7 +43,7 @@ pub async fn listen_main() -> anyhow::Result<()> {
 #[tracing::instrument]
 async fn broker_loop() -> anyhow::Result<()> {
     let my_ip = if let Some(ip_addr) = &CONFIG_FILE.wait().ip_addr {
-        ip_addr.clone()
+        *ip_addr
     } else {
         IpAddr::from_str(
             String::from_utf8_lossy(
