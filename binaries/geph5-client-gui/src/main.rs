@@ -92,11 +92,6 @@ pub struct App {
 impl App {
     /// Constructs the app.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // light mode
-        cc.egui_ctx.set_visuals(
-            Visuals::light(), // .tap_mut(|vis| vis.widgets.noninteractive.fg_stroke.color = Color32::BLACK),
-        );
-
         // set up fonts. currently this uses SC for CJK, but this can be autodetected instead.
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
