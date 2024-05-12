@@ -49,6 +49,11 @@ pub async fn init_schema() -> anyhow::Result<()> {
     )
     .execute(POSTGRES.deref())
     .await?;
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS subscriptions (id INTEGER)",
+    )
+    .execute(POSTGRES.deref())
+    .await?;
     Ok(())
 }
 
