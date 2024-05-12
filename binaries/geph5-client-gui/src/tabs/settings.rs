@@ -15,8 +15,7 @@ use crate::{
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, CUSTOM_BROKER, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
-        SELECTED_COUNTRY, USERNAME,
+        get_config, CUSTOM_BROKER, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY, SELECTED_COUNTRY, SOCKS5_PORT, USERNAME
     },
 };
 
@@ -135,6 +134,20 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
                     });
             }
         });
+    });
+
+    SOCKS5_PORT.modify(|socks5_port| {
+        ui.horizontal(|ui| {
+            ui.label(l10n("socks5_port"));
+            ui.add(egui::DragValue::new(socks5_port));
+        })
+    });
+
+    HTTP_PROXY_PORT.modify(|http_proxy_port| {
+        ui.horizontal(|ui| {
+            ui.label(l10n("http_proxy_port"));
+            ui.add(egui::DragValue::new(http_proxy_port));
+        })
     });
 
     ui.horizontal(|ui| {

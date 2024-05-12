@@ -1,3 +1,5 @@
+use std::net::{Ipv4Addr, SocketAddrV4};
+
 use geph5_broker_protocol::Credential;
 use geph5_client::{BrokerSource, Config, ExitConstraint};
 use isocountry::CountryCode;
@@ -26,6 +28,14 @@ pub fn get_config() -> anyhow::Result<Config> {
     if let Some(custom_broker) = CUSTOM_BROKER.get() {
         cfg.broker = Some(custom_broker);
     }
+    cfg.socks5_listen = Some(std::net::SocketAddr::V4(SocketAddrV4::new(
+        Ipv4Addr::new(127, 0, 0, 1),
+        SOCKS5_PORT.get(),
+    )));
+    cfg.http_proxy_listen = Some(std::net::SocketAddr::V4(SocketAddrV4::new(
+        Ipv4Addr::new(127, 0, 0, 1),
+        HTTP_PROXY_PORT.get(),
+    )));
     Ok(cfg)
 }
 
@@ -49,3 +59,9 @@ pub static SELECTED_CITY: Lazy<StoreCell<Option<String>>> =
 
 pub static CUSTOM_BROKER: Lazy<StoreCell<Option<BrokerSource>>> =
     Lazy::new(|| StoreCell::new_persistent("custom_broker", || None));
+
+pub static SOCKS5_PORT: Lazy<StoreCell<u16>> =
+    Lazy::new(|| StoreCell::new_persistent("socks5_port", || 9999));
+
+pub static HTTP_PROXY_PORT: Lazy<StoreCell<u16>> =
+    Lazy::new(|| StoreCell::new_persistent("http_proxy_port", || 19999));

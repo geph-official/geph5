@@ -103,3 +103,5 @@ broker_fronted,Fronted,前置,Передний,Façade
 broker_direct_tcp,Direct (TCP),直连（TCP）,Прямой (TCP),Direct (TCP)
 broker_fronted_front,Front,前置,Фронт-сервер,Frontal
 broker_fronted_host,Host,主机名,Имя хоста,Nom d'hôte
+socks5_port,Socks5 proxy port,Socks5代理端口,Порт прокси Socks5,Socks5 proxy port
+http_proxy_port,HTTP proxy port,HTTP代理端口,HTTP-прокси-порт,HTTP proxy port

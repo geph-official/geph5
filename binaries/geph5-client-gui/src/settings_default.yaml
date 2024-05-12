@@ -1,5 +1,3 @@
-socks5_listen: 127.0.0.1:9999
-http_proxy_listen: 127.0.0.1:19999
 exit_constraint: auto
 
 broker:

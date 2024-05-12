@@ -161,7 +161,9 @@ impl eframe::App for App {
                 self.logs.render(ui)
             }
             TabName::Logs => self.logs.render(ui),
-            TabName::Settings => render_settings(ctx, ui),
+            TabName::Settings => {
+                egui::ScrollArea::vertical().show(ui, |ui| render_settings(ctx, ui)).inner
+            }
         });
 
         if let Err(err) = result.inner {
