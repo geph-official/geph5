@@ -7,8 +7,11 @@ use smol_str::{SmolStr, ToSmolStr};
 
 use crate::store_cell::StoreCell;
 
+pub static DEFAULT_SETTINGS: Lazy<serde_yaml::Value> =
+    Lazy::new(|| serde_yaml::from_str(include_str!("settings_default.yaml")).unwrap());
+
 pub fn get_config() -> anyhow::Result<Config> {
-    let yaml: serde_yaml::Value = serde_yaml::from_str(include_str!("settings_default.yaml"))?;
+    let yaml: serde_yaml::Value = DEFAULT_SETTINGS.to_owned();
     let json: serde_json::Value = serde_json::to_value(&yaml)?;
     let mut cfg: Config = serde_json::from_value(json)?;
     cfg.credentials = Credential::LegacyUsernamePassword {
