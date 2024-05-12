@@ -38,23 +38,9 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
 
     ui.horizontal(|ui| {
         ui.label(l10n("language"));
-        LANG_CODE.modify(|lang_code| {
-            egui::ComboBox::from_id_source("lcmbx")
-                .selected_text(match lang_code.as_str() {
-                    "en" => "English",
-                    "zh" => "中文",
-                    "fa" => "Fārsī",
-                    "ru" => "Русский",
-                    _ => lang_code,
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(lang_code, "en".into(), "English");
-                    ui.selectable_value(lang_code, "zh".into(), "中文");
-                    ui.selectable_value(lang_code, "fa".into(), "Fārsī");
-                    ui.selectable_value(lang_code, "ru".into(), "Русский");
-                });
-        });
-    });
+        render_language_settings(ui)
+    })
+    .inner?;
 
     // Network settings
     ui.separator();
@@ -153,9 +139,30 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
 
     ui.horizontal(|ui| {
         ui.label(l10n("broker"));
-        render_broker_settings( ui)
-    }).inner?;
+        render_broker_settings(ui)
+    })
+    .inner?;
 
+    Ok(())
+}
+
+pub fn render_language_settings(ui: &mut egui::Ui) -> anyhow::Result<()> {
+    LANG_CODE.modify(|lang_code| {
+        egui::ComboBox::from_id_source("lcmbx")
+            .selected_text(match lang_code.as_str() {
+                "en" => "English",
+                "zh" => "中文",
+                "fa" => "Fārsī",
+                "ru" => "Русский",
+                _ => lang_code,
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(lang_code, "en".into(), "English");
+                ui.selectable_value(lang_code, "zh".into(), "中文");
+                ui.selectable_value(lang_code, "fa".into(), "Fārsī");
+                ui.selectable_value(lang_code, "ru".into(), "Русский");
+            });
+    });
     Ok(())
 }
 

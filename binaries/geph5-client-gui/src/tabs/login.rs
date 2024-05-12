@@ -7,7 +7,7 @@ use crate::{
     settings::{get_config, PASSWORD, USERNAME},
 };
 
-use super::settings::render_broker_settings;
+use super::settings::{render_broker_settings, render_language_settings};
 
 pub struct Login {
     username: String,
@@ -70,6 +70,12 @@ impl Login {
             }
 
             ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(l10n("language"));
+                render_language_settings(ui)
+            })
+            .inner?;
+
             ui.vertical(|ui| {
                 ui.label(l10n("broker"));
                 render_broker_settings(ui)
