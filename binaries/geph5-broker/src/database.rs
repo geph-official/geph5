@@ -45,7 +45,7 @@ pub async fn init_schema() -> anyhow::Result<()> {
     .execute(POSTGRES.deref())
     .await?;
     sqlx::query(
-        r"CREATE TABLE IF NOT EXISTS auth_tokens (token VARCHAR(32), user_id INTEGER UNIQUE)",
+        r"CREATE TABLE IF NOT EXISTS auth_tokens (token VARCHAR(32), user_id INTEGER)",
     )
     .execute(POSTGRES.deref())
     .await?;
