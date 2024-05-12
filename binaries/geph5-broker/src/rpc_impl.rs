@@ -19,6 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::log_error;
 use crate::{
     auth::{new_auth_token, valid_auth_token, validate_username_pwd},
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
@@ -53,6 +54,7 @@ impl BrokerProtocol for BrokerImpl {
 
         let token = new_auth_token(user_id)
             .await
+            .inspect_err(log_error)
             .map_err(|_| AuthError::RateLimited)?;
 
         Ok(token)
