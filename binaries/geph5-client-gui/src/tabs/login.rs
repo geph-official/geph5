@@ -7,6 +7,8 @@ use crate::{
     settings::{get_config, PASSWORD, USERNAME},
 };
 
+use super::settings::render_broker_settings;
+
 pub struct Login {
     username: String,
     password: String,
@@ -66,6 +68,13 @@ impl Login {
                     smol::future::block_on(check_login(username, password))
                 }));
             }
+
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.label(l10n("broker"));
+                render_broker_settings(ui)
+            })
+            .inner?;
         }
 
         Ok(())

@@ -1,5 +1,5 @@
 use geph5_broker_protocol::Credential;
-use geph5_client::{Config, ExitConstraint};
+use geph5_client::{BrokerSource, Config, ExitConstraint};
 use isocountry::CountryCode;
 
 use once_cell::sync::Lazy;
@@ -23,6 +23,9 @@ pub fn get_config() -> anyhow::Result<Config> {
         (Some(country), None) => ExitConstraint::Country(country),
         _ => ExitConstraint::Auto,
     };
+    if let Some(custom_broker) = CUSTOM_BROKER.get() {
+        cfg.broker = Some(custom_broker);
+    }
     Ok(cfg)
 }
 
@@ -43,3 +46,6 @@ pub static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
 
 pub static SELECTED_CITY: Lazy<StoreCell<Option<String>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_city", || None));
+
+pub static CUSTOM_BROKER: Lazy<StoreCell<Option<BrokerSource>>> =
+    Lazy::new(|| StoreCell::new_persistent("custom_broker", || None));

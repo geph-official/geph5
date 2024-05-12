@@ -96,3 +96,10 @@ status,Status,状态,Статус,Vazīyat
 upload_speed,Upload Speed,上传速度,Скорость отдачи,Sor'at-e āplod
 username,Username,用户名,Имя пользователя,Nām-e karbarī
 zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī
+broker,Broker server,Broker服务器,Брокерский сервер,Serveur de courtier
+broker_none,Default,默认,По умолчанию,Défaut
+broker_direct,Direct,直连,Прямой,Direct
+broker_fronted,Fronted,前置,Передний,Façade
+broker_direct_tcp,Direct (TCP),直连（TCP）,Прямой (TCP),Direct (TCP)
+broker_fronted_front,Front,前置,Фронт-сервер,Frontal
+broker_fronted_host,Host,主机名,Имя хоста,Nom d'hôte

@@ -1,7 +1,12 @@
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    str::FromStr,
+    time::Duration,
+};
 
 use egui::mutex::Mutex;
 use geph5_broker_protocol::{BrokerClient, ExitList};
+use geph5_client::BrokerSource;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 
@@ -10,12 +15,15 @@ use crate::{
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY, SELECTED_COUNTRY, USERNAME,
+        get_config, CUSTOM_BROKER, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
+        SELECTED_COUNTRY, USERNAME,
     },
 };
 
 pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
     Lazy::new(|| Mutex::new(RefreshCell::new()));
+
+pub static BROKER_DIRECT_TCP_TEXT: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     if ui.button(l10n("logout")).clicked() {
@@ -143,5 +151,88 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
         });
     });
 
+    ui.horizontal(|ui| {
+        ui.label(l10n("broker"));
+        render_broker_settings( ui)
+    }).inner?;
+
+    Ok(())
+}
+
+pub fn render_broker_settings(ui: &mut egui::Ui) -> anyhow::Result<()> {
+    CUSTOM_BROKER.modify(|custom_broker| {
+        let mut broker_type = match custom_broker {
+            None => 1,
+            Some(BrokerSource::Direct(_)) => 2,
+            Some(BrokerSource::Fronted { front: _, host: _ }) => 3,
+            Some(BrokerSource::DirectTcp(_)) => 4,
+        };
+        ui.vertical(|ui| {
+            egui::ComboBox::from_id_source("custombroker")
+                .selected_text(match broker_type {
+                    1 => l10n("broker_none"),
+                    2 => l10n("broker_direct"),
+                    3 => l10n("broker_fronted"),
+                    4 => l10n("broker_direct_tcp"),
+                    _ => unreachable!(),
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut broker_type, 1, l10n("broker_none"));
+                    ui.selectable_value(&mut broker_type, 2, l10n("broker_direct"));
+                    ui.selectable_value(&mut broker_type, 3, l10n("broker_fronted"));
+                    ui.selectable_value(&mut broker_type, 4, l10n("broker_direct_tcp"));
+                });
+            match broker_type {
+                1 => {
+                    *custom_broker = None;
+                }
+                2 => {
+                    let mut addr = if let Some(BrokerSource::Direct(addr)) = custom_broker {
+                        addr.to_owned()
+                    } else {
+                        "".into()
+                    };
+                    ui.text_edit_singleline(&mut addr);
+                    *custom_broker = Some(BrokerSource::Direct(addr));
+                }
+                3 => {
+                    let (mut front, mut host) =
+                        if let Some(BrokerSource::Fronted { front, host }) = custom_broker {
+                            (front.to_owned(), host.to_owned())
+                        } else {
+                            ("".into(), "".into())
+                        };
+                    ui.horizontal(|ui| {
+                        ui.label(l10n("broker_fronted_front"));
+                        ui.text_edit_singleline(&mut front);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(l10n("broker_fronted_host"));
+                        ui.text_edit_singleline(&mut host);
+                    });
+                    *custom_broker = Some(BrokerSource::Fronted { front, host });
+                }
+                4 => {
+                    let mut text = BROKER_DIRECT_TCP_TEXT.lock();
+                    if text.is_none() {
+                        if let Some(BrokerSource::DirectTcp(addr)) = custom_broker {
+                            *text = Some(addr.to_owned().to_string());
+                        } else {
+                            *text = Some("".into());
+                        }
+                    }
+                    ui.text_edit_singleline(text.as_mut().unwrap());
+                    if let Ok(addr) = SocketAddr::from_str(text.clone().unwrap().as_str()) {
+                        *custom_broker = Some(BrokerSource::DirectTcp(addr));
+                    } else {
+                        *custom_broker = Some(BrokerSource::DirectTcp(SocketAddr::V4(
+                            SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0),
+                        )));
+                    }
+                }
+                _ => unreachable!(),
+            }
+        });
+    });
     Ok(())
 }
