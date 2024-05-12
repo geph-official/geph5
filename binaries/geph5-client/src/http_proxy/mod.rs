@@ -27,12 +27,12 @@ pub async fn run_http_proxy(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     server_dispatch(req, addr, cloned_server.clone(), ctx.clone())
                 });
 
-                let result = hyper_util::server::conn::auto::Builder::new(
-                    hyper_util::rt::TokioExecutor::new(),
-                )
-                .http1()
-                .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
-                .await;
+                let result = hyper::server::conn::http1::Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
+                    .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                    .with_upgrades()
+                    .await;
                 if let Err(e) = result {
                     tracing::error!(%addr, %e, "error serving HTTP proxy conn: {addr}");
                 }
@@ -51,7 +51,7 @@ async fn server_dispatch(
     client_addr: SocketAddr,
     proxy_server: SharedProxyServer,
     ctx: AnyCtx<Config>,
-) -> std::io::Result<Response<BoxBody<Bytes, hyper::Error>>> {
+) -> std::io::Result<Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>>> {
     let host = match host_addr(req.uri()) {
         None => {
             if req.uri().authority().is_some() {
@@ -145,10 +145,9 @@ async fn server_dispatch(
             "CONNECT relay connected"
         );
         tokio::spawn(async move {
-            match hyper::upgrade::on(req).await {
+            match hyper::upgrade::on(&mut req).await {
                 Ok(upgraded) => {
                     tracing::trace!(
-
                         client_addr = %client_addr,
                         host = %host,
                         "CONNECT tunnel upgrade success"
@@ -159,8 +158,7 @@ async fn server_dispatch(
                     }
                 }
                 Err(e) => {
-                    tracing::trace!(
-
+                    tracing::info!(
                         client_addr = %client_addr,
                         host = %host,
                         error = %e,
@@ -169,10 +167,7 @@ async fn server_dispatch(
                 }
             }
         });
-        let resp = Response::builder()
-            .body(Empty::new().map_err(|_| unreachable!()).boxed())
-            .unwrap();
-        Ok(resp)
+        Ok(Response::new(HttpEither::Right(Empty::new())))
     } else {
         let method = req.method().clone();
         tracing::trace!(method = %method, host = %host, "HTTP request received");
@@ -184,30 +179,31 @@ async fn server_dispatch(
             Ok(c) => c.boxed(),
             Err(_) => return Ok(make_bad_request()),
         };
-        let mut res: Response<BoxBody<Bytes, hyper::Error>> = match proxy_server
-            .client
-            .request(Request::from_parts(parts, body))
-            .await
-        {
-            Ok(res) => res.map(|b| b.boxed()),
-            Err(err) => {
-                tracing::trace!(
-                    method = %method,
-                    client_addr = %client_addr,
-                    proxy_addr = "127.0.0.1:1080",
-                    host = %host,
-                    error = %err,
-                    "HTTP relay failed"
-                );
-                let mut resp = Response::new(
-                    Full::new(Bytes::from(format!("Relay failed to {}", host)))
-                        .map_err(|_| unreachable!())
-                        .boxed(),
-                );
-                *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                return Ok(resp);
-            }
-        };
+        let mut res: Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>> =
+            match proxy_server
+                .client
+                .request(Request::from_parts(parts, body))
+                .await
+            {
+                Ok(res) => res.map(|b| HttpEither::Left(b.boxed())),
+                Err(err) => {
+                    tracing::trace!(
+                        method = %method,
+                        client_addr = %client_addr,
+                        proxy_addr = "127.0.0.1:1080",
+                        host = %host,
+                        error = %err,
+                        "HTTP relay failed"
+                    );
+                    let mut resp = Response::new(HttpEither::Left(
+                        Full::new(Bytes::from(format!("Relay failed to {}", host)))
+                            .map_err(|_| unreachable!())
+                            .boxed(),
+                    ));
+                    *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    return Ok(resp);
+                }
+            };
         let res_keep_alive =
             conn_keep_alive && check_keep_alive(res.version(), res.headers(), false);
         clear_hop_headers(res.headers_mut());
@@ -226,7 +222,7 @@ use http::{
     uri::{Authority, Scheme},
     HeaderMap, HeaderValue, Method, Uri, Version,
 };
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use http_body_util::{combinators::BoxBody, BodyExt, Either as HttpEither, Empty, Full};
 use hyper::{
     body::Incoming, service::service_fn, upgrade::Upgraded, Request, Response, StatusCode,
 };
@@ -281,9 +277,10 @@ async fn establish_connect_tunnel(
     );
 }
 
-fn make_bad_request() -> Response<BoxBody<Bytes, hyper::Error>> {
-    let mut resp: Response<BoxBody<Bytes, hyper::Error>> =
-        Response::new(Empty::new().map_err(|_| unreachable!()).boxed());
+fn make_bad_request() -> Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>> {
+    let mut resp: Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>> = Response::new(
+        HttpEither::Left(Empty::new().map_err(|_| unreachable!()).boxed()),
+    );
     *resp.status_mut() = StatusCode::BAD_REQUEST;
     resp
 }
@@ -469,6 +466,8 @@ impl ProxyServer {
         let connector = http_client::Connector::new(ctx);
         let proxy_client: http_client::CtxClient =
             hyper_util::client::legacy::Builder::new(hyper_util::rt::TokioExecutor::new())
+                .http1_preserve_header_case(true)
+                .http1_title_case_headers(true)
                 .build(connector);
         ProxyServer {
             client: proxy_client,

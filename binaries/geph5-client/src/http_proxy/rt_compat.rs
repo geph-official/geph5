@@ -41,11 +41,13 @@ where
             }
         };
 
-        let n_init = max(filled + new_filled - init, 0);
-        unsafe {
-            tbuf.assume_init(n_init);
-            tbuf.set_filled(filled + new_filled);
+        if filled + new_filled > init {
+            let n_init = max(filled + new_filled - init, 0);
+            unsafe {
+                tbuf.assume_init(n_init);
+            }
         }
+        tbuf.set_filled(filled + new_filled);
 
         Poll::Ready(Ok(()))
     }
