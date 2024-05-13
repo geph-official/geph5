@@ -122,7 +122,7 @@ impl App {
         cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-            style.spacing.button_padding = egui::vec2(6.0, 4.0);
+            style.spacing.button_padding = egui::vec2(5.0, 4.0);
         });
 
         Self {
