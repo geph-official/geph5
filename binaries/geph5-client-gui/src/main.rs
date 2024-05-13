@@ -12,6 +12,7 @@ mod tabs;
 
 use std::time::Duration;
 
+use daemon::stop_daemon;
 use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
@@ -21,8 +22,6 @@ use prefs::{pref_read, pref_write};
 use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
-
-
 
 // 0123456789
 
@@ -181,5 +180,10 @@ impl eframe::App for App {
                 .show_alert();
             std::process::exit(-1);
         }
+    }
+
+    fn on_exit(&mut self) {
+        // stop the daemon, unset the proxies, etc
+        let _ = stop_daemon();
     }
 }
