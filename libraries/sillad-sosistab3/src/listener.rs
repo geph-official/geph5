@@ -1,5 +1,6 @@
 use std::{
     io::ErrorKind,
+    sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,7 +14,7 @@ use sillad::{listener::Listener, Pipe};
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
 
-use crate::{handshake::Handshake, state::State, Cookie, SosistabPipe};
+use crate::{dedup::Dedup, handshake::Handshake, state::State, Cookie, SosistabPipe};
 
 /// A sosistab3 listener.
 pub struct SosistabListener<P: Pipe> {
@@ -38,6 +39,12 @@ async fn listen_loop<P: Pipe>(
 ) -> std::io::Result<()> {
     const WAIT_INTERVAL: Duration = Duration::from_secs(30);
 
+    if std::env::var("SOSISTAB3_WAIT").is_ok() {
+        async_io::Timer::after(WAIT_INTERVAL).await;
+    }
+
+    let dedup = Mutex::new(Dedup::new(WAIT_INTERVAL * 2));
+    let dedup = &dedup;
     let lexec = Executor::new();
     lexec
         .run(async {
@@ -69,6 +76,15 @@ async fn listen_loop<P: Pipe>(
                             their_padding_hash = debug(their_handshake.padding_hash),
                             "handshake verified"
                         );
+                        {
+                            let dedup = dedup.lock().unwrap();
+                            if dedup.contains(&their_handshake_hash) {
+                                return Err(std::io::Error::new(
+                                    ErrorKind::InvalidData,
+                                    "handshake already seen",
+                                ));
+                            }
+                        }
                         // send the upstream handshake
                         let eph_sk =
                             x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());

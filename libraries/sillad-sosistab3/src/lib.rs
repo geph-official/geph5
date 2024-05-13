@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sillad::Pipe;
 use state::State;
 
+mod dedup;
 pub mod dialer;
 mod handshake;
 pub mod listener;
