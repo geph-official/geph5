@@ -3,8 +3,6 @@ use std::time::Duration;
 use crate::{
     daemon::{start_daemon, stop_daemon, DAEMON},
     l10n::l10n,
-    pac::{set_http_proxy, unset_http_proxy},
-    settings::{get_config, PROXY_AUTOCONF},
 };
 
 pub struct Dashboard {}
@@ -16,7 +14,7 @@ impl Dashboard {
     pub fn render(&mut self, ui: &mut egui::Ui) -> anyhow::Result<()> {
         ui.columns(2, |columns| {
             columns[0].label(l10n("status"));
-            let mut daemon = DAEMON.lock();
+            let daemon = DAEMON.lock();
             match daemon.as_ref() {
                 Some(daemon) => {
                     columns[1].colored_label(egui::Color32::DARK_GREEN, l10n("connected"));

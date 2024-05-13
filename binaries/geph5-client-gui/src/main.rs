@@ -12,17 +12,17 @@ mod tabs;
 
 use std::time::Duration;
 
-use egui::{style::Spacing, FontData, FontDefinitions, FontFamily, IconData, Visuals};
+use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
-use once_cell::sync::Lazy;
+
 use prefs::{pref_read, pref_write};
 use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
-use crate::{settings::PASSWORD, store_cell::StoreCell};
+
 
 // 0123456789
 
