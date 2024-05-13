@@ -77,13 +77,14 @@ async fn listen_loop<P: Pipe>(
                             "handshake verified"
                         );
                         {
-                            let dedup = dedup.lock().unwrap();
+                            let mut dedup = dedup.lock().unwrap();
                             if dedup.contains(&their_handshake_hash) {
                                 return Err(std::io::Error::new(
                                     ErrorKind::InvalidData,
                                     "handshake already seen",
                                 ));
                             }
+                            dedup.insert(their_handshake_hash);
                         }
                         // send the upstream handshake
                         let eph_sk =
