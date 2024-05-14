@@ -47,11 +47,7 @@ fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
         stdcode::deserialize(&file_content).unwrap()
     } else {
         // If the file doesn't exist, generate a new secret key and write it to the file
-        let (key_count, key_bits) = {
-            let cfg = &CONFIG_FILE.wait();
-            (cfg.mizaru_key_count, cfg.mizaru_key_bits)
-        };
-        let new_key = mizaru2::SecretKey::generate(name, key_count, key_bits);
+        let new_key = mizaru2::SecretKey::generate(name);
         if let Some(parent) = plus_file_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
@@ -67,10 +63,6 @@ struct ConfigFile {
     tcp_listen: SocketAddr,
     master_secret: PathBuf,
     mizaru_keys: PathBuf,
-    #[serde(default = "default_mizaru_key_count")]
-    mizaru_key_count: usize,
-    #[serde(default = "default_mizaru_key_bits")]
-    mizaru_key_bits: usize,
     postgres_url: String,
     #[serde(default)]
     postgres_root_cert: Option<PathBuf>,
@@ -80,14 +72,6 @@ struct ConfigFile {
 
     #[serde(default)]
     statsd_addr: Option<SocketAddr>,
-}
-
-fn default_mizaru_key_count() -> usize {
-    mizaru2::KEY_COUNT
-}
-
-fn default_mizaru_key_bits() -> usize {
-    mizaru2::KEY_BITS
 }
 
 /// Run the Geph5 broker.
