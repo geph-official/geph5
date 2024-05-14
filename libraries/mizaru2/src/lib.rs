@@ -99,13 +99,13 @@ impl SecretKey {
         fn other(i: usize) -> usize {
             i / 2 * 2 + ((i + 1) % 2)
         }
-        let mut idx = (idx as usize) % self.key_count;
+        let mut idx = idx;
         // HACK mutation within map
         self.merkle_tree
             .iter()
             .take(self.merkle_tree.len() - 1)
             .map(|level| {
-                let toret = level[other(idx)];
+                let toret = level[other(idx as usize)];
                 idx >>= 1;
                 toret
             })
