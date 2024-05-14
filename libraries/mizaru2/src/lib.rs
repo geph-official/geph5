@@ -24,14 +24,8 @@ pub fn current_epoch() -> u16 {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretKey {
-    #[serde(default = "default_key_count")]
-    key_count: usize,
     rsa_keys_der: Arc<Vec<Vec<u8>>>,
     merkle_tree: Arc<Vec<Vec<blake3::Hash>>>,
-}
-
-fn default_key_count() -> usize {
-    KEY_COUNT
 }
 
 impl SecretKey {
@@ -61,7 +55,6 @@ impl SecretKey {
             merkle_tree.push(new)
         }
         Self {
-            key_count,
             rsa_keys_der: Arc::new(
                 rsa_keys
                     .into_iter()
@@ -119,7 +112,7 @@ impl SecretKey {
 
     /// Gets an epoch key.
     pub fn get_subkey(&self, epoch: u16) -> brs::SecretKey {
-        brs::SecretKey::from_der(&self.rsa_keys_der[(epoch as usize) % self.key_count]).unwrap()
+        brs::SecretKey::from_der(&self.rsa_keys_der[epoch as usize]).unwrap()
     }
 }
 
