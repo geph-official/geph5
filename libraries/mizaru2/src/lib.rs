@@ -31,7 +31,7 @@ pub struct SecretKey {
 impl SecretKey {
     pub fn generate(name: &str) -> Self {
         let count = AtomicUsize::new(1);
-        let rsa_keys: Vec<brs::SecretKey> = (0..key_count)
+        let rsa_keys: Vec<brs::SecretKey> = (0..KEY_COUNT)
             .into_par_iter()
             .map(|_| {
                 let count = count.fetch_add(1, Ordering::Relaxed);
