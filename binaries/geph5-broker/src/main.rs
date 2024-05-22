@@ -47,7 +47,10 @@ fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
         stdcode::deserialize(&file_content).unwrap()
     } else {
         // If the file doesn't exist, generate a new secret key and write it to the file
-        let new_key = mizaru2::SecretKey::generate();
+        let new_key = mizaru2::SecretKey::generate(name);
+        if let Some(parent) = plus_file_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
         fs::write(&plus_file_path, stdcode::serialize(&new_key).unwrap()).unwrap();
         new_key
     }
@@ -61,12 +64,14 @@ struct ConfigFile {
     master_secret: PathBuf,
     mizaru_keys: PathBuf,
     postgres_url: String,
-    postgres_root_cert: PathBuf,
+    #[serde(default)]
+    postgres_root_cert: Option<PathBuf>,
 
     bridge_token: String,
     exit_token: String,
 
-    statsd_addr: SocketAddr,
+    #[serde(default)]
+    statsd_addr: Option<SocketAddr>,
 }
 
 /// Run the Geph5 broker.
@@ -102,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
 
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
+    Lazy::force(&database::POSTGRES);
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 

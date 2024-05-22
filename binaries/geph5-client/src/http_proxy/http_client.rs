@@ -1,8 +1,12 @@
 use anyctx::AnyCtx;
 use async_compat::{Compat, CompatExt};
+use bytes::Bytes;
 use futures_util::{future::BoxFuture, FutureExt};
-use hyper::{client::connect::Connection, Uri};
+use http_body_util::combinators::BoxBody;
+use hyper::Uri;
+use hyper_util::client::legacy::connect::Connection;
 use pin_project::pin_project;
+use std::convert::Infallible;
 use std::future::Future;
 
 use std::pin::Pin;
@@ -11,6 +15,7 @@ use std::task::{self, Poll};
 use crate::{client_inner::open_conn, Config};
 
 use super::address::host_addr;
+use super::rt_compat::HyperRtCompat;
 
 #[derive(Clone)]
 pub struct Connector {
@@ -23,13 +28,15 @@ impl Connector {
     }
 }
 
-impl hyper::service::Service<Uri> for Connector {
+impl tower_service::Service<Uri> for Connector {
     type Error = std::io::Error;
     type Future = SocksConnecting;
-    type Response = PicomuxConnection;
+    type Response = HyperRtCompat<PicomuxConnection>;
+
     fn poll_ready(&mut self, _cx: &mut task::Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
+
     fn call(&mut self, dst: Uri) -> Self::Future {
         let ctx = self.ctx.clone();
         SocksConnecting {
@@ -43,7 +50,7 @@ impl hyper::service::Service<Uri> for Connector {
                     Some(addr) => open_conn(&ctx, &addr.to_string())
                         .await
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e))
-                        .map(|c| PicomuxConnection(c.compat())),
+                        .map(|c| HyperRtCompat::new(PicomuxConnection(c.compat()))),
                 }
             }
             .boxed(),
@@ -53,22 +60,22 @@ impl hyper::service::Service<Uri> for Connector {
 #[pin_project]
 pub struct SocksConnecting {
     #[pin]
-    fut: BoxFuture<'static, std::io::Result<PicomuxConnection>>,
+    fut: BoxFuture<'static, std::io::Result<HyperRtCompat<PicomuxConnection>>>,
 }
 
 impl Future for SocksConnecting {
-    type Output = std::io::Result<PicomuxConnection>;
+    type Output = std::io::Result<HyperRtCompat<PicomuxConnection>>;
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
         self.project().fut.poll(cx)
     }
 }
-pub type CtxClient = hyper::Client<Connector, hyper::Body>;
+pub type CtxClient = hyper_util::client::legacy::Client<Connector, BoxBody<Bytes, Infallible>>;
 
 pub struct PicomuxConnection(Compat<picomux::Stream>);
 
 impl Connection for PicomuxConnection {
-    fn connected(&self) -> hyper::client::connect::Connected {
-        hyper::client::connect::Connected::new()
+    fn connected(&self) -> hyper_util::client::legacy::connect::Connected {
+        hyper_util::client::legacy::connect::Connected::new()
     }
 }
 

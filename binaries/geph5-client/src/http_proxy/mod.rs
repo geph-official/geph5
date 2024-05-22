@@ -1,27 +1,45 @@
 mod address;
 mod http_client;
+mod rt_compat;
 
-use std::{convert::Infallible, net::SocketAddr, str::FromStr as _};
+use std::{net::SocketAddr, str::FromStr as _};
 
 pub async fn run_http_proxy(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let shared_server: SharedProxyServer = ProxyServer::new_shared(ctx.clone());
     let listen = ctx.init().http_proxy_listen;
     if let Some(listen) = listen {
-        let make_service = make_service_fn(move |socket: &AddrStream| {
-            let client_addr = socket.remote_addr();
-            let cloned_server = shared_server.clone();
+        let tcp_listener = tokio::net::TcpListener::bind(&listen).await?;
+        let mut join_set = JoinSet::new();
+        loop {
+            let (stream, addr) = match tcp_listener.accept().await {
+                Ok(x) => x,
+                Err(e) => {
+                    tracing::info!(%e, "failed to accept inbound HTTP proxy connection");
+                    continue;
+                }
+            };
             let ctx = ctx.clone();
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
-                    server_dispatch(req, client_addr, cloned_server.clone(), ctx.clone())
-                }))
-            }
-        });
-        let server = hyper::Server::bind(&listen)
-            .http1_only(true)
-            .serve(make_service);
-        server.await?;
-        Ok(())
+            let cloned_server = shared_server.clone();
+            join_set.spawn(async move {
+                tracing::trace!(%addr, "accepted a HTTP proxy connection");
+
+                let service = service_fn(move |req: Request<Incoming>| {
+                    server_dispatch(req, addr, cloned_server.clone(), ctx.clone())
+                });
+
+                let result = hyper::server::conn::http1::Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
+                    .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                    .with_upgrades()
+                    .await;
+                if let Err(e) = result {
+                    tracing::error!(%addr, %e, "error serving HTTP proxy conn: {addr}");
+                }
+            });
+        }
+        // while let Some(_) = join_set.join_next().await {}
+        // Ok(())
     } else {
         smol::future::pending().await
     }
@@ -29,11 +47,11 @@ pub async fn run_http_proxy(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 type SharedProxyServer = std::sync::Arc<ProxyServer>;
 
 async fn server_dispatch(
-    mut req: Request<Body>,
+    mut req: Request<Incoming>,
     client_addr: SocketAddr,
     proxy_server: SharedProxyServer,
     ctx: AnyCtx<Config>,
-) -> std::io::Result<Response<Body>> {
+) -> std::io::Result<Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>>> {
     let host = match host_addr(req.uri()) {
         None => {
             if req.uri().authority().is_some() {
@@ -127,10 +145,9 @@ async fn server_dispatch(
             "CONNECT relay connected"
         );
         tokio::spawn(async move {
-            match hyper::upgrade::on(req).await {
+            match hyper::upgrade::on(&mut req).await {
                 Ok(upgraded) => {
                     tracing::trace!(
-
                         client_addr = %client_addr,
                         host = %host,
                         "CONNECT tunnel upgrade success"
@@ -141,8 +158,7 @@ async fn server_dispatch(
                     }
                 }
                 Err(e) => {
-                    tracing::trace!(
-
+                    tracing::info!(
                         client_addr = %client_addr,
                         host = %host,
                         error = %e,
@@ -151,30 +167,43 @@ async fn server_dispatch(
                 }
             }
         });
-        let resp = Response::builder().body(Body::empty()).unwrap();
-        Ok(resp)
+        Ok(Response::new(HttpEither::Right(Empty::new())))
     } else {
         let method = req.method().clone();
         tracing::trace!(method = %method, host = %host, "HTTP request received");
         let conn_keep_alive = check_keep_alive(req.version(), req.headers(), true);
         clear_hop_headers(req.headers_mut());
         set_conn_keep_alive(req.version(), req.headers_mut(), conn_keep_alive);
-        let mut res: Response<Body> = match proxy_server.client.request(req).await {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::trace!(
-                    method = %method,
-                    client_addr = %client_addr,
-                    proxy_addr = "127.0.0.1:1080",
-                    host = %host,
-                    error = %err,
-                    "HTTP relay failed"
-                );
-                let mut resp = Response::new(Body::from(format!("Relay failed to {}", host)));
-                *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                return Ok(resp);
-            }
+        let (parts, body) = req.into_parts();
+        let body = match body.collect().await {
+            Ok(c) => c.boxed(),
+            Err(_) => return Ok(make_bad_request()),
         };
+        let mut res: Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>> =
+            match proxy_server
+                .client
+                .request(Request::from_parts(parts, body))
+                .await
+            {
+                Ok(res) => res.map(|b| HttpEither::Left(b.boxed())),
+                Err(err) => {
+                    tracing::trace!(
+                        method = %method,
+                        client_addr = %client_addr,
+                        proxy_addr = "127.0.0.1:1080",
+                        host = %host,
+                        error = %err,
+                        "HTTP relay failed"
+                    );
+                    let mut resp = Response::new(HttpEither::Left(
+                        Full::new(Bytes::from(format!("Relay failed to {}", host)))
+                            .map_err(|_| unreachable!())
+                            .boxed(),
+                    ));
+                    *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    return Ok(resp);
+                }
+            };
         let res_keep_alive =
             conn_keep_alive && check_keep_alive(res.version(), res.headers(), false);
         clear_hop_headers(res.headers_mut());
@@ -184,6 +213,7 @@ async fn server_dispatch(
 }
 use anyctx::AnyCtx;
 use async_compat::CompatExt;
+use bytes::Bytes;
 use futures_util::{
     future::{self, Either},
     FutureExt,
@@ -192,12 +222,11 @@ use http::{
     uri::{Authority, Scheme},
     HeaderMap, HeaderValue, Method, Uri, Version,
 };
+use http_body_util::{combinators::BoxBody, BodyExt, Either as HttpEither, Empty, Full};
 use hyper::{
-    server::conn::AddrStream,
-    service::{make_service_fn, service_fn},
-    upgrade::Upgraded,
-    Body, Request, Response, StatusCode,
+    body::Incoming, service::service_fn, upgrade::Upgraded, Request, Response, StatusCode,
 };
+use tokio::task::JoinSet;
 
 async fn establish_connect_tunnel(
     upgraded: Upgraded,
@@ -206,7 +235,7 @@ async fn establish_connect_tunnel(
 ) {
     use tokio::io::{copy, split};
 
-    let (mut r, mut w) = split(upgraded);
+    let (mut r, mut w) = split(rt_compat::HyperRtCompat::new(upgraded));
     let (mut svr_r, mut svr_w) = split(stream.compat());
 
     let rhalf = copy(&mut r, &mut svr_w);
@@ -248,8 +277,10 @@ async fn establish_connect_tunnel(
     );
 }
 
-fn make_bad_request() -> Response<Body> {
-    let mut resp = Response::new(Body::empty());
+fn make_bad_request() -> Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>> {
+    let mut resp: Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty<Bytes>>> = Response::new(
+        HttpEither::Left(Empty::new().map_err(|_| unreachable!()).boxed()),
+    );
     *resp.status_mut() = StatusCode::BAD_REQUEST;
     resp
 }
@@ -386,7 +417,7 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
     }
 
     for header in extra_headers {
-        while let Some(..) = headers.remove(&header) {}
+        while headers.remove(&header).is_some() {}
     }
 
     // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
@@ -403,7 +434,7 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
     ];
 
     for header in &HOP_BY_HOP_HEADERS {
-        while let Some(..) = headers.remove(*header) {}
+        while headers.remove(*header).is_some() {}
     }
 }
 
@@ -433,7 +464,11 @@ pub struct ProxyServer {
 impl ProxyServer {
     fn new(ctx: AnyCtx<Config>) -> ProxyServer {
         let connector = http_client::Connector::new(ctx);
-        let proxy_client: http_client::CtxClient = hyper::Client::builder().build(connector);
+        let proxy_client: http_client::CtxClient =
+            hyper_util::client::legacy::Builder::new(hyper_util::rt::TokioExecutor::new())
+                .http1_preserve_header_case(true)
+                .http1_title_case_headers(true)
+                .build(connector);
         ProxyServer {
             client: proxy_client,
         }

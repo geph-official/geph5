@@ -13,11 +13,10 @@ mod tabs;
 use std::time::Duration;
 
 use daemon::stop_daemon;
-use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
+use egui::{FontData, FontDefinitions, FontFamily, IconData};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
-
 use prefs::{pref_read, pref_write};
 use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
@@ -93,11 +92,6 @@ pub struct App {
 impl App {
     /// Constructs the app.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // light mode
-        cc.egui_ctx.set_visuals(
-            Visuals::light(), // .tap_mut(|vis| vis.widgets.noninteractive.fg_stroke.color = Color32::BLACK),
-        );
-
         // set up fonts. currently this uses SC for CJK, but this can be autodetected instead.
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
@@ -167,7 +161,9 @@ impl eframe::App for App {
                 self.logs.render(ui)
             }
             TabName::Logs => self.logs.render(ui),
-            TabName::Settings => render_settings(ctx, ui),
+            TabName::Settings => {
+                egui::ScrollArea::vertical().show(ui, |ui| render_settings(ctx, ui)).inner
+            }
         });
 
         if let Err(err) = result.inner {

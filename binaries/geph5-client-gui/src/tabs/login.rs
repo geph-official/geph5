@@ -1,5 +1,3 @@
-
-
 use egui::{Align, Layout};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
@@ -8,6 +6,8 @@ use crate::{
     l10n::l10n,
     settings::{get_config, PASSWORD, USERNAME},
 };
+
+use super::settings::{render_broker_settings, render_language_settings};
 
 pub struct Login {
     username: String,
@@ -68,6 +68,19 @@ impl Login {
                     smol::future::block_on(check_login(username, password))
                 }));
             }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(l10n("language"));
+                render_language_settings(ui)
+            })
+            .inner?;
+
+            ui.vertical(|ui| {
+                ui.label(l10n("broker"));
+                render_broker_settings(ui)
+            })
+            .inner?;
         }
 
         Ok(())
