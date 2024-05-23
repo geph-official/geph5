@@ -13,7 +13,7 @@ mod tabs;
 use std::time::Duration;
 
 use daemon::stop_daemon;
-use egui::{FontData, FontDefinitions, FontFamily, IconData};
+use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
@@ -117,6 +117,7 @@ impl App {
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
             style.spacing.button_padding = egui::vec2(5.0, 4.0);
+            style.visuals = Visuals::light();
         });
 
         Self {
@@ -162,7 +163,9 @@ impl eframe::App for App {
             }
             TabName::Logs => self.logs.render(ui),
             TabName::Settings => {
-                egui::ScrollArea::vertical().show(ui, |ui| render_settings(ctx, ui)).inner
+                egui::ScrollArea::vertical()
+                    .show(ui, |ui| render_settings(ctx, ui))
+                    .inner
             }
         });
 
