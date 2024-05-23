@@ -38,13 +38,13 @@ x25519-dalek = "2.0.1"
 hex = "0.4.3"
 nursery_macro = "0.1.0"
 moka = { version = "0.12.7", features = ["future"] }
-tachyonix = "0.2.1"
 mizaru2 = { path = "../../libraries/mizaru2" }
 governor = "0.6.3"
 quanta = "0.12.3"
 sysinfo = "0.30.12"
 atomic_float = "1.0.0"
 fastrand = "2.1.0"
+tachyonix = "0.3.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

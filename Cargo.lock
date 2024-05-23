@@ -268,11 +268,12 @@ dependencies = [
 
 [[package]]
 name = "async-event"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4172595da7ffb68640606be5723e35a353555f2829e9209437627a003725bbdb"
+checksum = "e0d646883f5083117ea81a454a24ab6965991f25d1969a07925edb2c39a6597a"
 dependencies = [
  "loom",
+ "pin-project-lite 0.2.14",
 ]
 
 [[package]]
@@ -2268,7 +2269,7 @@ dependencies = [
  "http 1.1.0",
  "image 0.25.1",
  "isocountry",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "moka",
  "native-dialog",
  "once_cell",
@@ -2916,6 +2917,15 @@ name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -5463,15 +5473,16 @@ dependencies = [
 
 [[package]]
 name = "tachyonix"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64e0bf82be3359dbefbfea621d6365db00e1d7846561daad2ea74cc4cb4c9604"
+checksum = "1924ef47bc3b427ea2a0b55ba97d0e9116e9103483ecd75a43f47a66443527c5"
 dependencies = [
  "async-event",
  "crossbeam-utils",
  "diatomic-waker",
  "futures-core",
  "loom",
+ "pin-project-lite 0.2.14",
 ]
 
 [[package]]
@@ -6256,7 +6267,7 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.2",
  "profiling",
  "raw-window-handle 0.6.2",
  "smallvec",
@@ -6284,7 +6295,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.2",
  "profiling",
  "raw-window-handle 0.6.2",
  "rustc-hash",
@@ -6324,7 +6335,7 @@ dependencies = [
  "ndk-sys",
  "objc",
  "once_cell",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.2",
  "profiling",
  "raw-window-handle 0.6.2",
  "renderdoc-sys",

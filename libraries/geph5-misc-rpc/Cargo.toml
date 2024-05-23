@@ -19,10 +19,10 @@ blake3 = { version = "1.5.1", features = ["serde"] }
 sillad = { path = "../sillad" }
 chacha20poly1305 = "0.10.1"
 smallvec = "1.13.2"
-tachyonix = "0.2.1"
 smolscale = "0.4.4"
 async-task = "4.7.1"
 bipe = "0.2.2"
 tap = "1.0.1"
 pin-project = "1.1.5"
 socksv5 = "0.3"
+tachyonix = "0.3.0"

@@ -34,8 +34,8 @@ oneshot = "0.1.6"
 chrono = "0.4.38"
 http = "1.1.0"
 isocountry = "0.3.2"
-itertools = "0.12.1"
 image = { version = "0.25.1", default-features = false, features = ["ico"] }
+itertools = "0.13.0"
 
 [build-dependencies]
 winresource = "0.1"
