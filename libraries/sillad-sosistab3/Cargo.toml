@@ -3,19 +3,17 @@ name = "sillad-sosistab3"
 version = "0.1.2"
 edition = "2021"
 repository = "https://github.com/geph-official/geph5"
-license="ISC"
-description="A scramblesuit-like obfuscation protocol within the sillad framework"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "ISC"
+description = "A scramblesuit-like obfuscation protocol within the sillad framework"
 
 [dependencies]
 arrayref = "0.3.7"
 blake3 = "1.5.1"
 chacha20poly1305 = "0.10.1"
 rand = "0.8.5"
-x25519-dalek = {version="2.0.1", features=["serde"]}
-sillad={version="0.1", path="../sillad"}
-futures-util = {version="0.3.30", features=["io"]}
+x25519-dalek = { version = "2.0.1", features = ["serde"] }
+sillad = { version = "0.1", path = "../sillad" }
+futures-util = { version = "0.3.30", features = ["io"] }
 pin-project = "1.1.5"
 smallvec = "1.13.2"
 async-trait = "0.1.80"
@@ -25,7 +23,7 @@ tachyonix = "0.2.1"
 smolscale = "0.4.4"
 async-task = "4.7.1"
 async-executor = "1.11.0"
-serde = {version="1.0.200", features=["derive"]}
+serde = { version = "1.0.200", features = ["derive"] }
 hex = "0.4.3"
 async-io = "2.3.2"
 anyhow = "1.0.83"
