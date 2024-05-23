@@ -58,7 +58,7 @@ pub static SELECTED_CITY: Lazy<StoreCell<Option<String>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_city", || None));
 
 pub static CUSTOM_BROKER: Lazy<StoreCell<Option<BrokerSource>>> =
-    Lazy::new(|| StoreCell::new_persistent("custom_broker", || None));
+    Lazy::new(|| StoreCell::new_persistent("custom_broker_1", || None));
 
 pub static SOCKS5_PORT: Lazy<StoreCell<u16>> =
     Lazy::new(|| StoreCell::new_persistent("socks5_port", || 9999));
