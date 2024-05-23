@@ -11,7 +11,7 @@ struct CliArgs {
     #[arg(short, long)]
     config: PathBuf,
 
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = false)]
     /// don't start the client, but instead dump authentication info
     dry_run: bool,
 }
