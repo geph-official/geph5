@@ -3,24 +3,21 @@ name = "picomux"
 version = "0.1.1"
 edition = "2021"
 repository = "https://github.com/geph-official/geph5"
-license="ISC"
-description="A protocol to multiplex multiple AsyncRead/Write streams over a single one, inspired by smux and http2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "ISC"
+description = "A protocol to multiplex multiple AsyncRead/Write streams over a single one, inspired by smux and http2"
 
 [dependencies]
 ahash = "0.8.11"
-anyhow = "1.0.82"
+anyhow = "1.0.86"
 async-dup = "1.2.4"
-async-event = "0.1.0"
 async-task = "4.7.1"
 async_io_stream = "0.3.3"
 bipe = "0.2.2"
-bytemuck = {version="1.15.0", features=["derive", "min_const_generics"]}
+bytemuck = { version = "1.16.0", features = ["derive", "min_const_generics"] }
 bytes = "1.6.0"
 dashmap = "5.5.3"
 futures-lite = "2.3.0"
-futures-util = {version="0.3.30", features=["io"]}
+futures-util = { version = "0.3.30", features = ["io"] }
 oneshot = "0.1.6"
 parking_lot = "0.12.2"
 rand = "0.8.5"
@@ -28,24 +25,23 @@ recycle-box = "0.2.0"
 scopeguard = "1.2.0"
 smol-timeout = "0.6.0"
 smolscale = "0.4.4"
-tachyonix = "0.2.1"
 tracing = "0.1.40"
 tracing-test = "0.2.4"
-# async-rw-adapter={path="../async-rw-adapter"}
 fastrand = "2.1.0"
 tap = "1.0.1"
-serde = {version="1.0.200", features=["derive"]}
-serde_json = "1.0.116"
+serde = { version = "1.0.202", features = ["derive"] }
+serde_json = "1.0.117"
 async-io = "2.3.2"
-sillad={version="0.1", path="../sillad"}
+sillad = { version = "0.1", path = "../sillad" }
 futures-intrusive = "0.5.0"
-async-channel = "2.2.1"
+async-channel = "2.3.1"
 pin-project = "1.1.5"
+tachyonix = "0.3.0"
+async-event = "0.2.0"
 
 [dev-dependencies]
-argh = "0.1"
-smol="2"
-socksv5="0.3"
-
-sillad-sosistab3={path="../sillad-sosistab3"}
-tracing-subscriber="0.3"
+smol = "2"
+socksv5 = "0.3"
+sillad-sosistab3 = { path = "../sillad-sosistab3" }
+tracing-subscriber = "0.3"
+clap = { version = "4.5.4", features = ["derive"] }

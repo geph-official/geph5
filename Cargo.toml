@@ -1,9 +1,6 @@
 [workspace]
 
-members = [
-    "libraries/*",
-    "binaries/*"
-]
+members = ["libraries/*", "binaries/*"]
 resolver = "2"
 
 [profile.release]
@@ -19,4 +16,4 @@ opt-level = 3
 
 [profile.release-dbg]
 inherits = "dev"
-opt-level = 3 
+opt-level = 3

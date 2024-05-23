@@ -1,17 +1,17 @@
 use std::path::PathBuf;
 
-use argh::FromArgs;
+use clap::Parser;
 use geph5_client::{Client, Config};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
 
-/// Run the Geph5 broker.
-#[derive(FromArgs)]
+/// Run the Geph5 client.
+#[derive(Parser)]
 struct CliArgs {
     /// path to a YAML-based config file
-    #[argh(option, short = 'c')]
+    #[arg(short, long)]
     config: PathBuf,
 
-    #[argh(switch)]
+    #[arg(short, long)]
     /// don't start the client, but instead dump authentication info
     dry_run: bool,
 }
@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let args: CliArgs = argh::from_env();
+    let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
     let mut config: Config = serde_json::from_value(config)?;
     config.dry_run = args.dry_run;

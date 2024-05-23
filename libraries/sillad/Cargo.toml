@@ -3,16 +3,14 @@ name = "sillad"
 version = "0.1.1"
 edition = "2021"
 repository = "https://github.com/geph-official/geph5"
-license="ISC"
-description="A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "ISC"
+description = "A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
 
 [dependencies]
 async-io = "2.3.2"
 async-trait = "0.1.80"
 futures-lite = "2.3.0"
-futures-util = {version="0.3.30", features=["io"]}
-libc = "0.2.154"
+futures-util = { version = "0.3.30", features = ["io"] }
+libc = "0.2.155"
 pin-project = "1.1.5"
 smol-timeout = "0.6.0"

@@ -1,11 +1,14 @@
-use argh::FromArgs;
+use clap::Parser;
 use ed25519_dalek::SigningKey;
 use isocountry::CountryCode;
 use listen::listen_main;
 use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::Deserialize;
-use std::{net::{IpAddr, SocketAddr}, path::PathBuf};
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 mod broker;
@@ -85,10 +88,10 @@ static SIGNING_SECRET: Lazy<SigningKey> = Lazy::new(|| {
 });
 
 /// Run the Geph5 broker.
-#[derive(FromArgs)]
+#[derive(Parser)]
 struct CliArgs {
     /// path to a YAML-based config file
-    #[argh(option, short = 'c')]
+    #[arg(short, long)]
     config: PathBuf,
 }
 
@@ -103,7 +106,7 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
     tracing::info!("**** START GEPH EXIT ****");
-    let args: CliArgs = argh::from_env();
+    let args = CliArgs::parse();
     let config: ConfigFile = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
 
     CONFIG_FILE.set(config).ok().unwrap();
