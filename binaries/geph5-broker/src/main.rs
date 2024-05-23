@@ -1,6 +1,6 @@
 use anyhow::Context;
-use argh::FromArgs;
 use axum::{routing::post, Json, Router};
+use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 use geph5_broker_protocol::BrokerService;
@@ -75,11 +75,11 @@ struct ConfigFile {
 }
 
 /// Run the Geph5 broker.
-#[derive(FromArgs)]
+#[derive(Parser)]
 struct CliArgs {
     /// path to a YAML-based config file
-    #[argh(option, short = 'c')]
-    config: String,
+    #[arg(short, long)]
+    config: PathBuf,
 }
 
 #[tokio::main]
@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     // Parse the command-line arguments
-    let args: CliArgs = argh::from_env();
+    let args = CliArgs::parse();
 
     // Read the content of the YAML file
     let config_contents =

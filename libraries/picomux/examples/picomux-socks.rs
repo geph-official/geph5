@@ -1,4 +1,4 @@
-use argh::FromArgs;
+use clap::{Parser, Subcommand};
 use futures_lite::FutureExt;
 use futures_util::{AsyncReadExt, TryFutureExt};
 use picomux::PicoMux;
@@ -22,14 +22,13 @@ use std::{
 };
 
 /// SOCKS5 Program
-#[derive(FromArgs)]
+#[derive(Parser)]
 struct Socks5 {
-    #[argh(subcommand)]
+    #[command(subcommand)]
     nested: SubCommands,
 }
 
-#[derive(FromArgs)]
-#[argh(subcommand)]
+#[derive(Subcommand)]
 enum SubCommands {
     Server(ServerCommand),
     Client(ClientCommand),
@@ -37,24 +36,22 @@ enum SubCommands {
 
 /// Server subcommand
 /// Listens on the specified SocketAddr.
-#[derive(FromArgs)]
-#[argh(subcommand, name = "server")]
+#[derive(Parser)]
 struct ServerCommand {
     /// socket address to bind the server (e.g., "127.0.0.1:1080")
-    #[argh(option)]
+    #[arg(short, long)]
     listen: SocketAddr,
 }
 
 /// Client subcommand
 /// Connects to a specified SOCKS5 server.
-#[derive(FromArgs)]
-#[argh(subcommand, name = "client")]
+#[derive(Parser)]
 struct ClientCommand {
     /// socket address to bind the socks5 server (e.g., "127.0.0.1:1080")
-    #[argh(option)]
+    #[arg(short, long)]
     listen: SocketAddr,
     /// server address and port to connect to (e.g., "127.0.0.1:1080")
-    #[argh(option)]
+    #[arg(short, long)]
     connect: SocketAddr,
 }
 
@@ -62,7 +59,7 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     smolscale::block_on(async {
-        let socks5: Socks5 = argh::from_env();
+        let socks5 = Socks5::parse();
         match socks5.nested {
             SubCommands::Server(server) => {
                 eprintln!("Starting server on {}", server.listen);
