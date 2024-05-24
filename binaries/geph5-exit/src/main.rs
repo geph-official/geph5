@@ -52,7 +52,7 @@ struct ConfigFile {
 }
 
 fn default_free_ratelimit() -> u32 {
-    1000
+    500
 }
 
 fn default_plus_ratelimit() -> u32 {
