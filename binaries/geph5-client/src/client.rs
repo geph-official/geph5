@@ -1,6 +1,8 @@
 use anyctx::AnyCtx;
 use clone_macro::clone;
-use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
+use futures_util::{
+    future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
+};
 use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
 use std::{
@@ -17,12 +19,13 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 use crate::{
     auth::auth_loop,
     broker::{broker_client, BrokerSource},
-    client_inner::client_once,
+    client_inner::{client_once, open_conn},
     database::db_read_or_wait,
     http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
     stats::stat_get_num,
+    vpn::VpnCapture,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -121,6 +124,56 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             })
             .await
     } else {
+        let vpn = VpnCapture::new();
+
+        let vpn_loop = async {
+            loop {
+                let captured = vpn.ipstack().accept().await?;
+                match captured {
+                    ipstack_geph::stream::IpStackStream::Tcp(captured) => {
+                        let peer_addr = captured.peer_addr();
+                        tracing::warn!(
+                            local_addr = display(captured.local_addr()),
+                            peer_addr = display(peer_addr),
+                            "captured a TCP"
+                        );
+                        let ctx = ctx.clone();
+                        let (mut read, mut write) = captured.split();
+                        smolscale::spawn(async move {
+                            let mut lala = [0u8; 1000];
+                            loop {
+                                let _ = read.read(&mut lala).await?;
+                            }
+                            anyhow::Ok(())
+                        })
+                        .detach();
+                        smolscale::spawn(async move {
+                            loop {
+                                tracing::warn!("GONNA WRITE");
+                                write.write_all(b"testTEST12345").await?;
+                            }
+                            // let tunneled = open_conn(&ctx, &peer_addr.to_string()).await?;
+                            // tracing::debug!(peer_addr = display(peer_addr), "dialed through VPN");
+                            // let (read_tunneled, write_tunneled) = tunneled.split();
+                            // let (read_captured, write_captured) = captured.split();
+                            // smol::io::copy(read_tunneled, write_captured)
+                            //     .race(smol::io::copy(read_captured, write_tunneled))
+                            //     .await?;
+                            anyhow::Ok(())
+                        })
+                        .detach();
+                    }
+                    ipstack_geph::stream::IpStackStream::Udp(_) => tracing::warn!("captured a UDP"),
+                    ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
+                        tracing::warn!("captured an UnknownTransport")
+                    }
+                    ipstack_geph::stream::IpStackStream::UnknownNetwork(_) => {
+                        tracing::warn!("captured an UnknownNetwork")
+                    }
+                }
+            }
+        };
+
         let _client_loop = Immortal::respawn(
             RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
             clone!([ctx], move || client_once(ctx.clone()).inspect_err(
@@ -128,6 +181,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             )),
         );
         socks5_loop(&ctx)
+            .race(vpn_loop)
             .race(run_http_proxy(&ctx))
             .race(auth_loop(&ctx))
             .await

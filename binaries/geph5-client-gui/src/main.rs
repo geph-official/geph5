@@ -19,12 +19,23 @@ use logs::LogLayer;
 use native_dialog::MessageType;
 use prefs::{pref_read, pref_write};
 use settings::USERNAME;
+use single_instance::SingleInstance;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
 // 0123456789
 
 fn main() {
+    let instance = SingleInstance::new("geph5-client-gui").unwrap();
+    if !instance.is_single() {
+        native_dialog::MessageDialog::new()
+            .set_type(MessageType::Error)
+            .set_text(l10n("geph_already_running"))
+            .set_title("Error")
+            .show_alert()
+            .unwrap();
+        std::process::exit(-1)
+    }
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()

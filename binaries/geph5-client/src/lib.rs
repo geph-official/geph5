@@ -13,3 +13,4 @@ mod http_proxy;
 mod route;
 mod socks5;
 mod stats;
+mod vpn;

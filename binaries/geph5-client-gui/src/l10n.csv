@@ -2,26 +2,20 @@ label,en,zh,ru,fa
 about,About,关于,О программе,Darbāre
 account_info,Account Info,帐户信息,Информация об аккаунте,Eṭṭelā'āt-e ḥesāb
 auto,Auto,自动,Авто,Xodkār
+broker,Broker server,Broker服务器,Брокерский сервер,Serveur de courtier
+broker_direct,Direct,直连,Прямой,Direct
+broker_direct_tcp,Direct (TCP),直连（TCP）,Прямой (TCP),Direct (TCP)
+broker_fronted,Fronted,前置,Передний,Façade
+broker_fronted_front,Front,前置,Фронт-сервер,Frontal
+broker_fronted_host,Host,主机名,Имя хоста,Nom d'hôte
+broker_none,Default,默认,По умолчанию,Défaut
 cancel,Cancel,取消,Отмена,Lagv
 connect,Connect,连接,Подключить,Etesāl
 connected,Connected,已连接,Подключено,Mottasel
 connection_time,Connection time,连接时间,Время соединения,Zamān-e etesāl
-exit,Exit,退出,Выход,Koruj
-exit_location,Exit location,出口位置,Выходная точка,Makān-e xoroj
-geph,Geph,迷雾通,Геф,Gef
-help,Help,帮助,Помощь,Rāhnamā
-language,Language,语言,Язык,Zabān
-loading,Loading,加载中,Загрузка,Dar hāl-e bārgozārī
-loading_exit_list,Loading exit list...,正在加载出口列表...,Загрузка списка выходов...,Dar hāl-e bārgozārī-ye liste xuruji-hā
-login,Login,登录,Вход,Vorūd
-logout,Logout,登出,Выход,Az vorūd khārej shodan
-logs,Logs,日志,Журналы,Lāg-hā
-network_settings,Network Settings,网络设置,Настройки сети,Tanzimāt-e šabake
-ok,OK,确定,ОК,Tayīd
-password,Password,密码,Пароль,Ramz-e 'obur
 country_ar,Argentina,阿根廷,Аргентина,Argentīn
-country_au,Australia,澳大利亚,Австралия,Ostūrālīyā
 country_at,Austria,奥地利,Австрия,Otrīsh
+country_au,Australia,澳大利亚,Австралия,Ostūrālīyā
 country_be,Belgium,比利时,Бельгия,Beljīk
 country_br,Brazil,巴西,Бразилия,Brazīl
 country_ca,Canada,加拿大,Канада,Kānādā
@@ -74,13 +68,23 @@ disconnect,Disconnect,断开连接,Отключить,Qat'-e etesāl
 disconnected,Disconnected,已断开连接,Отключено,Qat' šode ast
 download_speed,Download speed,下载速度,Скорость загрузки,Sor'at-e dānlod
 exit,Exit,退出,Выход,Koruj
+exit,Exit,退出,Выход,Koruj
 exit_location,Exit location,出口位置,Выходная точка,Makān-e xoroj
 geph,Geph,迷雾通,Геф,Gef
+geph,Geph,迷雾通,Геф,Gef
+geph_already_running,Geph is already running,Geph 已在运行,Geph уже запущен,Geph dar ḥāl-e ejrā ast
 help,Help,帮助,Помощь,Rāhnamā
+help,Help,帮助,Помощь,Rāhnamā
+http_proxy_port,HTTP proxy port,HTTP代理端口,HTTP-прокси-порт,HTTP proxy port
 language,Language,语言,Язык,Zabān
+language,Language,语言,Язык,Zabān
+loading,Loading,加载中,Загрузка,Dar hāl-e bārgozārī
 loading,Loading,加载中,Загрузка,Dar hāl-e bārgozārī
 loading_exit_list,Loading exit list...,正在加载出口列表...,Загрузка списка выходов...,Dar hāl-e bārgozārī-ye liste xuruji-hā
 login,Login,登录,Вход,Vorūd
+login,Login,登录,Вход,Vorūd
+logout,Logout,登出,Выход,Az vorūd khārej shodan
+logs,Logs,日志,Журналы,Lāg-hā
 logs,Logs,日志,Журналы,Lāg-hā
 network_settings,Network Settings,网络设置,Настройки сети,Tanzimāt-e šabake
 ok,OK,确定,ОК,Tayīd
@@ -92,16 +96,8 @@ save,Save,保存,Сохранить,Zaxīre
 selected_server,Selected Server,选定的服务器,Выбранный сервер,Sarvar-e entexābī
 server,Server,服务器,Сервер,Sarvar
 settings,Settings,设置,Настройки,Tanzimāt
+socks5_port,Socks5 proxy port,Socks5代理端口,Порт прокси Socks5,Socks5 proxy port
 status,Status,状态,Статус,Vazīyat
 upload_speed,Upload Speed,上传速度,Скорость отдачи,Sor'at-e āplod
 username,Username,用户名,Имя пользователя,Nām-e karbarī
 zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī
-broker,Broker server,Broker服务器,Брокерский сервер,Serveur de courtier
-broker_none,Default,默认,По умолчанию,Défaut
-broker_direct,Direct,直连,Прямой,Direct
-broker_fronted,Fronted,前置,Передний,Façade
-broker_direct_tcp,Direct (TCP),直连（TCP）,Прямой (TCP),Direct (TCP)
-broker_fronted_front,Front,前置,Фронт-сервер,Frontal
-broker_fronted_host,Host,主机名,Имя хоста,Nom d'hôte
-socks5_port,Socks5 proxy port,Socks5代理端口,Порт прокси Socks5,Socks5 proxy port
-http_proxy_port,HTTP proxy port,HTTP代理端口,HTTP-прокси-порт,HTTP proxy port
