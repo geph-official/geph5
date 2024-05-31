@@ -1,7 +1,10 @@
 use anyctx::AnyCtx;
 use clone_macro::clone;
 use futures_util::{
-    future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
+    future::Shared,
+    io::{BufReader, BufWriter},
+    task::noop_waker,
+    AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
 };
 use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
@@ -151,7 +154,43 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                         })
                         .detach();
                     }
-                    ipstack_geph::stream::IpStackStream::Udp(_) => tracing::warn!("captured a UDP"),
+                    ipstack_geph::stream::IpStackStream::Udp(captured) => {
+                        let peer_addr = captured.peer_addr();
+                        tracing::warn!(
+                            local_addr = display(captured.local_addr()),
+                            peer_addr = display(peer_addr),
+                            "captured a UDP"
+                        );
+                        let ctx = ctx.clone();
+                        smolscale::spawn::<anyhow::Result<()>>(async move {
+                            let tunneled = open_conn(&ctx, &format!("udp-{peer_addr}")).await?;
+                            let (read_tunneled, write_tunneled) = tunneled.split();
+                            let up_loop = async {
+                                let mut write_tunneled = BufWriter::new(write_tunneled);
+                                loop {
+                                    let to_up = captured.recv().await?;
+                                    write_tunneled
+                                        .write_all(&(to_up.len() as u16).to_le_bytes())
+                                        .await?;
+                                    write_tunneled.write_all(&to_up).await?;
+                                    write_tunneled.flush().await?;
+                                }
+                            };
+                            let dn_loop = async {
+                                let mut read_tunneled = BufReader::new(read_tunneled);
+                                loop {
+                                    let mut len_buf = [0u8; 2];
+                                    read_tunneled.read_exact(&mut len_buf).await?;
+                                    let len = u16::from_le_bytes(len_buf) as usize;
+                                    let mut buf = vec![0u8; len];
+                                    read_tunneled.read_exact(&mut buf).await?;
+                                    captured.send(&buf).await?;
+                                }
+                            };
+                            up_loop.race(dn_loop).await
+                        })
+                        .detach();
+                    }
                     ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
                         tracing::warn!("captured an UnknownTransport")
                     }
