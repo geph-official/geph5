@@ -11,7 +11,7 @@ use crate::ratelimit::RateLimiter;
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> anyhow::Result<()> {
     let dest_host = String::from_utf8_lossy(stream.metadata());
-    let (protocol, dest_host): (&str, &str) = if dest_host.contains('-') {
+    let (dest_host, protocol): (&str, &str) = if dest_host.contains('-') {
         dest_host.split_once('-').unwrap()
     } else {
         (&dest_host, "tcp")
