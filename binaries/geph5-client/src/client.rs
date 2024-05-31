@@ -138,27 +138,15 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                             "captured a TCP"
                         );
                         let ctx = ctx.clone();
-                        let (mut read, mut write) = captured.split();
+
                         smolscale::spawn(async move {
-                            let mut lala = [0u8; 1000];
-                            loop {
-                                let _ = read.read(&mut lala).await?;
-                            }
-                            anyhow::Ok(())
-                        })
-                        .detach();
-                        smolscale::spawn(async move {
-                            loop {
-                                tracing::warn!("GONNA WRITE");
-                                write.write_all(b"testTEST12345").await?;
-                            }
-                            // let tunneled = open_conn(&ctx, &peer_addr.to_string()).await?;
-                            // tracing::debug!(peer_addr = display(peer_addr), "dialed through VPN");
-                            // let (read_tunneled, write_tunneled) = tunneled.split();
-                            // let (read_captured, write_captured) = captured.split();
-                            // smol::io::copy(read_tunneled, write_captured)
-                            //     .race(smol::io::copy(read_captured, write_tunneled))
-                            //     .await?;
+                            let tunneled = open_conn(&ctx, &peer_addr.to_string()).await?;
+                            tracing::debug!(peer_addr = display(peer_addr), "dialed through VPN");
+                            let (read_tunneled, write_tunneled) = tunneled.split();
+                            let (read_captured, write_captured) = captured.split();
+                            smol::io::copy(read_tunneled, write_captured)
+                                .race(smol::io::copy(read_captured, write_tunneled))
+                                .await?;
                             anyhow::Ok(())
                         })
                         .detach();

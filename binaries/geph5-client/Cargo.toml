@@ -16,7 +16,7 @@ blind-rsa-signatures = "0.15.0"
 bytes = "1.6.0"
 clap = { version = "4.5.4", features = ["derive"] }
 clone-macro = "0.1.0"
-dashmap = "5.5.3"
+dashmap = "5.5.3" 
 dirs = "5.0.1"
 ed25519-dalek = "2.1.1"
 event-listener = "5.3.0"
