@@ -23,7 +23,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
         dest_addr = display(dest_addr),
         "DNS resolved"
     );
-    match dest_host {
+    match protocol {
         "tcp" => {
             let start = Instant::now();
             let dest_tcp = TcpDialer { dest_addr }.dial().await?;
