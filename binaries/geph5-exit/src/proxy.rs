@@ -14,7 +14,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
     let (protocol, dest_host): (&str, &str) = if dest_host.contains('-') {
         dest_host.split_once('-').unwrap()
     } else {
-        (&dest_host, "tcp")
+        ("tcp", &dest_host)
     };
     let dest_addr = dns_resolve(dest_host).await?;
     tracing::debug!(
@@ -23,7 +23,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
         dest_addr = display(dest_addr),
         "DNS resolved"
     );
-    match dest_host {
+    match protocol {
         "tcp" => {
             let start = Instant::now();
             let dest_tcp = TcpDialer { dest_addr }.dial().await?;

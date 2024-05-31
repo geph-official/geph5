@@ -2314,6 +2314,8 @@ dependencies = [
  "ipstack-geph",
  "isahc",
  "isocountry",
+ "itertools 0.13.0",
+ "libc",
  "mizaru2",
  "moka",
  "nanorpc",

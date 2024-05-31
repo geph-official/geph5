@@ -16,7 +16,7 @@ use sillad::{
 };
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
-use crate::{auth::get_connect_token, broker::broker_client, client::Config};
+use crate::{auth::get_connect_token, broker::broker_client, client::Config, vpn::vpn_whitelist};
 
 static ROUTE_SHITLIST: Lazy<Cache<SocketAddr, usize>> = Lazy::new(|| {
     Cache::builder()
@@ -105,6 +105,7 @@ pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, D
         .min_by_key(|e| (e.1.load * 1000.0) as u64)
         .context("no exits that fit the criterion")?;
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
+    vpn_whitelist(exit.c2e_listen.ip());
     let direct_dialer = TcpDialer {
         dest_addr: exit.c2e_listen,
     }
@@ -130,11 +131,14 @@ pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, D
 
 fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
     match route {
-        RouteDescriptor::Tcp(addr) => TcpDialer { dest_addr: *addr }
-            .delay(Duration::from_secs(
-                ROUTE_SHITLIST.get(addr).unwrap_or_default() as _,
-            ))
-            .dynamic(),
+        RouteDescriptor::Tcp(addr) => {
+            vpn_whitelist(addr.ip());
+            TcpDialer { dest_addr: *addr }
+                .delay(Duration::from_secs(
+                    ROUTE_SHITLIST.get(addr).unwrap_or_default() as _,
+                ))
+                .dynamic()
+        }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
             let inner = route_to_dialer(lower);
             SosistabDialer {

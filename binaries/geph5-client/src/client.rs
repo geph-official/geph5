@@ -127,7 +127,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             })
             .await
     } else {
-        let vpn = VpnCapture::new();
+        let vpn = VpnCapture::new(ctx.clone());
 
         let vpn_loop = async {
             loop {
@@ -169,6 +169,11 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                                 let mut write_tunneled = BufWriter::new(write_tunneled);
                                 loop {
                                     let to_up = captured.recv().await?;
+                                    tracing::warn!(
+                                        up_len = to_up.len(),
+                                        peer_addr = display(peer_addr),
+                                        "UDP packet upload"
+                                    );
                                     write_tunneled
                                         .write_all(&(to_up.len() as u16).to_le_bytes())
                                         .await?;
@@ -184,6 +189,11 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                                     let len = u16::from_le_bytes(len_buf) as usize;
                                     let mut buf = vec![0u8; len];
                                     read_tunneled.read_exact(&mut buf).await?;
+                                    tracing::warn!(
+                                        dn_len = len,
+                                        peer_addr = display(peer_addr),
+                                        "UDP packet download"
+                                    );
                                     captured.send(&buf).await?;
                                 }
                             };
