@@ -54,16 +54,12 @@ pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, D
                     .try_into()
                     .context("pubkey wrong length")?,
             )?;
-            return Ok((
-                pubkey,
-                TcpDialer {
-                    dest_addr: *smol::net::resolve(dir)
-                        .await?
-                        .choose(&mut rand::thread_rng())
-                        .context("could not resolve destination for direct exit connection")?,
-                }
-                .dynamic(),
-            ));
+            let dest_addr = *smol::net::resolve(dir)
+                .await?
+                .choose(&mut rand::thread_rng())
+                .context("could not resolve destination for direct exit connection")?;
+            vpn_whitelist(dest_addr.ip());
+            return Ok((pubkey, TcpDialer { dest_addr }.dynamic()));
         }
         ExitConstraint::Country(country) => country_constraint = Some(*country),
         ExitConstraint::CountryCity(country, city) => {

@@ -58,7 +58,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
                 }
             };
             let dn_loop = async {
-                let mut buf = [0u8; 2048];
+                let mut buf = [0u8; 8192];
                 loop {
                     // Receive data into the buffer starting from the third byte
                     let len = udp_socket.recv(&mut buf[2..]).await?;

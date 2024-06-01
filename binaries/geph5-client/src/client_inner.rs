@@ -9,15 +9,20 @@ use geph5_misc_rpc::{
     read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
+use once_cell::sync::OnceCell;
 use picomux::{LivenessConfig, PicoMux};
-use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
+use rand::Rng;
+use sillad::{
+    dialer::{Dialer as _, DynDialer},
+    EitherPipe, Pipe,
+};
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -62,8 +67,32 @@ static CONCURRENCY: usize = 6;
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
+
+    static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, DynDialer)>>> =
+        |_| smol::lock::Mutex::new(None);
+
     let start = Instant::now();
-    let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
+    {
+        let mut dialer = ctx.get(DIALER).lock().await;
+        if dialer.is_none() {
+            let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
+            *dialer = Some((pubkey, raw_dialer));
+        }
+    }
+
+    let dial_refresh = async {
+        loop {
+            let secs = rand::thread_rng().gen_range(500..1000);
+            tracing::info!(secs, "waiting until refresh");
+            smol::Timer::after(Duration::from_secs(secs)).await;
+            tracing::info!("refreshing dialer");
+            let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
+            *ctx.get(DIALER).lock().await = Some((pubkey, raw_dialer));
+        }
+    };
+
+    let (pubkey, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
+
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
     let once = || async {
@@ -99,7 +128,9 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         anyhow::Ok(())
     };
 
-    try_join_all((0..CONCURRENCY).map(|_| once())).await?;
+    try_join_all((0..CONCURRENCY).map(|_| once()))
+        .or(dial_refresh)
+        .await?;
     Ok(())
 }
 

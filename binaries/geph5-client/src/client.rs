@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
-    auth::auth_loop,
+    auth::sync_loop,
     broker::{broker_client, BrokerSource},
     client_inner::{client_once, open_conn},
     database::db_read_or_wait,
@@ -107,7 +107,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     }
 
     if ctx.init().dry_run {
-        auth_loop(&ctx)
+        sync_loop(&ctx)
             .race(async {
                 let broker_client = broker_client(&ctx)?;
                 let exits = broker_client
@@ -135,7 +135,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 match captured {
                     ipstack_geph::stream::IpStackStream::Tcp(captured) => {
                         let peer_addr = captured.peer_addr();
-                        tracing::warn!(
+                        tracing::debug!(
                             local_addr = display(captured.local_addr()),
                             peer_addr = display(peer_addr),
                             "captured a TCP"
@@ -156,7 +156,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                     }
                     ipstack_geph::stream::IpStackStream::Udp(captured) => {
                         let peer_addr = captured.peer_addr();
-                        tracing::warn!(
+                        tracing::debug!(
                             local_addr = display(captured.local_addr()),
                             peer_addr = display(peer_addr),
                             "captured a UDP"
@@ -169,11 +169,6 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                                 let mut write_tunneled = BufWriter::new(write_tunneled);
                                 loop {
                                     let to_up = captured.recv().await?;
-                                    tracing::warn!(
-                                        up_len = to_up.len(),
-                                        peer_addr = display(peer_addr),
-                                        "UDP packet upload"
-                                    );
                                     write_tunneled
                                         .write_all(&(to_up.len() as u16).to_le_bytes())
                                         .await?;
@@ -189,11 +184,6 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                                     let len = u16::from_le_bytes(len_buf) as usize;
                                     let mut buf = vec![0u8; len];
                                     read_tunneled.read_exact(&mut buf).await?;
-                                    tracing::warn!(
-                                        dn_len = len,
-                                        peer_addr = display(peer_addr),
-                                        "UDP packet download"
-                                    );
                                     captured.send(&buf).await?;
                                 }
                             };
@@ -220,7 +210,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         socks5_loop(&ctx)
             .race(vpn_loop)
             .race(run_http_proxy(&ctx))
-            .race(auth_loop(&ctx))
+            .race(sync_loop(&ctx))
             .await
     }
 }
