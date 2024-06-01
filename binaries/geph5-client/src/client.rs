@@ -163,7 +163,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                         );
                         let ctx = ctx.clone();
                         smolscale::spawn::<anyhow::Result<()>>(async move {
-                            let tunneled = open_conn(&ctx, &format!("udp-{peer_addr}")).await?;
+                            let tunneled = open_conn(&ctx, &format!("udp${peer_addr}")).await?;
                             let (read_tunneled, write_tunneled) = tunneled.split();
                             let up_loop = async {
                                 let mut write_tunneled = BufWriter::new(write_tunneled);
