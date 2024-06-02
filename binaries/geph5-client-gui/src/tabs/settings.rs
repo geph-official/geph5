@@ -1,12 +1,7 @@
-use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    str::FromStr,
-    time::Duration,
-};
+use std::time::Duration;
 
 use egui::mutex::Mutex;
 use geph5_broker_protocol::{BrokerClient, ExitList};
-use geph5_client::BrokerSource;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 
@@ -15,15 +10,13 @@ use crate::{
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, CUSTOM_BROKER, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF,
-        SELECTED_CITY, SELECTED_COUNTRY, SOCKS5_PORT, USERNAME,
+        get_config, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
+        SELECTED_COUNTRY, SOCKS5_PORT, USERNAME,
     },
 };
 
 pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
     Lazy::new(|| Mutex::new(RefreshCell::new()));
-
-pub static BROKER_DIRECT_TCP_TEXT: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     if ui.button(l10n("logout")).clicked() {

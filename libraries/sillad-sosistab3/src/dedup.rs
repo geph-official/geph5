@@ -23,8 +23,7 @@ impl<T: std::hash::Hash + Eq> Dedup<T> {
     pub fn insert(&mut self, key: T) {
         self.bucket.insert(key, Instant::now());
         if self.bucket.len() > self.last_size * 2 {
-            self.bucket.retain(|_, v| v.elapsed() < self.expiry);
-            self.last_size = self.bucket.len();
+            self.cleanup();
         }
     }
 

@@ -1,4 +1,3 @@
-
 use std::{
     fmt::{self, Debug},
     net::SocketAddr,
@@ -47,14 +46,6 @@ impl From<SocketAddr> for Address {
 impl From<(String, u16)> for Address {
     fn from((dn, port): (String, u16)) -> Address {
         Address::DomainNameAddress(dn, port)
-    }
-}
-#[inline]
-fn get_addr_len(atyp: &Address) -> usize {
-    match *atyp {
-        Address::SocketAddress(SocketAddr::V4(..)) => 1 + 4 + 2,
-        Address::SocketAddress(SocketAddr::V6(..)) => 1 + 8 * 2 + 2,
-        Address::DomainNameAddress(ref dmname, _) => 1 + 1 + dmname.len() + 2,
     }
 }
 

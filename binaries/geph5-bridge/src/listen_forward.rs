@@ -34,6 +34,7 @@ pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) {
         .unwrap()
 }
 
+#[allow(clippy::type_complexity)]
 struct State {
     // b2e_dest => (metadata, task)
     my_ip: IpAddr,

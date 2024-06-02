@@ -9,7 +9,6 @@ use geph5_misc_rpc::{
     read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
-use once_cell::sync::OnceCell;
 use picomux::{LivenessConfig, PicoMux};
 use rand::Rng;
 use sillad::{
@@ -22,7 +21,7 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::{Duration, Instant},
 };
