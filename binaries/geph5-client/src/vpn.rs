@@ -14,7 +14,6 @@ use smol::{
 };
 use std::{
     net::{IpAddr, Ipv4Addr},
-    os::fd::FromRawFd,
     process::Command,
 };
 
@@ -28,18 +27,25 @@ pub struct VpnCapture {
 
 impl VpnCapture {
     pub fn new(ctx: AnyCtx<Config>) -> Self {
-        let (send_captured, recv_captured) = smol::channel::unbounded();
-        let (send_injected, recv_injected) = smol::channel::unbounded();
-        smolscale::spawn(
-            packet_shuffle(ctx.clone(), send_captured, recv_injected)
-                .inspect_err(|e| tracing::error!(err = debug(e), "packet shuffle stopped")),
-        )
-        .detach();
-        // TEST
-        std::env::set_var("GEPH_DNS", "1.1.1.1");
-        let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
+        #[cfg(target_os = "linux")]
+        {
+            let (send_captured, recv_captured) = smol::channel::unbounded();
+            let (send_injected, recv_injected) = smol::channel::unbounded();
+            smolscale::spawn(
+                packet_shuffle(ctx.clone(), send_captured, recv_injected)
+                    .inspect_err(|e| tracing::error!(err = debug(e), "packet shuffle stopped")),
+            )
+            .detach();
+            // TEST
+            std::env::set_var("GEPH_DNS", "1.1.1.1");
+            let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
 
-        Self { ipstack }
+            Self { ipstack }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            todo!()
+        }
     }
 
     pub fn ipstack(&self) -> &IpStack {
@@ -78,12 +84,13 @@ extern "C" fn teardown_routing() {
     child.wait().expect("iptables was not set up properly");
 }
 
+#[cfg(target_os = "linux")]
 async fn packet_shuffle(
     ctx: AnyCtx<Config>,
     send_captured: Sender<Bytes>,
     recv_injected: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, FromRawFd};
     let tun_device = configure_tun_device();
     let fd_num = tun_device.as_raw_fd();
     let up_file = smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd_num) })
