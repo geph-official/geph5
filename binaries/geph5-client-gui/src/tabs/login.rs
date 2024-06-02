@@ -65,7 +65,7 @@ impl Login {
                 let username = self.username.clone();
                 let password = self.password.clone();
                 self.check_login = Some(Promise::spawn_thread("check_login", move || {
-                    smol::future::block_on(check_login(username, password))
+                    smolscale::block_on(check_login(username, password))
                 }));
             }
 

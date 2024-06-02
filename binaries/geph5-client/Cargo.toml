@@ -19,6 +19,7 @@ clone-macro = "0.1.0"
 dashmap = "5.5.3" 
 dirs = "5.0.1"
 ed25519-dalek = "2.1.1"
+elevated-command = "1.1.2"
 event-listener = "5.3.0"
 futures-util = "0.3.30"
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }

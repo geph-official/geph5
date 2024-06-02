@@ -54,8 +54,10 @@ impl VpnCapture {
 }
 
 pub fn vpn_whitelist(addr: IpAddr) {
-    tracing::warn!(addr = display(addr), "*** WHITELIST ***");
-    WHITELIST.insert(addr, SingleWhitelister::new(addr));
+    WHITELIST.entry(addr).or_insert_with(|| {
+        tracing::warn!(addr = display(addr), "*** WHITELIST ***");
+        SingleWhitelister::new(addr)
+    });
 }
 
 #[cfg(target_os = "linux")]

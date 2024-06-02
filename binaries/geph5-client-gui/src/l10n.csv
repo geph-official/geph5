@@ -98,6 +98,8 @@ server,Server,服务器,Сервер,Sarvar
 settings,Settings,设置,Настройки,Tanzimāt
 socks5_port,Socks5 proxy port,Socks5代理端口,Порт прокси Socks5,Socks5 proxy port
 status,Status,状态,Статус,Vazīyat
-upload_speed,Upload Speed,上传速度,Скорость отдачи,Sor'at-e āplod
+upload_speed,Upload speed,上传速度,Скорость отдачи,Sor'at-e āplod
 username,Username,用户名,Имя пользователя,Nām-e karbarī
-zoom_factor,Zoom Factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī
+zoom_factor,Zoom factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī
+vpn_mode,VPN mode,VPN模式,VPN режим,Mod-e VPN
+vpn_admin_only,VPN mode only works if Geph is run as administrator or using sudo on Linux,VPN 模式仅在迷雾通以管理员身份运行或在 Linux 上使用 sudo 时才有效,VPN режим работает только если Geph запущен от имени администратора или с использованием sudo в Linux,VPN mod faqat dar surati kaar mikonad ke Geph be onvān modir ejrā shavad yā dar Linux az sudo estefādeh shavad

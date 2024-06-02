@@ -36,6 +36,7 @@ pub fn get_config() -> anyhow::Result<Config> {
         Ipv4Addr::new(127, 0, 0, 1),
         HTTP_PROXY_PORT.get(),
     )));
+    cfg.vpn = VPN_MODE.get();
     Ok(cfg)
 }
 
@@ -65,3 +66,6 @@ pub static SOCKS5_PORT: Lazy<StoreCell<u16>> =
 
 pub static HTTP_PROXY_PORT: Lazy<StoreCell<u16>> =
     Lazy::new(|| StoreCell::new_persistent("http_proxy_port", || 19999));
+
+pub static VPN_MODE: Lazy<StoreCell<bool>> =
+    Lazy::new(|| StoreCell::new_persistent("vpn_mode", || false));

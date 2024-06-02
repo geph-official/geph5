@@ -11,7 +11,7 @@ use crate::{
     refresh_cell::RefreshCell,
     settings::{
         get_config, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
-        SELECTED_COUNTRY, SOCKS5_PORT, USERNAME,
+        SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
     },
 };
 
@@ -27,7 +27,6 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
 
     // Preferences
     ui.separator();
-    // ui.label(l10n("preferences"));
 
     ui.horizontal(|ui| {
         ui.label(l10n("language"));
@@ -37,7 +36,14 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
 
     // Network settings
     ui.separator();
-    // ui.heading(l10n("network_settings"));
+
+    #[cfg(target_os = "linux")]
+    VPN_MODE.modify(|vpn_mode| {
+        ui.horizontal(|ui| {
+            ui.label(l10n("vpn_mode"));
+            ui.add(egui::Checkbox::new(vpn_mode, ""));
+        })
+    });
 
     #[cfg(not(target_os = "macos"))]
     PROXY_AUTOCONF.modify(|proxy_autoconf| {
@@ -51,7 +57,7 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
         ui.label(l10n("exit_location"));
         let mut location_list = LOCATION_LIST.lock();
         let locations = location_list.get_or_refresh(Duration::from_secs(10), || {
-            smol::future::block_on(async {
+            smolscale::block_on(async {
                 let rpc_transport = get_config().unwrap().broker.unwrap().rpc_transport();
                 let client = BrokerClient::from(rpc_transport);
                 loop {

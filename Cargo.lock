@@ -1777,6 +1777,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "elevated-command"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54c410eccdcc5b759704fdb6a792afe6b01ab8a062e2c003ff2567e2697a94aa"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "libc",
+ "log",
+ "winapi",
+ "windows 0.52.0",
+]
+
+[[package]]
 name = "emath"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2302,6 +2316,7 @@ dependencies = [
  "dashmap",
  "dirs",
  "ed25519-dalek",
+ "elevated-command",
  "event-listener 5.3.0",
  "futures-util",
  "geph5-broker-protocol",
@@ -2361,6 +2376,7 @@ dependencies = [
  "dirs",
  "eframe",
  "egui",
+ "elevated-command",
  "futures-util",
  "geph5-broker-protocol",
  "geph5-client",
