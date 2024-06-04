@@ -29,7 +29,7 @@ mod b2e_process;
 use crate::{
     broker::BrokerRpcTransport,
     proxy::proxy_stream,
-    ratelimit::{get_load, get_ratelimiter, TOTAL_BYTE_COUNT},
+    ratelimit::{get_load, get_ratelimiter, RateLimiter, TOTAL_BYTE_COUNT},
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -176,6 +176,8 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     // execute the authentication
     let client_hello: ClientHello = stdcode::deserialize(&read_prepend_length(&mut client).await?)?;
 
+    tracing::debug!("client_hello received");
+
     let keys: Option<([u8; 32], [u8; 32])>;
     let exit_hello_inner: ExitHelloInner = match client_hello.crypt_hello {
         ClientCryptHello::SharedSecretChallenge(key) => {
@@ -195,9 +197,15 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         }
     };
 
-    let (level, token, _sig): (AccountLevel, ClientToken, UnblindedSignature) =
-        stdcode::deserialize(&client_hello.credentials)?;
-    let ratelimit = get_ratelimiter(level, token).await;
+    let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
+        let (level, token, _sig): (AccountLevel, ClientToken, UnblindedSignature) =
+            stdcode::deserialize(&client_hello.credentials)
+                .context("cannot deserialize credentials")?;
+        get_ratelimiter(level, token).await
+    } else {
+        RateLimiter::unlimited()
+    };
+
     // TODO authenticate against broker's public key
 
     let exit_hello = ExitHello {

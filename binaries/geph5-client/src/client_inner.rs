@@ -61,7 +61,7 @@ static CONN_REQ_CHAN: CtxField<(
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-static CONCURRENCY: usize = 6;
+static CONCURRENCY: usize = 1;
 
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
@@ -218,8 +218,10 @@ async fn client_auth(
                 crypt_hello: ClientCryptHello::X25519((&my_esk).into()),
             };
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
+            tracing::trace!(server, "wrote client hello");
             let exit_hello: ExitHello =
                 stdcode::deserialize(&read_prepend_length(&mut pipe).await?)?;
+            tracing::trace!(server, "received exit hello");
             // verify the exit hello
             let signed_value = (&client_hello, &exit_hello.inner).stdcode();
             pubkey
