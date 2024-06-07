@@ -75,12 +75,6 @@ impl Login {
                 render_language_settings(ui)
             })
             .inner?;
-
-            // ui.vertical(|ui| {
-            //     ui.label(l10n("broker"));
-            //     render_broker_settings(ui)
-            // })
-            // .inner?;
         }
 
         Ok(())

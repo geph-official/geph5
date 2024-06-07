@@ -9,14 +9,16 @@ mod refresh_cell;
 mod settings;
 mod store_cell;
 mod tabs;
+mod timeseries;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use daemon::stop_daemon;
+use daemon::{stop_daemon, DAEMON, TOTAL_BYTES_TIMESERIES};
 use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
+use once_cell::sync::Lazy;
 use prefs::{pref_read, pref_write};
 use settings::USERNAME;
 use single_instance::SingleInstance;
@@ -144,7 +146,14 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_zoom_factor(1.1);
-        ctx.request_repaint_after(Duration::from_millis(100));
+        ctx.request_repaint_after(Duration::from_millis(200));
+
+        {
+            let daemon = DAEMON.lock();
+            if let Some(daemon) = daemon.as_ref() {
+                TOTAL_BYTES_TIMESERIES.record(daemon.total_rx_bytes());
+            }
+        }
 
         if USERNAME.get().is_empty() {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -161,17 +170,13 @@ impl eframe::App for App {
                     TabName::Dashboard,
                     l10n("dashboard"),
                 );
-                // ui.selectable_value(&mut self.selected_tab, TabName::Logs, l10n("logs"));
+                ui.selectable_value(&mut self.selected_tab, TabName::Logs, l10n("logs"));
                 ui.selectable_value(&mut self.selected_tab, TabName::Settings, l10n("settings"));
             });
         });
 
         let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
-            TabName::Dashboard => {
-                self.dashboard.render(ui)?;
-                ui.add_space(20.0);
-                self.logs.render(ui)
-            }
+            TabName::Dashboard => self.dashboard.render(ui),
             TabName::Logs => self.logs.render(ui),
             TabName::Settings => {
                 egui::ScrollArea::vertical()

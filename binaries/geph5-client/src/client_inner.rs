@@ -44,10 +44,10 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
-        stat_incr_num(&ctx, "total_bytes", n as _)
+        stat_incr_num(&ctx, "total_rx_bytes", n as _)
     }));
     conn.set_on_write(clone!([ctx], move |n| {
-        stat_incr_num(&ctx, "total_bytes", n as _)
+        stat_incr_num(&ctx, "total_tx_bytes", n as _)
     }));
     Ok(conn)
 }
@@ -61,7 +61,7 @@ static CONN_REQ_CHAN: CtxField<(
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-static CONCURRENCY: usize = 1;
+static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {

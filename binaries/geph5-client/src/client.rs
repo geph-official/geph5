@@ -94,9 +94,14 @@ impl Client {
         self.start_time
     }
 
-    /// Returns the count of all bytes used.
-    pub fn bytes_used(&self) -> f64 {
-        stat_get_num(&self.ctx, "total_bytes")
+    /// Returns the count of all bytes received.
+    pub fn total_rx_bytes(&self) -> f64 {
+        stat_get_num(&self.ctx, "total_rx_bytes")
+    }
+
+    /// Returns the count of all bytes sent.
+    pub fn total_tx_bytes(&self) -> f64 {
+        stat_get_num(&self.ctx, "total_tx_bytes")
     }
 }
 
