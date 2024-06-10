@@ -6,7 +6,10 @@ use crate::{
     l10n::l10n,
     pac::{set_http_proxy, unset_http_proxy},
     settings::{get_config, PROXY_AUTOCONF},
+    timeseries::TimeSeries,
 };
+
+pub static TOTAL_BYTES_TIMESERIES: TimeSeries = TimeSeries::new(60 * 600);
 
 pub static DAEMON: Lazy<Mutex<Option<geph5_client::Client>>> = Lazy::new(|| Mutex::new(None));
 

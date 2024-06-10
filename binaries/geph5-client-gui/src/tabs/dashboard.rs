@@ -1,7 +1,10 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use egui_plot::{Line, Plot, PlotPoints};
+use once_cell::sync::Lazy;
 
 use crate::{
-    daemon::{start_daemon, stop_daemon, DAEMON},
+    daemon::{start_daemon, stop_daemon, DAEMON, TOTAL_BYTES_TIMESERIES},
     l10n::l10n,
 };
 
@@ -21,8 +24,8 @@ impl Dashboard {
                     let start_time = daemon.start_time().elapsed().as_secs() + 1;
                     let start_time = Duration::from_secs(1) * start_time as _;
                     columns[1].label(format!("{:?}", start_time));
-                    let mb_used = daemon.bytes_used() / 1_000_000.0;
-                    columns[1].label(format!("{:.2} MB", mb_used));
+                    let rx_mb = daemon.total_rx_bytes() / 1_000_000.0;
+                    columns[1].label(format!("{:.2} MB", rx_mb));
                 }
                 None => {
                     columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));
@@ -52,6 +55,47 @@ impl Dashboard {
                 ui.colored_label(egui::Color32::RED, format!("{:?}", err));
             }
         }
+
+        static START: Lazy<Instant> = Lazy::new(Instant::now);
+        let now = Instant::now();
+        let now = *START
+            + Duration::from_millis(
+                (now.saturating_duration_since(*START).as_millis() / 100 * 100) as _,
+            );
+        let range = 1000;
+
+        let line = Line::new(
+            (0..range)
+                .map(|i| {
+                    let x = i as f64;
+                    [
+                        (range as f64) - x,
+                        ((TOTAL_BYTES_TIMESERIES.get_at(now - Duration::from_millis(i * 100))
+                            - TOTAL_BYTES_TIMESERIES
+                                .get_at(now - Duration::from_millis(i * 100 + 1000)))
+                        .max(0.0)
+                            / 1000.0
+                            / 1000.0
+                            * 8.0),
+                    ]
+                })
+                .collect::<PlotPoints>(),
+        );
+
+        Plot::new("my_plot")
+            .allow_drag(false)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false)
+            .y_axis_position(egui_plot::HPlacement::Right)
+            .y_axis_width(2)
+            .y_axis_label("Mbps")
+            .include_y(0.0)
+            .include_y(1.0)
+            .show_x(false)
+            .show_axes(egui::Vec2b { x: false, y: true })
+            .show(ui, |plot| plot.line(line));
+
         Ok(())
     }
 }

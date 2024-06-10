@@ -44,10 +44,10 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
-        stat_incr_num(&ctx, "total_bytes", n as _)
+        stat_incr_num(&ctx, "total_rx_bytes", n as _)
     }));
     conn.set_on_write(clone!([ctx], move |n| {
-        stat_incr_num(&ctx, "total_bytes", n as _)
+        stat_incr_num(&ctx, "total_tx_bytes", n as _)
     }));
     Ok(conn)
 }
@@ -218,8 +218,10 @@ async fn client_auth(
                 crypt_hello: ClientCryptHello::X25519((&my_esk).into()),
             };
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
+            tracing::trace!(server, "wrote client hello");
             let exit_hello: ExitHello =
                 stdcode::deserialize(&read_prepend_length(&mut pipe).await?)?;
+            tracing::trace!(server, "received exit hello");
             // verify the exit hello
             let signed_value = (&client_hello, &exit_hello.inner).stdcode();
             pubkey

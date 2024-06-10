@@ -94,9 +94,14 @@ impl Client {
         self.start_time
     }
 
-    /// Returns the count of all bytes used.
-    pub fn bytes_used(&self) -> f64 {
-        stat_get_num(&self.ctx, "total_bytes")
+    /// Returns the count of all bytes received.
+    pub fn total_rx_bytes(&self) -> f64 {
+        stat_get_num(&self.ctx, "total_rx_bytes")
+    }
+
+    /// Returns the count of all bytes sent.
+    pub fn total_tx_bytes(&self) -> f64 {
+        stat_get_num(&self.ctx, "total_tx_bytes")
     }
 }
 
@@ -138,7 +143,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                     match captured {
                         ipstack_geph::stream::IpStackStream::Tcp(captured) => {
                             let peer_addr = captured.peer_addr();
-                            tracing::debug!(
+                            tracing::trace!(
                                 local_addr = display(captured.local_addr()),
                                 peer_addr = display(peer_addr),
                                 "captured a TCP"
@@ -147,7 +152,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
 
                             smolscale::spawn(async move {
                                 let tunneled = open_conn(&ctx, &peer_addr.to_string()).await?;
-                                tracing::debug!(
+                                tracing::trace!(
                                     peer_addr = display(peer_addr),
                                     "dialed through VPN"
                                 );
@@ -162,7 +167,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                         }
                         ipstack_geph::stream::IpStackStream::Udp(captured) => {
                             let peer_addr = captured.peer_addr();
-                            tracing::debug!(
+                            tracing::trace!(
                                 local_addr = display(captured.local_addr()),
                                 peer_addr = display(peer_addr),
                                 "captured a UDP"
