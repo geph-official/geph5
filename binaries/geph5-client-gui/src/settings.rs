@@ -50,7 +50,7 @@ pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
     Lazy::new(|| StoreCell::new_persistent("lang_code", || "en".to_smolstr()));
 
 pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
-    Lazy::new(|| StoreCell::new_persistent("proxy_autoconf", || false));
+    Lazy::new(|| StoreCell::new_persistent("proxy_autoconff", || true));
 
 pub static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_country", || None));
