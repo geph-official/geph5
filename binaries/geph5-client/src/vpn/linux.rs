@@ -25,7 +25,6 @@ pub struct VpnCapture {
 
 impl VpnCapture {
     pub fn new(ctx: AnyCtx<Config>) -> Self {
-        #[cfg(target_os = "linux")]
         {
             let (send_captured, recv_captured) = smol::channel::unbounded();
             let (send_injected, recv_injected) = smol::channel::unbounded();
@@ -39,10 +38,6 @@ impl VpnCapture {
             let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
 
             Self { ipstack }
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            todo!()
         }
     }
 
