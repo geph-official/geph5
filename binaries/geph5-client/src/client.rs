@@ -1,4 +1,5 @@
 use anyctx::AnyCtx;
+use anyhow::Context as _;
 use clone_macro::clone;
 use futures_util::{
     future::Shared,
@@ -139,7 +140,11 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             if ctx.init().vpn {
                 let vpn = VpnCapture::new(ctx.clone());
                 loop {
-                    let captured = vpn.ipstack().accept().await?;
+                    let captured = vpn
+                        .ipstack()
+                        .accept()
+                        .await
+                        .context("could not accept from ipstack")?;
                     match captured {
                         ipstack_geph::stream::IpStackStream::Tcp(captured) => {
                             let peer_addr = captured.peer_addr();
@@ -172,6 +177,11 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                                 peer_addr = display(peer_addr),
                                 "captured a UDP"
                             );
+                            let peer_addr = if captured.peer_addr().port() == 53 {
+                                "1.1.1.1:53".parse()?
+                            } else {
+                                peer_addr
+                            };
                             let ctx = ctx.clone();
                             smolscale::spawn::<anyhow::Result<()>>(async move {
                                 let tunneled = open_conn(&ctx, &format!("udp${peer_addr}")).await?;
@@ -222,9 +232,16 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             )),
         );
         socks5_loop(&ctx)
-            .race(vpn_loop)
-            .race(run_http_proxy(&ctx))
-            .race(auth_loop(&ctx))
+            .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))
+            .race(vpn_loop.inspect_err(|e| tracing::error!(err = debug(e), "vpn loop stopped")))
+            .race(
+                run_http_proxy(&ctx)
+                    .inspect_err(|e| tracing::error!(err = debug(e), "http proxy stopped")),
+            )
+            .race(
+                auth_loop(&ctx)
+                    .inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
+            )
             .await
     }
 }

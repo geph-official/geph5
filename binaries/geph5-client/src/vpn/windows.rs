@@ -11,7 +11,7 @@ use ipstack_geph::{IpStack, IpStackConfig};
 use once_cell::sync::Lazy;
 use smol::channel::{Receiver, Sender};
 
-use crate::Config;
+use crate::{client_inner::open_conn, Config};
 
 pub struct VpnCapture {
     ipstack: IpStack,
@@ -35,6 +35,7 @@ impl VpnCapture {
 }
 
 fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<Bytes>) -> anyhow::Result<()> {
+    smol::future::block_on(open_conn(&ctx, ""))?;
     let handle = windivert::PacketHandle::open("outbound and not loopback", -100)?;
     loop {
         let fallible = || {
@@ -42,6 +43,7 @@ fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<Bytes>) -> anyhow::Resu
             let ip_pkt = pnet_packet::ipv4::Ipv4Packet::new(&raw_pkt)
                 .context("cannot parse packet as IPv4")?;
             if WHITELIST.contains(&IpAddr::V4(ip_pkt.get_destination())) {
+                tracing::debug!(ip = debug(ip_pkt.get_destination()), "windivert whitelist");
                 handle.inject(&raw_pkt, true)?;
                 anyhow::Ok(None)
             } else {
@@ -60,6 +62,7 @@ fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<Bytes>) -> anyhow::Resu
 }
 
 fn dn_shuffle(ctx: AnyCtx<Config>, recv_injected: Receiver<Bytes>) -> anyhow::Result<()> {
+    smol::future::block_on(open_conn(&ctx, ""))?;
     let handle = windivert::PacketHandle::open("false", -200)?;
     loop {
         let pkt = recv_injected.recv_blocking()?;
