@@ -43,6 +43,10 @@ Type: filesandordirs; Name: "{app}\*"
 [Files]
 Source: "geph5-client-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vulkan-1.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "WinDivert.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "WinDivert32.sys"; DestDir: "{app}"; Flags: ignoreversion
+Source: "WinDivert64.sys"; DestDir: "{app}"; Flags: ignoreversion
+
 
 [Icons]
 Name: "{group}\{cm:MyAppName}"; Filename: "{app}\{#MyAppExeName}"
