@@ -37,7 +37,7 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
     // Network settings
     ui.separator();
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     VPN_MODE.modify(|vpn_mode| {
         ui.horizontal(|ui| {
             ui.label(l10n("vpn_mode"));

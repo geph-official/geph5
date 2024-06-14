@@ -1,0 +1,5 @@
+[target.i686-pc-windows-msvc]
+rustflags = [
+  "-C", "link-arg=/SAFESEH:NO",
+  "-C", "target-feature=+crt-static"
+]
