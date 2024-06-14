@@ -20,5 +20,5 @@ impl VpnCapture {
 }
 
 pub fn vpn_whitelist(addr: IpAddr) {
-    todo!()
+    // todo
 }

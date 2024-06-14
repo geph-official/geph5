@@ -15,7 +15,7 @@ pub static DAEMON: Lazy<Mutex<Option<geph5_client::Client>>> = Lazy::new(|| Mute
 
 pub fn stop_daemon() -> anyhow::Result<()> {
     let mut daemon = DAEMON.lock();
-    if PROXY_AUTOCONF.get() {
+    if PROXY_AUTOCONF.get() && daemon.is_some() {
         unset_http_proxy()?;
     }
     *daemon = None;
