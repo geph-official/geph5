@@ -58,9 +58,10 @@ impl Dashboard {
 
         static START: Lazy<Instant> = Lazy::new(Instant::now);
         let now = Instant::now();
+        let quantum_ms = 200;
         let now = *START
             + Duration::from_millis(
-                (now.saturating_duration_since(*START).as_millis() / 100 * 100) as _,
+                (now.saturating_duration_since(*START).as_millis() / quantum_ms * quantum_ms) as _,
             );
         let range = 1000;
 
@@ -70,13 +71,16 @@ impl Dashboard {
                     let x = i as f64;
                     [
                         (range as f64) - x,
-                        ((TOTAL_BYTES_TIMESERIES.get_at(now - Duration::from_millis(i * 100))
-                            - TOTAL_BYTES_TIMESERIES
-                                .get_at(now - Duration::from_millis(i * 100 + 1000)))
+                        ((TOTAL_BYTES_TIMESERIES
+                            .get_at(now - Duration::from_millis(i * (quantum_ms as u64)))
+                            - TOTAL_BYTES_TIMESERIES.get_at(
+                                now - Duration::from_millis(i * (quantum_ms as u64) + 3000),
+                            ))
                         .max(0.0)
                             / 1000.0
                             / 1000.0
-                            * 8.0),
+                            * 8.0)
+                            / 3.0,
                     ]
                 })
                 .collect::<PlotPoints>(),
