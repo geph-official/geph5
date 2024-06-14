@@ -79,7 +79,7 @@ jobs:
         run: |
           choco install innosetup
           cp target/${{ matrix.target }}/release/geph5-client-gui packaging/windows
-          cp binaries/geph5-client/windows-lib* packaging/windows
+          cp binaries/geph5-client/windows-lib/* packaging/windows
           iscc packaging/windows/setup.iss
           cp packaging/windows/Output/* artifacts/${{ matrix.dir }}/
 
