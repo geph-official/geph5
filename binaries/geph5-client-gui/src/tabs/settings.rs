@@ -10,8 +10,8 @@ use crate::{
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
-        SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
+        get_config, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY, SELECTED_COUNTRY, USERNAME,
+        VPN_MODE,
     },
 };
 
@@ -28,33 +28,32 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
     // Preferences
     ui.separator();
 
-    ui.horizontal(|ui| {
-        ui.label(l10n("language"));
-        render_language_settings(ui)
-    })
-    .inner?;
+    ui.columns(2, |columns| {
+        columns[0].label(l10n("language"));
+        render_language_settings(&mut columns[1])
+    })?;
 
     // Network settings
     ui.separator();
 
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     VPN_MODE.modify(|vpn_mode| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("vpn_mode"));
-            ui.add(egui::Checkbox::new(vpn_mode, ""));
+        ui.columns(2, |columns| {
+            columns[0].label(l10n("vpn_mode"));
+            columns[1].add(egui::Checkbox::new(vpn_mode, ""));
         })
     });
 
     // #[cfg(not(target_os = "macos"))]
     PROXY_AUTOCONF.modify(|proxy_autoconf| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("proxy_autoconf"));
-            ui.add(egui::Checkbox::new(proxy_autoconf, ""));
+        ui.columns(2, |columns| {
+            columns[0].label(l10n("proxy_autoconf"));
+            columns[1].add(egui::Checkbox::new(proxy_autoconf, ""));
         })
     });
 
-    ui.horizontal(|ui| {
-        ui.label(l10n("exit_location"));
+    ui.columns(2, |columns| {
+        columns[0].label(l10n("exit_location"));
         let mut location_list = LOCATION_LIST.lock();
         let locations = location_list.get_or_refresh(Duration::from_secs(10), || {
             smolscale::block_on(async {
@@ -77,7 +76,7 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
             })
         });
 
-        ui.vertical(|ui| {
+        columns[1].vertical(|ui| {
             egui::ComboBox::from_id_source("country")
                 .selected_text(
                     SELECTED_COUNTRY
@@ -136,25 +135,19 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
         });
     });
 
-    SOCKS5_PORT.modify(|socks5_port| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("socks5_port"));
-            ui.add(egui::DragValue::new(socks5_port));
-        })
-    });
+    // SOCKS5_PORT.modify(|socks5_port| {
+    //     ui.columns(2, |columns| {
+    //         columns[0].label(l10n("socks5_port"));
+    //         columns[1].add(egui::DragValue::new(socks5_port));
+    //     });
+    // });
 
-    HTTP_PROXY_PORT.modify(|http_proxy_port| {
-        ui.horizontal(|ui| {
-            ui.label(l10n("http_proxy_port"));
-            ui.add(egui::DragValue::new(http_proxy_port));
-        })
-    });
-
-    // ui.horizontal(|ui| {
-    //     ui.label(l10n("broker"));
-    //     render_broker_settings(ui)
-    // })
-    // .inner?;
+    // HTTP_PROXY_PORT.modify(|http_proxy_port| {
+    //     ui.horizontal(|ui| {
+    //         ui.label(l10n("http_proxy_port"));
+    //         ui.add(egui::DragValue::new(http_proxy_port));
+    //     })
+    // });
 
     Ok(())
 }

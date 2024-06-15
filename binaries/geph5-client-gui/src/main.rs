@@ -38,6 +38,7 @@ fn main() {
             .unwrap();
         std::process::exit(-1)
     }
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
@@ -105,6 +106,7 @@ pub struct App {
 impl App {
     /// Constructs the app.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         // set up fonts. currently this uses SC for CJK, but this can be autodetected instead.
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
@@ -129,7 +131,8 @@ impl App {
         cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-            style.spacing.button_padding = egui::vec2(5.0, 4.0);
+
+            // style.spacing.button_padding = egui::vec2(5.0, 4.0);
             style.visuals = Visuals::light();
         });
 

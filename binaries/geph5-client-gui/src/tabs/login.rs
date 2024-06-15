@@ -1,4 +1,4 @@
-use egui::{Align, Layout};
+use egui::{vec2, Align, Image, Key, Layout, ProgressBar, Sense, TextEdit, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
@@ -28,6 +28,7 @@ impl Login {
 
     pub fn render(&mut self, ui: &mut egui::Ui) -> anyhow::Result<()> {
         if let Some(promise) = self.check_login.as_ref() {
+            ui.add_space(30.0);
             match promise.poll() {
                 std::task::Poll::Ready(ready) => match ready {
                     Ok(_) => {
@@ -46,33 +47,40 @@ impl Login {
                 },
                 std::task::Poll::Pending => {
                     ui.vertical_centered(|ui| {
+                        ui.label(l10n("logging_in"));
                         ui.spinner();
                     });
                 }
             }
         } else {
-            ui.with_layout(Layout::top_down_justified(Align::LEFT), |ui| {
-                ui.label(l10n("username"));
-                ui.text_edit_singleline(&mut self.username);
+            let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click());
+            let rect = rect.shrink2(egui::vec2(40., 0.));
+            ui.allocate_ui_at_rect(rect, |ui| {
+                ui.with_layout(Layout::top_down_justified(Align::Center), |ui| {
+                    ui.add_space(10.);
+                    Image::new(egui::include_image!("../../icon.png"))
+                        .fit_to_exact_size(egui::vec2(140., 140.))
+                        .ui(ui);
+                    ui.add_space(10.);
+                    TextEdit::singleline(&mut self.username)
+                        .hint_text(l10n("username"))
+                        .ui(ui);
+                    TextEdit::singleline(&mut self.password)
+                        .hint_text(l10n("password"))
+                        .password(true)
+                        .ui(ui);
+                    anyhow::Ok(())
+                })
+                .inner?;
 
-                ui.label(l10n("password"));
-                ui.text_edit_singleline(&mut self.password);
+                if ui.button(l10n("login")).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                    let username = self.username.clone();
+                    let password = self.password.clone();
+                    self.check_login = Some(Promise::spawn_thread("check_login", move || {
+                        smolscale::block_on(check_login(username, password))
+                    }));
+                }
                 anyhow::Ok(())
-            })
-            .inner?;
-
-            if ui.button(l10n("login")).clicked() {
-                let username = self.username.clone();
-                let password = self.password.clone();
-                self.check_login = Some(Promise::spawn_thread("check_login", move || {
-                    smolscale::block_on(check_login(username, password))
-                }));
-            }
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(l10n("language"));
-                render_language_settings(ui)
             })
             .inner?;
         }
