@@ -2449,6 +2449,7 @@ dependencies = [
  "serde_yaml",
  "sillad",
  "sillad-sosistab3",
+ "simple-dns",
  "smol 2.0.0",
  "smol-timeout",
  "smol_str",
@@ -5315,6 +5316,15 @@ name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
+
+[[package]]
+name = "simple-dns"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3625957337d21eb40a7125c2df5c92db5c0267195d66b297948c816ea9c33157"
+dependencies = [
+ "bitflags 2.5.0",
+]
 
 [[package]]
 name = "simplecss"

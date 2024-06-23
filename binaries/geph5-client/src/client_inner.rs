@@ -18,7 +18,8 @@ use sillad::{
 use smol::future::FutureExt as _;
 use smol_timeout::TimeoutExt;
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -33,11 +34,26 @@ use crate::{
     client::CtxField,
     route::{deprioritize_route, get_dialer},
     stats::stat_incr_num,
+    vpn::fake_dns_backtranslate,
 };
 
 use super::Config;
 
 pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<picomux::Stream> {
+    let dest_addr = if let Ok(sock_addr) = SocketAddr::from_str(dest_addr) {
+        if let IpAddr::V4(v4) = sock_addr.ip() {
+            if let Some(orig) = fake_dns_backtranslate(ctx, v4) {
+                format!("{orig}:{}", sock_addr.port())
+            } else {
+                dest_addr.to_string()
+            }
+        } else {
+            dest_addr.to_string()
+        }
+    } else {
+        dest_addr.to_string()
+    };
+
     let (send, recv) = oneshot::channel();
     let elem = (dest_addr.to_string(), send);
     let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
