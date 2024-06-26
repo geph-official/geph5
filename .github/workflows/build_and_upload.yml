@@ -83,6 +83,36 @@ jobs:
           iscc packaging/windows/setup.iss
           cp packaging/windows/Output/* artifacts/${{ matrix.dir }}/
 
+      - name: Install cargo-bundle
+        if: matrix.os == 'macos-latest'
+        run: cargo install cargo-bundle
+
+      - name: Create macOS .app bundle
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd binaries/geph5-client-gui
+          cargo bundle --release --target ${{ matrix.target }}
+
+      - name: Create macOS DMG
+        if: matrix.os == 'macos-latest'
+        run: |
+          create-dmg \
+            --volname "Geph Installer" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Geph.app" 175 120 \
+            --hide-extension "Geph.app" \
+            --app-drop-link 425 120 \
+            "artifacts/${{ matrix.dir }}/geph-macos.dmg" \
+            "binaries/geph5-client-gui/target/release/bundle/osx/"
+
+      - name: Move .app and DMG to artifacts directory
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir -p artifacts/${{ matrix.dir }}
+          mv artifacts/${{ matrix.dir }}/geph-macos.dmg artifacts/${{ matrix.dir }}/
+
       - name: Move client GUI binaries to artifacts directory
         if: matrix.dir != 'musl'
         shell: bash
