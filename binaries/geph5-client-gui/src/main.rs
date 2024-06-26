@@ -28,7 +28,8 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, Env
 // 0123456789
 
 fn main() {
-    let instance = SingleInstance::new("geph5-client-gui").unwrap();
+    let instance = SingleInstance::new("geph5-client-gui");
+    if let Ok(instance) = instance {
     if !instance.is_single() {
         native_dialog::MessageDialog::new()
             .set_type(MessageType::Error)
@@ -38,6 +39,7 @@ fn main() {
             .unwrap();
         std::process::exit(-1)
     }
+}
 
     tracing_subscriber::registry()
         .with(

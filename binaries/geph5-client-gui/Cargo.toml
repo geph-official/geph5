@@ -3,6 +3,12 @@ name = "geph5-client-gui"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
+description="GUI client for Geph"
+
+[package.metadata.bundle]
+name = "Geph5"
+identifier = "io.geph.geph5"
+icon = ["icon.png"]
 
 [dependencies]
 anyhow = "1.0.86"
