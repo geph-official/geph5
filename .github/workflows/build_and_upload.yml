@@ -104,8 +104,7 @@ jobs:
             --volname "Geph Installer" \
             --window-pos 200 120 \
             --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Geph.app" 175 120 \
+
             --hide-extension "Geph.app" \
             --app-drop-link 425 120 \
             "artifacts/${{ matrix.dir }}/geph-macos.dmg" \
