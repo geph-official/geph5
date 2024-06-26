@@ -23,13 +23,13 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 use crate::{
     auth::auth_loop,
     broker::{broker_client, BrokerSource},
-    client_inner::{client_once, open_conn},
+    client_inner::client_once,
     database::db_read_or_wait,
     http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
     stats::stat_get_num,
-    vpn::VpnCapture,
+    vpn::vpn_loop,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -43,6 +43,8 @@ pub struct Config {
 
     #[serde(default)]
     pub vpn: bool,
+    #[serde(default)]
+    pub spoof_dns: bool,
     #[serde(default)]
     pub dry_run: bool,
     #[serde(default)]
@@ -138,94 +140,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             })
             .await
     } else {
-        let vpn_loop = async {
-            if ctx.init().vpn {
-                let vpn = VpnCapture::new(ctx.clone());
-                loop {
-                    let captured = vpn
-                        .ipstack()
-                        .accept()
-                        .await
-                        .context("could not accept from ipstack")?;
-                    match captured {
-                        ipstack_geph::stream::IpStackStream::Tcp(captured) => {
-                            let peer_addr = captured.peer_addr();
-                            tracing::trace!(
-                                local_addr = display(captured.local_addr()),
-                                peer_addr = display(peer_addr),
-                                "captured a TCP"
-                            );
-                            let ctx = ctx.clone();
-
-                            smolscale::spawn(async move {
-                                let tunneled = open_conn(&ctx, &peer_addr.to_string()).await?;
-                                tracing::trace!(
-                                    peer_addr = display(peer_addr),
-                                    "dialed through VPN"
-                                );
-                                let (read_tunneled, write_tunneled) = tunneled.split();
-                                let (read_captured, write_captured) = captured.split();
-                                smol::io::copy(read_tunneled, write_captured)
-                                    .race(smol::io::copy(read_captured, write_tunneled))
-                                    .await?;
-                                anyhow::Ok(())
-                            })
-                            .detach();
-                        }
-                        ipstack_geph::stream::IpStackStream::Udp(captured) => {
-                            let peer_addr = captured.peer_addr();
-                            tracing::trace!(
-                                local_addr = display(captured.local_addr()),
-                                peer_addr = display(peer_addr),
-                                "captured a UDP"
-                            );
-                            let peer_addr = if captured.peer_addr().port() == 53 {
-                                "1.1.1.1:53".parse()?
-                            } else {
-                                peer_addr
-                            };
-                            let ctx = ctx.clone();
-                            smolscale::spawn::<anyhow::Result<()>>(async move {
-                                let tunneled = open_conn(&ctx, &format!("udp${peer_addr}")).await?;
-                                let (read_tunneled, write_tunneled) = tunneled.split();
-                                let up_loop = async {
-                                    let mut write_tunneled = BufWriter::new(write_tunneled);
-                                    loop {
-                                        let to_up = captured.recv().await?;
-                                        write_tunneled
-                                            .write_all(&(to_up.len() as u16).to_le_bytes())
-                                            .await?;
-                                        write_tunneled.write_all(&to_up).await?;
-                                        write_tunneled.flush().await?;
-                                    }
-                                };
-                                let dn_loop = async {
-                                    let mut read_tunneled = BufReader::new(read_tunneled);
-                                    loop {
-                                        let mut len_buf = [0u8; 2];
-                                        read_tunneled.read_exact(&mut len_buf).await?;
-                                        let len = u16::from_le_bytes(len_buf) as usize;
-                                        let mut buf = vec![0u8; len];
-                                        read_tunneled.read_exact(&mut buf).await?;
-                                        captured.send(&buf).await?;
-                                    }
-                                };
-                                up_loop.race(dn_loop).await
-                            })
-                            .detach();
-                        }
-                        ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
-                            tracing::warn!("captured an UnknownTransport")
-                        }
-                        ipstack_geph::stream::IpStackStream::UnknownNetwork(_) => {
-                            tracing::warn!("captured an UnknownNetwork")
-                        }
-                    }
-                }
-            } else {
-                smol::future::pending().await
-            }
-        };
+        let vpn_loop = vpn_loop(&ctx);
 
         let _client_loop = Immortal::respawn(
             RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
