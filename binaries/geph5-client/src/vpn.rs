@@ -19,7 +19,7 @@ mod windows;
 use moka::sync::Cache;
 use pnet_packet::ipv4::Ipv4;
 use rand::Rng;
-use simple_dns::{Packet, QTYPE};
+use simple_dns::{Packet, PacketFlag, QTYPE};
 use smol::{
     future::FutureExt,
     io::{BufReader, BufWriter},
@@ -37,18 +37,18 @@ use crate::{client::CtxField, client_inner::open_conn, Config};
 
 static FAKE_DNS_FORWARD: CtxField<Cache<String, Ipv4Addr>> = |_| {
     Cache::builder()
-        .time_to_idle(Duration::from_secs(600))
+        .time_to_live(Duration::from_secs(300))
         .build()
 };
 
 static FAKE_DNS_BACKWARD: CtxField<Cache<Ipv4Addr, String>> = |_| {
     Cache::builder()
-        .time_to_idle(Duration::from_secs(600))
+        .time_to_live(Duration::from_secs(600))
         .build()
 };
 
 pub fn fake_dns_backtranslate(ctx: &AnyCtx<Config>, fake: Ipv4Addr) -> Option<String> {
-    tracing::debug!(fake = debug(fake), "attempting to backtranslate");
+    tracing::trace!(fake = debug(fake), "attempting to backtranslate");
     ctx.get(FAKE_DNS_BACKWARD).get(&fake)
 }
 
@@ -122,7 +122,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                             loop {
                                 let pkt = captured.recv().await?;
                                 let pkt = Packet::parse(&pkt)?;
-                                tracing::debug!(pkt = debug(&pkt), "got DNS packet");
+                                tracing::trace!(pkt = debug(&pkt), "got DNS packet");
                                 let mut answers = vec![];
                                 for question in pkt.questions.iter() {
                                     if question.qtype == QTYPE::TYPE(simple_dns::TYPE::A) {
@@ -140,9 +140,12 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                                         ));
                                     }
                                 }
-                                let mut response = Packet::new_reply(pkt.id());
+                                let mut response = pkt.into_reply();
                                 response.answers = answers;
-                                captured.send(&response.build_bytes_vec()?).await?;
+
+                                captured
+                                    .send(&response.build_bytes_vec_compressed()?)
+                                    .await?;
                             }
                         } else {
                             let tunneled = open_conn(&ctx, &format!("udp${peer_addr}")).await?;
