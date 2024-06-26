@@ -109,7 +109,7 @@ jobs:
             --hide-extension "Geph.app" \
             --app-drop-link 425 120 \
             "artifacts/${{ matrix.dir }}/geph-macos.dmg" \
-            "binaries/geph5-client-gui/target/release/bundle/osx/"
+            "target/release/bundle/osx/"
 
       - name: Move .app and DMG to artifacts directory
         if: matrix.os == 'macos-latest'
