@@ -192,12 +192,11 @@ impl eframe::App for App {
             let _ = native_dialog::MessageDialog::new()
                 .set_title("Fatal error")
                 .set_text(&format!(
-                    "Unfortunately, a fatal error occurred, so Geph must die:\n\n{:?}",
+                    "Unfortunately, a fatal error occurred:\n\n{:?}",
                     err
                 ))
                 .set_type(MessageType::Error)
                 .show_alert();
-            std::process::exit(-1);
         }
     }
 
