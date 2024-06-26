@@ -109,6 +109,13 @@ jobs:
           # Mount the DMG
           hdiutil attach "artifacts/${{ matrix.dir }}/geph-macos.dmg" -mountpoint "$TEMP_DIR"
 
+          # Wait for the disk to be available
+          for i in {1..10}; do
+            if [ -d "/Volumes/Geph Installer" ]; then
+              break
+            fi
+            sleep 1
+          done
 
           # Create a symbolic link to /Applications
           ln -s /Applications "$TEMP_DIR/Applications"
