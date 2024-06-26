@@ -99,18 +99,51 @@ jobs:
 
       - name: Create macOS DMG
         if: matrix.os == 'macos-latest'
-        continue-on-error: true
         run: |
-          create-dmg \
-            --volname "Geph Installer" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Geph.app" 175 120 \
-            --hide-extension "Geph.app" \
-            --app-drop-link 425 120 \
-            "artifacts/${{ matrix.dir }}/geph-macos.dmg" \
-            "target/release/bundle/osx/"
+          # Create a temporary directory for mounting
+          TEMP_DIR=$(mktemp -d)
+
+          # Create a new DMG
+          hdiutil create -size 100m -fs HFS+ -volname "Geph 5 Installer" -srcfolder "target/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph-macos.dmg"
+
+          # Mount the DMG
+          hdiutil attach "artifacts/${{ matrix.dir }}/geph-macos.dmg" -mountpoint "$TEMP_DIR"
+
+
+          # Create a symbolic link to /Applications
+          ln -s /Applications "$TEMP_DIR/Applications"
+
+
+          # Set view options
+          echo '
+            tell application "Finder"
+              tell disk "Geph Installer"
+                open
+                set current view of container window to icon view
+                set toolbar visible of container window to false
+                set statusbar visible of container window to false
+                set the bounds of container window to {400, 100, 1000, 500}
+                set theViewOptions to the icon view options of container window
+                set arrangement of theViewOptions to not arranged
+                set icon size of theViewOptions to 72
+                # You can adjust these coordinates to position your app and the Applications symlink
+                set position of item "Geph.app" of container window to {150, 200}
+                set position of item "Applications" of container window to {450, 200}
+                close
+                open
+                update without registering applications
+                delay 5
+                close
+              end tell
+            end tell
+          ' | osascript
+
+          # Unmount the DMG
+          hdiutil detach "$TEMP_DIR"
+
+          # Convert the DMG to compressed read-only
+          hdiutil convert "artifacts/${{ matrix.dir }}/geph-macos.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
+          mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph-macos.dmg"
 
       - name: Move .app and DMG to artifacts directory
         if: matrix.os == 'macos-latest'
