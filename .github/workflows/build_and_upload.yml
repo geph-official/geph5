@@ -104,7 +104,7 @@ jobs:
           TEMP_DIR=$(mktemp -d)
 
           # Create a new DMG
-          hdiutil create -size 100m -fs HFS+ -volname "Geph 5 Installer" -srcfolder "target/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph-macos.dmg"
+          hdiutil create -size 100m -fs HFS+ -volname "Geph Installer" -srcfolder "target/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph-macos.dmg"
 
           # Mount the DMG
           hdiutil attach "artifacts/${{ matrix.dir }}/geph-macos.dmg" -mountpoint "$TEMP_DIR"
