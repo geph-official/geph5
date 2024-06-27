@@ -144,12 +144,6 @@ jobs:
           hdiutil convert "artifacts/${{ matrix.dir }}/geph-macos.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
           mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph-macos.dmg"
 
-      - name: Move .app and DMG to artifacts directory
-        if: matrix.os == 'macos-latest'
-        run: |
-          mkdir -p artifacts/${{ matrix.dir }}
-          mv artifacts/${{ matrix.dir }}/geph-macos.dmg artifacts/${{ matrix.dir }}/
-
       - name: Move client GUI binaries to artifacts directory
         if: matrix.dir != 'musl'
         shell: bash
