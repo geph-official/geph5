@@ -93,10 +93,6 @@ jobs:
           cd binaries/geph5-client-gui
           cargo bundle --release --target ${{ matrix.target }}
 
-      - name: Install create-dmg
-        if: matrix.os == 'macos-latest'
-        run: brew install create-dmg
-
       - name: Create macOS DMG
         if: matrix.os == 'macos-latest'
         run: |
@@ -141,8 +137,8 @@ jobs:
           hdiutil detach "$TEMP_DIR"
 
           # Convert the DMG to compressed read-only
-          hdiutil convert "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
-          mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
+          # hdiutil convert "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
+          # mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
 
       - name: Move client GUI binaries to artifacts directory
         if: matrix.dir != 'musl'
