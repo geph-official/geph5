@@ -110,7 +110,7 @@ jobs:
           zip -r "geph5-client-gui.app.zip" "Geph5.app"
 
           # Move the zip file to the artifacts directory
-          mv "geph5-client-gui.app.zip" ../../../artifacts/${{ matrix.dir }}/
+          mv "geph5-client-gui.app.zip" ../../../../artifacts/${{ matrix.dir }}/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
