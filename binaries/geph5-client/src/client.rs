@@ -1,12 +1,7 @@
 use anyctx::AnyCtx;
-use anyhow::Context as _;
+
 use clone_macro::clone;
-use futures_util::{
-    future::Shared,
-    io::{BufReader, BufWriter},
-    task::noop_waker,
-    AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
-};
+use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList};
 use smol::future::FutureExt as _;
 use std::{

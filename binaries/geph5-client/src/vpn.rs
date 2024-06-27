@@ -3,7 +3,7 @@
 mod linux;
 
 use std::{
-    net::{Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr},
     time::Duration,
 };
 
@@ -17,9 +17,9 @@ pub use linux::*;
 mod windows;
 
 use moka::sync::Cache;
-use pnet_packet::ipv4::Ipv4;
+
 use rand::Rng;
-use simple_dns::{Packet, PacketFlag, QTYPE};
+use simple_dns::{Packet, QTYPE};
 use smol::{
     future::FutureExt,
     io::{BufReader, BufWriter},
