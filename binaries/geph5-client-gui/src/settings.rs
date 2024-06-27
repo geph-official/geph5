@@ -1,5 +1,6 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+use base32::Alphabet;
 use geph5_broker_protocol::Credential;
 use geph5_client::{BrokerSource, Config, ExitConstraint};
 use isocountry::CountryCode;
@@ -9,8 +10,16 @@ use smol_str::{SmolStr, ToSmolStr};
 
 use crate::store_cell::StoreCell;
 
-pub static DEFAULT_SETTINGS: Lazy<serde_yaml::Value> =
-    Lazy::new(|| serde_yaml::from_str(include_str!("settings_default.yaml")).unwrap());
+pub static DEFAULT_SETTINGS: Lazy<serde_yaml::Value> = Lazy::new(|| {
+    serde_yaml::from_slice(
+        &base32::decode(
+            Alphabet::Crockford,
+            include_str!("settings_default.yaml.base32"),
+        )
+        .expect("no base32 decode"),
+    )
+    .unwrap()
+});
 
 pub fn get_config() -> anyhow::Result<Config> {
     let yaml: serde_yaml::Value = DEFAULT_SETTINGS.to_owned();
