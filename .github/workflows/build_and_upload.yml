@@ -104,10 +104,10 @@ jobs:
           TEMP_DIR=$(mktemp -d)
 
           # Create a new DMG
-          hdiutil create -size 100m -fs HFS+ -volname "Geph Installer" -srcfolder "target/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph-macos.dmg"
+          hdiutil create -size 100m -fs HFS+ -volname "Geph Installer" -srcfolder "target/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
 
           # Mount the DMG
-          hdiutil attach "artifacts/${{ matrix.dir }}/geph-macos.dmg" -mountpoint "$TEMP_DIR"
+          hdiutil attach "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -mountpoint "$TEMP_DIR"
 
           # Create a symbolic link to /Applications
           ln -s /Applications "$TEMP_DIR/Applications"
@@ -141,8 +141,8 @@ jobs:
           hdiutil detach "$TEMP_DIR"
 
           # Convert the DMG to compressed read-only
-          hdiutil convert "artifacts/${{ matrix.dir }}/geph-macos.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
-          mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph-macos.dmg"
+          hdiutil convert "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
+          mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
 
       - name: Move client GUI binaries to artifacts directory
         if: matrix.dir != 'musl'
