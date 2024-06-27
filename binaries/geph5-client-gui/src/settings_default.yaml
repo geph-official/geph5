@@ -1,6 +1,13 @@
 exit_constraint: auto
 
+# broker:
+#   fronted:
+#     front: https://vuejs.org/
+#     host: svitania-naidallszei-2.netlify.app
+
 broker:
-  fronted:
-    front: https://vuejs.org/
-    host: svitania-naidallszei-2.netlify.app
+  aws_lambda:
+    function_name: geph-lambda-bouncer
+    region: us-east-1
+    access_key_id: AKIATYQFZKZO2GT7AFAM
+    secret_access_key: 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

@@ -4,6 +4,7 @@ mod fronted_http;
 use anyctx::AnyCtx;
 use anyhow::Context;
 
+use aws_lambda::AwsLambdaTransport;
 use fronted_http::FrontedHttpTransport;
 use geph5_broker_protocol::BrokerClient;
 use nanorpc::DynRpcTransport;
@@ -18,8 +19,17 @@ use crate::client::{Config, CtxField};
 #[serde(rename_all = "snake_case")]
 pub enum BrokerSource {
     Direct(String),
-    Fronted { front: String, host: String },
+    Fronted {
+        front: String,
+        host: String,
+    },
     DirectTcp(SocketAddr),
+    AwsLambda {
+        function_name: String,
+        region: String,
+        access_key_id: String,
+        secret_access_key: String,
+    },
 }
 
 impl BrokerSource {
@@ -41,6 +51,17 @@ impl BrokerSource {
                 url: front.clone(),
                 host: Some(host.clone()),
                 client,
+            }),
+            BrokerSource::AwsLambda {
+                function_name,
+                region,
+                access_key_id,
+                secret_access_key,
+            } => DynRpcTransport::new(AwsLambdaTransport {
+                function_name: function_name.clone(),
+                region: region.clone(),
+                access_key_id: access_key_id.clone(),
+                secret_access_key: secret_access_key.clone(),
             }),
         }
     }

@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_lambda::{config::Credentials, primitives::Blob};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
+use serde::Deserialize;
 
 pub struct AwsLambdaTransport {
     pub function_name: String,
@@ -31,14 +32,25 @@ impl RpcTransport for AwsLambdaTransport {
         let response = client
             .invoke()
             .function_name(self.function_name.clone())
-            .payload(Blob::new(serde_json::to_vec(&req)?))
+            .payload(Blob::new(serde_json::to_string(&req)?))
             .send()
-            .await?;
+            .await
+            .context("lambda function failed")?;
         let blob = response
             .payload()
             .context("empty response from the server")?;
-        let resp: JrpcResponse = serde_json::from_slice(blob.as_ref())?;
-        Ok(resp)
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            status_code: usize,
+            body: String,
+        }
+        let resp: Response = serde_json::from_slice(blob.as_ref())?;
+        if resp.status_code == 200 {
+            Ok(serde_json::from_str(&resp.body)?)
+        } else {
+            anyhow::bail!("error code {}, body {:?}", resp.status_code, resp.body)
+        }
     }
 }
 

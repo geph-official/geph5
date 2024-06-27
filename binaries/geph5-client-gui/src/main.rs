@@ -11,14 +11,14 @@ mod store_cell;
 mod tabs;
 mod timeseries;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use daemon::{stop_daemon, DAEMON, TOTAL_BYTES_TIMESERIES};
 use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
-use once_cell::sync::Lazy;
+
 use prefs::{pref_read, pref_write};
 use settings::USERNAME;
 use single_instance::SingleInstance;
@@ -30,16 +30,16 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, Env
 fn main() {
     let instance = SingleInstance::new("geph5-client-gui");
     if let Ok(instance) = instance {
-    if !instance.is_single() {
-        native_dialog::MessageDialog::new()
-            .set_type(MessageType::Error)
-            .set_text(l10n("geph_already_running"))
-            .set_title("Error")
-            .show_alert()
-            .unwrap();
-        std::process::exit(-1)
+        if !instance.is_single() {
+            native_dialog::MessageDialog::new()
+                .set_type(MessageType::Error)
+                .set_text(l10n("geph_already_running"))
+                .set_title("Error")
+                .show_alert()
+                .unwrap();
+            std::process::exit(-1)
+        }
     }
-}
 
     tracing_subscriber::registry()
         .with(

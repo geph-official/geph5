@@ -1,4 +1,4 @@
-use egui::{vec2, Align, Image, Key, Layout, ProgressBar, Sense, TextEdit, Widget};
+use egui::{Align, Image, Key, Layout, TextEdit, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
@@ -7,7 +7,7 @@ use crate::{
     settings::{get_config, PASSWORD, USERNAME},
 };
 
-use super::settings::render_language_settings;
+
 
 pub struct Login {
     username: String,
