@@ -109,6 +109,10 @@ jobs:
           # Zip the `.app` folder
           zip -r "geph5-client-gui.app.zip" "Geph5.app"
 
+          ls
+
+          pwd
+
           # Move the zip file to the artifacts directory
           mv "geph5-client-gui.app.zip" ../../../../artifacts/${{ matrix.dir }}/
 
