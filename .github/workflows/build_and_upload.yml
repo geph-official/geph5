@@ -91,7 +91,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           cd binaries/geph5-client-gui
-          cargo bundle --release
+          cargo bundle --release --target ${{ matrix.target }}
 
       - name: Install create-dmg
         if: matrix.os == 'macos-latest'
@@ -104,7 +104,7 @@ jobs:
           TEMP_DIR=$(mktemp -d)
 
           # Create a new DMG
-          hdiutil create -size 100m -fs HFS+ -volname "Geph Installer" -srcfolder "target/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
+          hdiutil create -size 100m -fs HFS+ -volname "Geph Installer" -srcfolder "target/${{ matrix.target }}/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
 
           # Mount the DMG
           hdiutil attach "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -mountpoint "$TEMP_DIR"
