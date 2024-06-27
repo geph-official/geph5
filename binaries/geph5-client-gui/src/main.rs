@@ -202,7 +202,7 @@ impl eframe::App for App {
         }
     }
 
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         // stop the daemon, unset the proxies, etc
         let _ = stop_daemon();
     }
