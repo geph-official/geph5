@@ -93,52 +93,17 @@ jobs:
           cd binaries/geph5-client-gui
           cargo bundle --release --target ${{ matrix.target }}
 
-      - name: Create macOS DMG
+      - name: Create macOS .app zip
         if: matrix.os == 'macos-latest'
         run: |
-          # Create a temporary directory for mounting
-          TEMP_DIR=$(mktemp -d)
+          # Move to the release directory
+          cd target/${{ matrix.target }}/release/bundle/osx/
 
-          # Create a new DMG
-          hdiutil create -size 100m -fs HFS+ -volname "Geph Installer" -srcfolder "target/${{ matrix.target }}/release/bundle/osx/" -format UDRW "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
+          # Zip the `.app` folder
+          zip -r "geph5-client-gui.app.zip" "Geph5.app"
 
-          # Mount the DMG
-          hdiutil attach "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -mountpoint "$TEMP_DIR"
-
-          # Create a symbolic link to /Applications
-          ln -s /Applications "$TEMP_DIR/Applications"
-
-
-          # # Set view options
-          # echo '
-          #   tell application "Finder"
-          #     tell disk "Geph Installer"
-          #       open
-          #       set current view of container window to icon view
-          #       set toolbar visible of container window to false
-          #       set statusbar visible of container window to false
-          #       set the bounds of container window to {400, 100, 1000, 500}
-          #       set theViewOptions to the icon view options of container window
-          #       set arrangement of theViewOptions to not arranged
-          #       set icon size of theViewOptions to 72
-          #       # You can adjust these coordinates to position your app and the Applications symlink
-          #       set position of item "Geph.app" of container window to {150, 200}
-          #       set position of item "Applications" of container window to {450, 200}
-          #       close
-          #       open
-          #       update without registering applications
-          #       delay 5
-          #       close
-          #     end tell
-          #   end tell
-          # ' | osascript
-
-          # Unmount the DMG
-          hdiutil detach "$TEMP_DIR"
-
-          # Convert the DMG to compressed read-only
-          # hdiutil convert "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg" -format UDZO -o "artifacts/${{ matrix.dir }}/geph-macos-final.dmg"
-          # mv "artifacts/${{ matrix.dir }}/geph-macos-final.dmg" "artifacts/${{ matrix.dir }}/geph5-client-gui.dmg"
+          # Move the zip file to the artifacts directory
+          mv "geph5-client-gui.app.zip" ../../../artifacts/${{ matrix.dir }}/
 
       - name: Move client GUI binaries to artifacts directory
         if: matrix.dir != 'musl'
