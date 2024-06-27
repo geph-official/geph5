@@ -109,41 +109,33 @@ jobs:
           # Mount the DMG
           hdiutil attach "artifacts/${{ matrix.dir }}/geph-macos.dmg" -mountpoint "$TEMP_DIR"
 
-          # Wait for the disk to be available
-          for i in {1..10}; do
-            if [ -d "/Volumes/Geph Installer" ]; then
-              break
-            fi
-            sleep 1
-          done
-
           # Create a symbolic link to /Applications
           ln -s /Applications "$TEMP_DIR/Applications"
 
 
-          # Set view options
-          echo '
-            tell application "Finder"
-              tell disk "Geph Installer"
-                open
-                set current view of container window to icon view
-                set toolbar visible of container window to false
-                set statusbar visible of container window to false
-                set the bounds of container window to {400, 100, 1000, 500}
-                set theViewOptions to the icon view options of container window
-                set arrangement of theViewOptions to not arranged
-                set icon size of theViewOptions to 72
-                # You can adjust these coordinates to position your app and the Applications symlink
-                set position of item "Geph.app" of container window to {150, 200}
-                set position of item "Applications" of container window to {450, 200}
-                close
-                open
-                update without registering applications
-                delay 5
-                close
-              end tell
-            end tell
-          ' | osascript
+          # # Set view options
+          # echo '
+          #   tell application "Finder"
+          #     tell disk "Geph Installer"
+          #       open
+          #       set current view of container window to icon view
+          #       set toolbar visible of container window to false
+          #       set statusbar visible of container window to false
+          #       set the bounds of container window to {400, 100, 1000, 500}
+          #       set theViewOptions to the icon view options of container window
+          #       set arrangement of theViewOptions to not arranged
+          #       set icon size of theViewOptions to 72
+          #       # You can adjust these coordinates to position your app and the Applications symlink
+          #       set position of item "Geph.app" of container window to {150, 200}
+          #       set position of item "Applications" of container window to {450, 200}
+          #       close
+          #       open
+          #       update without registering applications
+          #       delay 5
+          #       close
+          #     end tell
+          #   end tell
+          # ' | osascript
 
           # Unmount the DMG
           hdiutil detach "$TEMP_DIR"
