@@ -41,7 +41,7 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         remote_addr = display(&remote_addr),
                         "socks5 request received"
                     );
-                    let stream = open_conn(ctx, &remote_addr).await?;
+                    let stream = open_conn(ctx, "tcp", &remote_addr).await?;
                     write_request_status(
                         &mut write_client,
                         SocksV5RequestStatus::Success,

@@ -47,7 +47,7 @@ impl tower_service::Service<Uri> for Connector {
                         let err = Error::new(ErrorKind::Other, "URI must be a valid Address");
                         Err(err)
                     }
-                    Some(addr) => open_conn(&ctx, &addr.to_string())
+                    Some(addr) => open_conn(&ctx, "tcp", &addr.to_string())
                         .await
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e))
                         .map(|c| HyperRtCompat::new(PicomuxConnection(c.compat()))),

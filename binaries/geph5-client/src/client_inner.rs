@@ -39,7 +39,11 @@ use crate::{
 
 use super::Config;
 
-pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<picomux::Stream> {
+pub async fn open_conn(
+    ctx: &AnyCtx<Config>,
+    protocol: &str,
+    dest_addr: &str,
+) -> anyhow::Result<picomux::Stream> {
     let dest_addr = if let Ok(sock_addr) = SocketAddr::from_str(dest_addr) {
         if let IpAddr::V4(v4) = sock_addr.ip() {
             if let Some(orig) = fake_dns_backtranslate(ctx, v4) {
@@ -55,7 +59,7 @@ pub async fn open_conn(ctx: &AnyCtx<Config>, dest_addr: &str) -> anyhow::Result<
     };
 
     let (send, recv) = oneshot::channel();
-    let elem = (dest_addr.to_string(), send);
+    let elem = (format!("{protocol}${dest_addr}"), send);
     let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
     let mut conn = recv.await?;
     let ctx = ctx.clone();

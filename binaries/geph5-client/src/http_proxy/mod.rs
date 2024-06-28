@@ -152,7 +152,7 @@ async fn server_dispatch(
                         host = %host,
                         "CONNECT tunnel upgrade success"
                     );
-                    let stream = open_conn(&ctx, &host.to_string()).await;
+                    let stream = open_conn(&ctx, "tcp", &host.to_string()).await;
                     if let Ok(stream) = stream {
                         establish_connect_tunnel(upgraded, stream, client_addr).await
                     }

@@ -2,10 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 
-use std::{
-    net::{Ipv4Addr},
-    time::Duration,
-};
+use std::{net::Ipv4Addr, time::Duration};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -37,13 +34,13 @@ use crate::{client::CtxField, client_inner::open_conn, Config};
 
 static FAKE_DNS_FORWARD: CtxField<Cache<String, Ipv4Addr>> = |_| {
     Cache::builder()
-        .time_to_live(Duration::from_secs(300))
+        .time_to_live(Duration::from_secs(86400))
         .build()
 };
 
 static FAKE_DNS_BACKWARD: CtxField<Cache<Ipv4Addr, String>> = |_| {
     Cache::builder()
-        .time_to_live(Duration::from_secs(600))
+        .time_to_live(Duration::from_secs(86400))
         .build()
 };
 
@@ -91,7 +88,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     let ctx = ctx.clone();
 
                     smolscale::spawn(async move {
-                        let tunneled = open_conn(&ctx, &peer_addr.to_string()).await?;
+                        let tunneled = open_conn(&ctx, "tcp", &peer_addr.to_string()).await?;
                         tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                         let (read_tunneled, write_tunneled) = tunneled.split();
                         let (read_captured, write_captured) = captured.split();
@@ -148,7 +145,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                                     .await?;
                             }
                         } else {
-                            let tunneled = open_conn(&ctx, &format!("udp${peer_addr}")).await?;
+                            let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;
                             let (read_tunneled, write_tunneled) = tunneled.split();
                             let up_loop = async {
                                 let mut write_tunneled = BufWriter::new(write_tunneled);

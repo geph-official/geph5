@@ -91,7 +91,7 @@ async fn packet_shuffle(
         .context("cannot init up_file")?;
 
     // wait until we have a connection
-    open_conn(&ctx, "").await?;
+    open_conn(&ctx, "", "").await?;
     setup_routing().unwrap();
     let (mut read, mut write) = up_file.split();
     let up = async {
