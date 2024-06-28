@@ -40,3 +40,10 @@ pub fn start_daemon() -> anyhow::Result<()> {
         Ok(())
     }
 }
+
+pub trait Daemon {
+    fn start(&mut self) -> anyhow::Result<()>;
+    fn stop(&mut self) -> anyhow::Result<()>;
+
+    fn check_dead(&self) -> anyhow::Result<()>;
+}

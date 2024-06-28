@@ -1,7 +1,6 @@
-use std::{env, path::Path};
-
 fn main() {
-    if cfg!(windows) {
+    #[cfg(all(feature = "windivert", windows))]
+    {
         let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         println!(
             "cargo:rustc-link-search=native={}",
