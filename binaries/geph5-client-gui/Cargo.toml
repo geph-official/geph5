@@ -22,7 +22,7 @@ serde = { version = "1", features = ["derive"] }
 once_cell = "1.19.0"
 smol_str = { version = "0.2.2", features = ["serde"] }
 tap = "1.0.1"
-geph5-client = { path = "../geph5-client" }
+geph5-client = { path = "../geph5-client", features=["windivert"] }
 poll-promise = "0.3.0"
 smolscale = "0.4.4"
 futures-util = "0.3.30"

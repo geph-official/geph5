@@ -1,10 +1,11 @@
+#[cfg(feature = "windivert")]
 mod windivert;
 
 use std::{net::IpAddr, time::Duration};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
-use bytes::Bytes;
+
 use clone_macro::clone;
 use dashmap::DashSet;
 use ipstack_geph::{IpStack, IpStackConfig};
@@ -18,6 +19,12 @@ pub struct VpnCapture {
 }
 
 impl VpnCapture {
+    #[cfg(not(feature = "windivert"))]
+    pub fn new(ctx: AnyCtx<Config>) -> Self {
+        todo!()
+    }
+
+    #[cfg(feature = "windivert")]
     pub fn new(ctx: AnyCtx<Config>) -> Self {
         let (send_captured, recv_captured) = smol::channel::unbounded();
         let (send_injected, recv_injected) = smol::channel::unbounded();
@@ -34,8 +41,9 @@ impl VpnCapture {
     }
 }
 
-fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<Bytes>) -> anyhow::Result<()> {
-    smol::future::block_on(open_conn(&ctx, ""))?;
+#[cfg(feature = "windivert")]
+fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<bytes::Bytes>) -> anyhow::Result<()> {
+    smol::future::block_on(open_conn(&ctx, "", ""))?;
     let handle = windivert::PacketHandle::open("outbound and not loopback", -100)?;
     loop {
         let fallible = || {
@@ -61,8 +69,9 @@ fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<Bytes>) -> anyhow::Resu
     }
 }
 
-fn dn_shuffle(ctx: AnyCtx<Config>, recv_injected: Receiver<Bytes>) -> anyhow::Result<()> {
-    smol::future::block_on(open_conn(&ctx, ""))?;
+#[cfg(feature = "windivert")]
+fn dn_shuffle(ctx: AnyCtx<Config>, recv_injected: Receiver<bytes::Bytes>) -> anyhow::Result<()> {
+    smol::future::block_on(open_conn(&ctx, "", ""))?;
     let handle = windivert::PacketHandle::open("false", -200)?;
     loop {
         let pkt = recv_injected.recv_blocking()?;
