@@ -15,7 +15,7 @@ async_io_stream = "0.3.3"
 bipe = "0.2.2"
 bytemuck = { version = "1.16.1", features = ["derive", "min_const_generics"] }
 bytes = "1.6.0"
-dashmap = "5.5.3"
+dashmap = "6.0.1"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.30", features = ["io"] }
 oneshot = "0.1.8"

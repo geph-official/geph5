@@ -245,7 +245,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fe5a3722bef0d71b976d7ed31de07523d1359e944e174e4c1af24ee8a4755e3"
 dependencies = [
  "ahash",
- "dashmap",
+ "dashmap 5.5.3",
 ]
 
 [[package]]
@@ -2007,6 +2007,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "804c8821570c3f8b70230c2ba75ffa5c0f9a4189b9a432b6656c536712acae28"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "data-url"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2825,7 +2839,7 @@ dependencies = [
  "async-io 2.3.3",
  "async-trait",
  "blake3",
- "dashmap",
+ "dashmap 6.0.1",
  "deadpool",
  "futures-util",
  "geph5-broker-protocol",
@@ -2927,7 +2941,7 @@ dependencies = [
  "bytes",
  "clap",
  "clone-macro",
- "dashmap",
+ "dashmap 6.0.1",
  "dirs",
  "ed25519-dalek",
  "elevated-command",
@@ -3240,7 +3254,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68a7f542ee6b35af73b06abc0dad1c1bae89964e4e253bc4b587b91c9637867b"
 dependencies = [
  "cfg-if",
- "dashmap",
+ "dashmap 5.5.3",
  "futures",
  "futures-timer",
  "no-std-compat",
@@ -4910,7 +4924,7 @@ dependencies = [
  "bytemuck",
  "bytes",
  "clap",
- "dashmap",
+ "dashmap 6.0.1",
  "fastrand 2.1.0",
  "futures-intrusive",
  "futures-lite 2.3.0",
@@ -6262,7 +6276,7 @@ dependencies = [
  "cache-padded",
  "crossbeam-queue",
  "crossbeam-utils",
- "dashmap",
+ "dashmap 5.5.3",
  "event-listener 2.5.3",
  "fastrand 1.9.0",
  "futures-lite 1.13.0",
