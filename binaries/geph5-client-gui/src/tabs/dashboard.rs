@@ -92,7 +92,7 @@ impl Dashboard {
             .allow_scroll(false)
             .allow_boxed_zoom(false)
             .y_axis_position(egui_plot::HPlacement::Right)
-            .y_axis_width(2)
+            .y_axis_min_width(24.0)
             .y_axis_label("Mbps")
             .include_y(0.0)
             .include_y(1.0)
