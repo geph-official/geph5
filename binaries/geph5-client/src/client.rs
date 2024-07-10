@@ -3,6 +3,7 @@ use anyctx::AnyCtx;
 use clone_macro::clone;
 use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList};
+use nanorpc::DynRpcTransport;
 use smol::future::FutureExt as _;
 use std::{
     net::SocketAddr,
@@ -19,6 +20,9 @@ use crate::{
     auth::auth_loop,
     broker::{broker_client, BrokerSource},
     client_inner::client_once,
+    control_prot::{
+        ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
+    },
     database::db_read_or_wait,
     http_proxy::run_http_proxy,
     route::ExitConstraint,
@@ -49,7 +53,6 @@ pub struct Config {
 pub struct Client {
     task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
     ctx: AnyCtx<Config>,
-    start_time: Instant,
 }
 
 impl Client {
@@ -64,7 +67,6 @@ impl Client {
         Client {
             task: task.shared(),
             ctx,
-            start_time: Instant::now(),
         }
     }
 
@@ -87,19 +89,13 @@ impl Client {
         Ok(())
     }
 
-    /// Gets the starting time.
-    pub fn start_time(&self) -> Instant {
-        self.start_time
-    }
-
-    /// Returns the count of all bytes received.
-    pub fn total_rx_bytes(&self) -> f64 {
-        stat_get_num(&self.ctx, "total_rx_bytes")
-    }
-
-    /// Returns the count of all bytes sent.
-    pub fn total_tx_bytes(&self) -> f64 {
-        stat_get_num(&self.ctx, "total_tx_bytes")
+    /// Get the control protocol client.
+    pub fn control_client(&self) -> ControlClient {
+        ControlClient(DynRpcTransport::new(DummyControlProtocolTransport(
+            ControlService(ControlProtocolImpl {
+                ctx: self.ctx.clone(),
+            }),
+        )))
     }
 }
 

@@ -28,6 +28,14 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, Env
 // 0123456789
 
 fn main() {
+    let ((_, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
+        if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
+            binary_search::Direction::Low(())
+        } else {
+            binary_search::Direction::High(())
+        }
+    });
+
     let instance = SingleInstance::new("geph5-client-gui");
     if let Ok(instance) = instance {
         if !instance.is_single() {

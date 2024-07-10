@@ -45,6 +45,8 @@ egui_plot = "0.27.2"
 runas = "1.2.0"
 egui_extras = {version="0.27.2", features=["all_loaders"]}
 base32 = "0.5.0"
+rlimit = "0.10.1"
+binary-search = "0.1.2"
 
 [build-dependencies]
 winresource = "0.1"
