@@ -32,9 +32,11 @@ use stdcode::StdcodeSerializeExt;
 use crate::{
     auth::get_connect_token,
     client::CtxField,
+    control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
     route::{deprioritize_route, get_dialer},
     stats::stat_incr_num,
     vpn::fake_dns_backtranslate,
+    ConnInfo,
 };
 
 use super::Config;
@@ -86,6 +88,7 @@ static CONCURRENCY: usize = 6;
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
+    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
     static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, DynDialer)>>> =
         |_| smol::lock::Mutex::new(None);
@@ -143,6 +146,16 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(15))
         .await
         .context("overall dial/mux/auth timeout")??;
+        *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
+            protocol: authed_pipe.protocol().to_string(),
+            bridge: authed_pipe
+                .remote_addr()
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            exit: "unknown".to_string(),
+            country: isocountry::CountryCode::ABW,
+            city: "unknown".to_string(),
+        });
         smolscale::spawn(client_inner(ctx.clone(), authed_pipe)).await?;
         anyhow::Ok(())
     };

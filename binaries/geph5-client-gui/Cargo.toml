@@ -48,6 +48,9 @@ base32 = "0.5.0"
 rlimit = "0.10.1"
 binary-search = "0.1.2"
 
+nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
+sillad = { path = "../../libraries/sillad" }
+
 [build-dependencies]
 winresource = "0.1"
 

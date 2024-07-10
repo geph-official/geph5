@@ -4,6 +4,7 @@ use anyctx::AnyCtx;
 use async_trait::async_trait;
 use isocountry::CountryCode;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::{client::CtxField, stats::stat_get_num, Config};
@@ -14,15 +15,16 @@ pub trait ControlProtocol {
     async fn conn_info(&self) -> ConnInfo;
     async fn stat_num(&self, stat: String) -> f64;
     async fn start_time(&self) -> SystemTime;
+    async fn stop(&self);
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ConnInfo {
     Connecting,
     Connected(ConnectedInfo),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnectedInfo {
     pub protocol: String,
     pub bridge: String,
@@ -36,10 +38,12 @@ pub(crate) struct ControlProtocolImpl {
     pub ctx: AnyCtx<Config>,
 }
 
+pub static CURRENT_CONN_INFO: CtxField<Mutex<ConnInfo>> = |_| Mutex::new(ConnInfo::Connecting);
+
 #[async_trait]
 impl ControlProtocol for ControlProtocolImpl {
     async fn conn_info(&self) -> ConnInfo {
-        todo!()
+        self.ctx.get(CURRENT_CONN_INFO).lock().clone()
     }
 
     async fn stat_num(&self, stat: String) -> f64 {
@@ -49,6 +53,10 @@ impl ControlProtocol for ControlProtocolImpl {
     async fn start_time(&self) -> SystemTime {
         static START_TIME: CtxField<SystemTime> = |_| SystemTime::now();
         *self.ctx.get(START_TIME)
+    }
+
+    async fn stop(&self) {
+        std::process::exit(0);
     }
 }
 

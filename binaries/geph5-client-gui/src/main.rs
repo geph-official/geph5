@@ -13,13 +13,14 @@ mod timeseries;
 
 use std::time::Duration;
 
-use daemon::{stop_daemon, DAEMON, TOTAL_BYTES_TIMESERIES};
+use daemon::DAEMON_HANDLE;
 use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
 
 use prefs::{pref_read, pref_write};
+use refresh_cell::RefreshCell;
 use settings::USERNAME;
 use single_instance::SingleInstance;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
@@ -106,6 +107,7 @@ enum TabName {
 }
 
 pub struct App {
+    total_bytes: RefreshCell<f64>,
     selected_tab: TabName,
     login: Login,
 
@@ -147,6 +149,7 @@ impl App {
         });
 
         Self {
+            total_bytes: RefreshCell::new(),
             selected_tab: TabName::Dashboard,
             login: Login::new(),
 
@@ -162,10 +165,15 @@ impl eframe::App for App {
         ctx.request_repaint_after(Duration::from_millis(200));
 
         {
-            let daemon = DAEMON.lock();
-            if let Some(daemon) = daemon.as_ref() {
-                TOTAL_BYTES_TIMESERIES.record(daemon.total_rx_bytes());
-            }
+            self.total_bytes
+                .get_or_refresh(Duration::from_millis(200), || {
+                    smol::future::block_on(
+                        DAEMON_HANDLE
+                            .control_client()
+                            .stat_num("total_rx_bytes".to_string()),
+                    )
+                    .unwrap_or_default()
+                });
         }
 
         if USERNAME.get().is_empty() {
@@ -212,6 +220,6 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         // stop the daemon, unset the proxies, etc
-        let _ = stop_daemon();
+        let _ = smol::future::block_on(DAEMON_HANDLE.control_client().stop());
     }
 }
