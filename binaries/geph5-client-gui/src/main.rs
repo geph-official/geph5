@@ -19,6 +19,7 @@ use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
 
+use pac::unset_http_proxy;
 use prefs::{pref_read, pref_write};
 use refresh_cell::RefreshCell;
 use settings::USERNAME;
@@ -222,5 +223,6 @@ impl eframe::App for App {
     fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         // stop the daemon, unset the proxies, etc
         let _ = smol::future::block_on(DAEMON_HANDLE.control_client().stop());
+        unset_http_proxy().unwrap();
     }
 }

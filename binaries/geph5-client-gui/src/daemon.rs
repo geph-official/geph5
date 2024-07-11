@@ -20,6 +20,7 @@ pub static DAEMON_HANDLE: Lazy<Arc<dyn Daemon>> = Lazy::new(|| Arc::new(subproc:
 
 pub trait Daemon: Sync + Send + 'static {
     fn start(&self, cfg: Config) -> anyhow::Result<()>;
+
     fn stop(&self) -> anyhow::Result<()>;
     fn control_client(&self) -> ControlClient;
 

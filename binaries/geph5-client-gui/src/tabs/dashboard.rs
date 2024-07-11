@@ -7,8 +7,9 @@ use once_cell::sync::Lazy;
 use crate::{
     daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES},
     l10n::{l10n, l10n_country},
+    pac::{set_http_proxy, unset_http_proxy},
     refresh_cell::RefreshCell,
-    settings::get_config,
+    settings::{get_config, PROXY_AUTOCONF},
 };
 
 pub struct Dashboard {
@@ -79,10 +80,14 @@ impl Dashboard {
                 if ui.button(l10n("connect")).clicked() {
                     tracing::warn!("connect clicked");
                     DAEMON_HANDLE.start(get_config()?)?;
+                    if PROXY_AUTOCONF.get() {
+                        set_http_proxy(get_config()?.http_proxy_listen.unwrap())?;
+                    }
                 }
             } else if ui.button(l10n("disconnect")).clicked() {
                 tracing::warn!("disconnect clicked");
                 DAEMON_HANDLE.stop()?;
+                unset_http_proxy()?;
             }
             anyhow::Ok(())
         })
