@@ -4,7 +4,7 @@ use anyctx::AnyCtx;
 use anyhow::Context;
 
 use ed25519_dalek::VerifyingKey;
-use geph5_broker_protocol::{RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR};
 use isocountry::CountryCode;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
@@ -39,7 +39,9 @@ pub enum ExitConstraint {
 }
 
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
-pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, DynDialer)> {
+pub async fn get_dialer(
+    ctx: &AnyCtx<Config>,
+) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
     let mut country_constraint = None;
     let mut city_constraint = None;
     match &ctx.init().exit_constraint {
@@ -59,7 +61,18 @@ pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, D
                 .choose(&mut rand::thread_rng())
                 .context("could not resolve destination for direct exit connection")?;
             vpn_whitelist(dest_addr.ip());
-            return Ok((pubkey, TcpDialer { dest_addr }.dynamic()));
+            return Ok((
+                pubkey,
+                ExitDescriptor {
+                    c2e_listen: "0.0.0.0:0".parse()?,
+                    b2e_listen: "0.0.0.0:0".parse()?,
+                    country: CountryCode::ABW,
+                    city: "".to_string(),
+                    load: 0.0,
+                    expiry: 0,
+                },
+                TcpDialer { dest_addr }.dynamic(),
+            ));
         }
         ExitConstraint::Country(country) => country_constraint = Some(*country),
         ExitConstraint::CountryCity(country, city) => {
@@ -122,7 +135,7 @@ pub async fn get_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<(VerifyingKey, D
 
     let bridge_dialer = route_to_dialer(&bridge_routes);
 
-    Ok((pubkey, direct_dialer.race(bridge_dialer).dynamic()))
+    Ok((pubkey, exit, direct_dialer.race(bridge_dialer).dynamic()))
 }
 
 fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {

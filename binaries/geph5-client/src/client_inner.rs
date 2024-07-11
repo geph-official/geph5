@@ -4,6 +4,7 @@ use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::try_join_all, AsyncReadExt as _};
+use geph5_broker_protocol::ExitDescriptor;
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
@@ -90,15 +91,15 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, DynDialer)>>> =
+    static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, ExitDescriptor, DynDialer)>>> =
         |_| smol::lock::Mutex::new(None);
 
     let start = Instant::now();
     {
         let mut dialer = ctx.get(DIALER).lock().await;
         if dialer.is_none() {
-            let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
-            *dialer = Some((pubkey, raw_dialer));
+            let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
+            *dialer = Some((pubkey, exit, raw_dialer));
         }
     }
 
@@ -108,12 +109,12 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             tracing::info!(secs, "waiting until refresh");
             smol::Timer::after(Duration::from_secs(secs)).await;
             tracing::info!("refreshing dialer");
-            let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
-            *ctx.get(DIALER).lock().await = Some((pubkey, raw_dialer));
+            let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
+            *ctx.get(DIALER).lock().await = Some((pubkey, exit, raw_dialer));
         }
     };
 
-    let (pubkey, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
+    let (pubkey, exit, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
@@ -152,9 +153,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 .remote_addr()
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            exit: "unknown".to_string(),
-            country: isocountry::CountryCode::ABW,
-            city: "unknown".to_string(),
+            exit: exit.clone(),
         });
         smolscale::spawn(client_inner(ctx.clone(), authed_pipe)).await?;
         anyhow::Ok(())

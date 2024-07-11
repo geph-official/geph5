@@ -13,7 +13,7 @@ mod timeseries;
 
 use std::time::Duration;
 
-use daemon::DAEMON_HANDLE;
+use daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES};
 use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
@@ -129,10 +129,7 @@ impl App {
             "chinese".into(),
             FontData::from_static(include_bytes!("assets/chinese.ttf")),
         );
-        // fonts.font_data.insert(
-        //     "persian".into(),
-        //     FontData::from_static(include_bytes!("assets/persian.ttf")),
-        // );
+
         {
             let fonts = fonts.families.get_mut(&FontFamily::Proportional).unwrap();
             fonts.insert(0, "chinese".into());
@@ -144,8 +141,8 @@ impl App {
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
 
-            // style.spacing.button_padding = egui::vec2(5.0, 4.0);
             style.visuals = Visuals::light();
+            // style.visuals.override_text_color = Some(egui::Color32::BLACK);
         });
 
         Self {
@@ -165,7 +162,8 @@ impl eframe::App for App {
         ctx.request_repaint_after(Duration::from_millis(200));
 
         {
-            self.total_bytes
+            let count = self
+                .total_bytes
                 .get_or_refresh(Duration::from_millis(200), || {
                     smol::future::block_on(
                         DAEMON_HANDLE
@@ -173,7 +171,10 @@ impl eframe::App for App {
                             .stat_num("total_rx_bytes".to_string()),
                     )
                     .unwrap_or_default()
-                });
+                })
+                .copied()
+                .unwrap_or_default();
+            TOTAL_BYTES_TIMESERIES.record(count);
         }
 
         if USERNAME.get().is_empty() {

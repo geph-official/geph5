@@ -2,13 +2,13 @@ label,en,zh,ru,fa
 about,About,关于,О программе,Darbāre
 account_info,Account Info,帐户信息,Информация об аккаунте,Eṭṭelā'āt-e ḥesāb
 auto,Auto,自动,Авто,Xodkār
-broker_direct_tcp,Direct (TCP),直连（TCP）,Прямой (TCP),Direct (TCP)
+broker,Broker server,Broker服务器,Брокерский сервер,Serveur de courtier
 broker_direct,Direct,直连,Прямой,Direct
+broker_direct_tcp,Direct (TCP),直连（TCP）,Прямой (TCP),Direct (TCP)
+broker_fronted,Fronted,前置,Передний,Façade
 broker_fronted_front,Front,前置,Фронт-сервер,Frontal
 broker_fronted_host,Host,主机名,Имя хоста,Nom d'hôte
-broker_fronted,Fronted,前置,Передний,Façade
 broker_none,Default,默认,По умолчанию,Défaut
-broker,Broker server,Broker服务器,Брокерский сервер,Serveur de courtier
 cancel,Cancel,取消,Отмена,Lagv
 connect,Connect,连接,Подключить,Etesāl
 connected,Connected,已连接,Подключено,Mottasel
@@ -68,19 +68,19 @@ data_used,Data used,已用流量,Использ. данные,Dādehā-ye maṣr
 disconnect,Disconnect,断开连接,Отключить,Qat'-e etesāl
 disconnected,Disconnected,已断开连接,Отключено,Qat' šode ast
 download_speed,Download speed,下载速度,Скорость загрузки,Sor'at-e dānlod
+exit,Exit,退出,Выход,Koruj
+exit,Exit,退出,Выход,Koruj
 exit_location,Exit location,出口位置,Выходная точка,Makān-e xoroj
-exit,Exit,退出,Выход,Koruj
-exit,Exit,退出,Выход,Koruj
+geph,Geph,迷雾通,Геф,Gef
+geph,Geph,迷雾通,Геф,Gef
 geph_already_running,Geph is already running,Geph 已在运行,Geph уже запущен,Geph dar ḥāl-e ejrā ast
-geph,Geph,迷雾通,Геф,Gef
-geph,Geph,迷雾通,Геф,Gef
 help,Help,帮助,Помощь,Rāhnamā
 help,Help,帮助,Помощь,Rāhnamā
 http_proxy_port,HTTP proxy port,HTTP代理端口,HTTP-прокси-порт,HTTP proxy port
 language,Language,语言,Язык,Zabān
 language,Language,语言,Язык,Zabān
-loading_exit_list,Loading exit list...,正在加载出口列表...,Загрузка списка выходов...,Dar hāl-e bārgozārī-ye liste xuruji-hā
 loading,Loading,加载中,Загрузка,Dar hāl-e bārgozārī
+loading_exit_list,Loading exit list...,正在加载出口列表...,Загрузка списка выходов...,Dar hāl-e bārgozārī-ye liste xuruji-hā
 logging_in,Logging in,登录中,Вход в систему,Dar hāl-e vorūd
 login,Login,登录,Вход,Vorūd
 login,Login,登录,Вход,Vorūd
@@ -101,6 +101,7 @@ socks5_port,Socks5 proxy port,Socks5代理端口,Порт прокси Socks5,So
 status,Status,状态,Статус,Vazīyat
 upload_speed,Upload speed,上传速度,Скорость отдачи,Sor'at-e āplod
 username,Username,用户名,Имя пользователя,Nām-e karbarī
+via,Connecting via,连接经由,Через,Az ṭarīq-e
 vpn_admin_only,VPN mode only works if Geph is run as administrator or using sudo on Linux,VPN 模式仅在迷雾通以管理员身份运行或在 Linux 上使用 sudo 时才有效,VPN режим работает только если Geph запущен от имени администратора или с использованием sudo в Linux,VPN mod faqat dar surati kaar mikonad ke Geph be onvān modir ejrā shavad yā dar Linux az sudo estefādeh shavad
 vpn_mode,VPN mode,VPN模式,VPN режим,Mod-e VPN
 zoom_factor,Zoom factor,缩放,Масштабирование,Zarīb-e bozorg-namā'ī

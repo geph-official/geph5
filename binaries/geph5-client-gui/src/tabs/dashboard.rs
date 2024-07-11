@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 
 use crate::{
     daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES},
-    l10n::l10n,
+    l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::get_config,
 };
@@ -29,6 +29,9 @@ impl Dashboard {
             })
             .cloned()
             .flatten();
+        let style = ui.style().clone();
+        let font_id = style.text_styles.get(&egui::TextStyle::Body).unwrap();
+        let font_color = style.visuals.text_color();
         ui.columns(2, |columns| {
             columns[0].label(l10n("status"));
 
@@ -36,20 +39,39 @@ impl Dashboard {
                 Some(ConnInfo::Connecting) => {
                     columns[1].colored_label(egui::Color32::DARK_BLUE, l10n("connecting"));
                 }
-                Some(ConnInfo::Connected(_info)) => {
+                Some(ConnInfo::Connected(info)) => {
                     columns[1].colored_label(egui::Color32::DARK_GREEN, l10n("connected"));
-                    // let start_time = daemon.start_time().elapsed().as_secs() + 1;
-                    // let start_time = Duration::from_secs(1) * start_time as _;
-                    // columns[1].label(format!("{:?}", start_time));
-                    // let rx_mb = daemon.total_rx_bytes() / 1_000_000.0;
-                    // columns[1].label(format!("{:.2} MB", rx_mb));
+
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        &info.exit.b2e_listen.ip().to_string(),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: font_id.clone(),
+                            color: font_color,
+                            ..Default::default()
+                        },
+                    );
+                    job.append("\n", 0.0, egui::TextFormat::default());
+                    job.append(
+                        &format!("{}\n{}", l10n_country(info.exit.country), info.exit.city),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: font_id.clone(),
+                            color: egui::Color32::GRAY,
+                            ..Default::default()
+                        },
+                    );
+                    columns[1].label(job);
+
+                    columns[1].label(info.bridge.split(':').next().unwrap());
                 }
                 None => {
                     columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));
                 }
             }
-            columns[0].label(l10n("connection_time"));
-            columns[0].label(l10n("data_used"));
+            columns[0].label(l10n("exit_location").to_string() + "\n\n");
+            columns[0].label(l10n("via"));
         });
         ui.add_space(10.);
         ui.vertical_centered(|ui| {

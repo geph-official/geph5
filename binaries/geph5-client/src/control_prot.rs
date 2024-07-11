@@ -1,8 +1,12 @@
-use std::{convert::Infallible, time::SystemTime};
+use std::{
+    convert::Infallible,
+    time::{Duration, SystemTime},
+};
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
-use isocountry::CountryCode;
+use geph5_broker_protocol::ExitDescriptor;
+
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -29,12 +33,10 @@ pub struct ConnectedInfo {
     pub protocol: String,
     pub bridge: String,
 
-    pub exit: String,
-    pub country: CountryCode,
-    pub city: String,
+    pub exit: ExitDescriptor,
 }
 
-pub(crate) struct ControlProtocolImpl {
+pub struct ControlProtocolImpl {
     pub ctx: AnyCtx<Config>,
 }
 
@@ -56,11 +58,15 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn stop(&self) {
-        std::process::exit(0);
+        smolscale::spawn(async move {
+            smol::Timer::after(Duration::from_millis(100)).await;
+            std::process::exit(0);
+        })
+        .detach();
     }
 }
 
-pub(crate) struct DummyControlProtocolTransport(pub ControlService<ControlProtocolImpl>);
+pub struct DummyControlProtocolTransport(pub ControlService<ControlProtocolImpl>);
 
 #[async_trait]
 impl RpcTransport for DummyControlProtocolTransport {
