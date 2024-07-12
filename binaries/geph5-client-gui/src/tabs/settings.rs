@@ -6,7 +6,7 @@ use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 
 use crate::{
-    daemon::stop_daemon,
+    daemon::DAEMON_HANDLE,
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
@@ -20,7 +20,7 @@ pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     if ui.button(l10n("logout")).clicked() {
-        stop_daemon()?;
+        smol::future::block_on(DAEMON_HANDLE.control_client().stop())?;
         USERNAME.set("".into());
         PASSWORD.set("".into());
     }

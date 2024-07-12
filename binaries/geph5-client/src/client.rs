@@ -3,14 +3,9 @@ use anyctx::AnyCtx;
 use clone_macro::clone;
 use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList};
+use nanorpc::DynRpcTransport;
 use smol::future::FutureExt as _;
-use std::{
-    net::SocketAddr,
-    path::PathBuf,
-    sync::Arc,
-    task::Context,
-    time::{Duration, Instant},
-};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, task::Context, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
@@ -19,11 +14,13 @@ use crate::{
     auth::auth_loop,
     broker::{broker_client, BrokerSource},
     client_inner::client_once,
+    control_prot::{
+        ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
+    },
     database::db_read_or_wait,
     http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
-    stats::stat_get_num,
     vpn::vpn_loop,
 };
 
@@ -32,6 +29,7 @@ pub struct Config {
     pub socks5_listen: Option<SocketAddr>,
     pub http_proxy_listen: Option<SocketAddr>,
     pub stats_listen: Option<SocketAddr>,
+    pub control_listen: Option<SocketAddr>,
     pub exit_constraint: ExitConstraint,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
@@ -49,11 +47,10 @@ pub struct Config {
 pub struct Client {
     task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
     ctx: AnyCtx<Config>,
-    start_time: Instant,
 }
 
 impl Client {
-    /// Starts the client logic in the loop, returnign the handle.
+    /// Starts the client logic in the loop, returning the handle.
     pub fn start(cfg: Config) -> Self {
         std::env::remove_var("http_proxy");
         std::env::remove_var("https_proxy");
@@ -64,7 +61,6 @@ impl Client {
         Client {
             task: task.shared(),
             ctx,
-            start_time: Instant::now(),
         }
     }
 
@@ -87,19 +83,13 @@ impl Client {
         Ok(())
     }
 
-    /// Gets the starting time.
-    pub fn start_time(&self) -> Instant {
-        self.start_time
-    }
-
-    /// Returns the count of all bytes received.
-    pub fn total_rx_bytes(&self) -> f64 {
-        stat_get_num(&self.ctx, "total_rx_bytes")
-    }
-
-    /// Returns the count of all bytes sent.
-    pub fn total_tx_bytes(&self) -> f64 {
-        stat_get_num(&self.ctx, "total_tx_bytes")
+    /// Get the control protocol client.
+    pub fn control_client(&self) -> ControlClient {
+        ControlClient(DynRpcTransport::new(DummyControlProtocolTransport(
+            ControlService(ControlProtocolImpl {
+                ctx: self.ctx.clone(),
+            }),
+        )))
     }
 }
 
@@ -143,6 +133,20 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 |e| tracing::warn!("client died and restarted: {:?}", e)
             )),
         );
+
+        let rpc_serve = async {
+            if let Some(control_listen) = ctx.init().control_listen {
+                nanorpc_sillad::rpc_serve(
+                    sillad::tcp::TcpListener::bind(control_listen).await?,
+                    ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
+                )
+                .await?;
+                anyhow::Ok(())
+            } else {
+                smol::future::pending().await
+            }
+        };
+
         socks5_loop(&ctx)
             .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))
             .race(vpn_loop.inspect_err(|e| tracing::error!(err = debug(e), "vpn loop stopped")))
@@ -154,6 +158,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 auth_loop(&ctx)
                     .inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
             )
+            .race(rpc_serve)
             .await
     }
 }

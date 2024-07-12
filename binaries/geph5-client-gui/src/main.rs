@@ -13,13 +13,15 @@ mod timeseries;
 
 use std::time::Duration;
 
-use daemon::{stop_daemon, DAEMON, TOTAL_BYTES_TIMESERIES};
+use daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES};
 use egui::{FontData, FontDefinitions, FontFamily, IconData, Visuals};
 use l10n::l10n;
 use logs::LogLayer;
 use native_dialog::MessageType;
 
+use pac::unset_http_proxy;
 use prefs::{pref_read, pref_write};
+use refresh_cell::RefreshCell;
 use settings::USERNAME;
 use single_instance::SingleInstance;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
@@ -28,6 +30,14 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, Env
 // 0123456789
 
 fn main() {
+    let ((_, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
+        if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
+            binary_search::Direction::Low(())
+        } else {
+            binary_search::Direction::High(())
+        }
+    });
+
     let instance = SingleInstance::new("geph5-client-gui");
     if let Ok(instance) = instance {
         if !instance.is_single() {
@@ -98,6 +108,7 @@ enum TabName {
 }
 
 pub struct App {
+    total_bytes: RefreshCell<f64>,
     selected_tab: TabName,
     login: Login,
 
@@ -119,10 +130,7 @@ impl App {
             "chinese".into(),
             FontData::from_static(include_bytes!("assets/chinese.ttf")),
         );
-        // fonts.font_data.insert(
-        //     "persian".into(),
-        //     FontData::from_static(include_bytes!("assets/persian.ttf")),
-        // );
+
         {
             let fonts = fonts.families.get_mut(&FontFamily::Proportional).unwrap();
             fonts.insert(0, "chinese".into());
@@ -134,11 +142,12 @@ impl App {
         cc.egui_ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
 
-            // style.spacing.button_padding = egui::vec2(5.0, 4.0);
             style.visuals = Visuals::light();
+            // style.visuals.override_text_color = Some(egui::Color32::BLACK);
         });
 
         Self {
+            total_bytes: RefreshCell::new(),
             selected_tab: TabName::Dashboard,
             login: Login::new(),
 
@@ -154,10 +163,19 @@ impl eframe::App for App {
         ctx.request_repaint_after(Duration::from_millis(200));
 
         {
-            let daemon = DAEMON.lock();
-            if let Some(daemon) = daemon.as_ref() {
-                TOTAL_BYTES_TIMESERIES.record(daemon.total_rx_bytes());
-            }
+            let count = self
+                .total_bytes
+                .get_or_refresh(Duration::from_millis(200), || {
+                    smol::future::block_on(
+                        DAEMON_HANDLE
+                            .control_client()
+                            .stat_num("total_rx_bytes".to_string()),
+                    )
+                    .unwrap_or_default()
+                })
+                .copied()
+                .unwrap_or_default();
+            TOTAL_BYTES_TIMESERIES.record(count);
         }
 
         if USERNAME.get().is_empty() {
@@ -204,6 +222,7 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         // stop the daemon, unset the proxies, etc
-        let _ = stop_daemon();
+        let _ = smol::future::block_on(DAEMON_HANDLE.control_client().stop());
+        unset_http_proxy().unwrap();
     }
 }
