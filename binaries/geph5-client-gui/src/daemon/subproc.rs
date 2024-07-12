@@ -1,7 +1,4 @@
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    os::windows::process::CommandExt,
-};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use geph5_client::Config;
 
@@ -40,6 +37,7 @@ impl Daemon for SubprocDaemon {
 
             #[cfg(windows)]
             {
+                use std::os::windows::process::CommandExt,
                 use winapi::um::winbase::CREATE_NO_WINDOW;
                 cmd.creation_flags(CREATE_NO_WINDOW);
             }
