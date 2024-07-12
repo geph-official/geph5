@@ -1,60 +1,104 @@
 use std::time::{Duration, Instant};
 
 use egui_plot::{Line, Plot, PlotPoints};
+use geph5_client::ConnInfo;
 use once_cell::sync::Lazy;
 
 use crate::{
-    daemon::{start_daemon, stop_daemon, DAEMON, TOTAL_BYTES_TIMESERIES},
-    l10n::l10n,
+    daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES},
+    l10n::{l10n, l10n_country},
+    pac::{set_http_proxy, unset_http_proxy},
+    refresh_cell::RefreshCell,
+    settings::{get_config, PROXY_AUTOCONF},
 };
 
-pub struct Dashboard {}
+pub struct Dashboard {
+    conn_info: RefreshCell<Option<ConnInfo>>,
+}
 
 impl Dashboard {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            conn_info: RefreshCell::new(),
+        }
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> anyhow::Result<()> {
+        let conn_info = self
+            .conn_info
+            .get_or_refresh(Duration::from_millis(200), || {
+                smol::future::block_on(DAEMON_HANDLE.control_client().conn_info()).ok()
+            })
+            .cloned()
+            .flatten();
+        let style = ui.style().clone();
+        let font_id = style.text_styles.get(&egui::TextStyle::Body).unwrap();
+        let font_color = style.visuals.text_color();
         ui.columns(2, |columns| {
             columns[0].label(l10n("status"));
-            let daemon = DAEMON.lock();
-            match daemon.as_ref() {
-                Some(daemon) => {
+
+            match &conn_info {
+                Some(ConnInfo::Connecting) => {
+                    columns[1].colored_label(egui::Color32::DARK_BLUE, l10n("connecting"));
+                }
+                Some(ConnInfo::Connected(info)) => {
                     columns[1].colored_label(egui::Color32::DARK_GREEN, l10n("connected"));
-                    let start_time = daemon.start_time().elapsed().as_secs() + 1;
-                    let start_time = Duration::from_secs(1) * start_time as _;
-                    columns[1].label(format!("{:?}", start_time));
-                    let rx_mb = daemon.total_rx_bytes() / 1_000_000.0;
-                    columns[1].label(format!("{:.2} MB", rx_mb));
+
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        &info.exit.b2e_listen.ip().to_string(),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: font_id.clone(),
+                            color: font_color,
+                            ..Default::default()
+                        },
+                    );
+                    job.append("\n", 0.0, egui::TextFormat::default());
+                    job.append(
+                        &format!("{}\n{}", l10n_country(info.exit.country), info.exit.city),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: font_id.clone(),
+                            color: egui::Color32::GRAY,
+                            ..Default::default()
+                        },
+                    );
+                    columns[1].label(job);
+
+                    columns[1].label(info.bridge.split(':').next().unwrap());
                 }
                 None => {
                     columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));
                 }
             }
-            columns[0].label(l10n("connection_time"));
-            columns[0].label(l10n("data_used"));
+            columns[0].label(l10n("exit_location").to_string() + "\n\n");
+            columns[0].label(l10n("via"));
         });
         ui.add_space(10.);
         ui.vertical_centered(|ui| {
-            if DAEMON.lock().is_none() {
+            if conn_info.is_none() {
                 if ui.button(l10n("connect")).clicked() {
                     tracing::warn!("connect clicked");
-                    start_daemon()?;
+                    DAEMON_HANDLE.start(get_config()?)?;
+                    if PROXY_AUTOCONF.get() {
+                        set_http_proxy(get_config()?.http_proxy_listen.unwrap())?;
+                    }
                 }
             } else if ui.button(l10n("disconnect")).clicked() {
                 tracing::warn!("disconnect clicked");
-                stop_daemon()?;
+                DAEMON_HANDLE.stop()?;
+                unset_http_proxy()?;
             }
             anyhow::Ok(())
         })
         .inner?;
 
-        let daemon = DAEMON.lock();
-        if let Some(daemon) = daemon.as_ref() {
-            if let Err(err) = daemon.check_dead() {
-                ui.colored_label(egui::Color32::RED, format!("{:?}", err));
-            }
-        }
+        // let daemon = DAEMON.lock();
+        // if let Some(daemon) = daemon.as_ref() {
+        //     if let Err(err) = daemon.check_dead() {
+        //         ui.colored_label(egui::Color32::RED, format!("{:?}", err));
+        //     }
+        // }
 
         static START: Lazy<Instant> = Lazy::new(Instant::now);
         let now = Instant::now();

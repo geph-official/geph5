@@ -5,7 +5,7 @@ use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use smol_str::SmolStr;
 
-static PREF_DIR: Lazy<PathBuf> = Lazy::new(|| {
+pub static PREF_DIR: Lazy<PathBuf> = Lazy::new(|| {
     let dir = dirs::config_dir()
         .context("no config dir")
         .unwrap()

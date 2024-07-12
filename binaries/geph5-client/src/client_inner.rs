@@ -4,6 +4,7 @@ use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::try_join_all, AsyncReadExt as _};
+use geph5_broker_protocol::ExitDescriptor;
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
@@ -32,9 +33,11 @@ use stdcode::StdcodeSerializeExt;
 use crate::{
     auth::get_connect_token,
     client::CtxField,
+    control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
     route::{deprioritize_route, get_dialer},
     stats::stat_incr_num,
     vpn::fake_dns_backtranslate,
+    ConnInfo,
 };
 
 use super::Config;
@@ -86,16 +89,17 @@ static CONCURRENCY: usize = 6;
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
+    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, DynDialer)>>> =
+    static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, ExitDescriptor, DynDialer)>>> =
         |_| smol::lock::Mutex::new(None);
 
     let start = Instant::now();
     {
         let mut dialer = ctx.get(DIALER).lock().await;
         if dialer.is_none() {
-            let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
-            *dialer = Some((pubkey, raw_dialer));
+            let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
+            *dialer = Some((pubkey, exit, raw_dialer));
         }
     }
 
@@ -105,12 +109,12 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             tracing::info!(secs, "waiting until refresh");
             smol::Timer::after(Duration::from_secs(secs)).await;
             tracing::info!("refreshing dialer");
-            let (pubkey, raw_dialer) = get_dialer(&ctx).await?;
-            *ctx.get(DIALER).lock().await = Some((pubkey, raw_dialer));
+            let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
+            *ctx.get(DIALER).lock().await = Some((pubkey, exit, raw_dialer));
         }
     };
 
-    let (pubkey, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
+    let (pubkey, exit, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
@@ -143,6 +147,14 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(15))
         .await
         .context("overall dial/mux/auth timeout")??;
+        *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
+            protocol: authed_pipe.protocol().to_string(),
+            bridge: authed_pipe
+                .remote_addr()
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            exit: exit.clone(),
+        });
         smolscale::spawn(client_inner(ctx.clone(), authed_pipe)).await?;
         anyhow::Ok(())
     };
