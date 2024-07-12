@@ -1,4 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    os::windows::process::CommandExt,
+};
 
 use geph5_client::Config;
 
@@ -21,10 +24,28 @@ impl Daemon for SubprocDaemon {
             cfg_path.clone(),
             serde_yaml::to_string(&serde_json::to_value(&cfg)?)?,
         )?;
-        std::process::Command::new("geph5-client")
-            .arg("-c")
-            .arg(cfg_path)
-            .spawn()?;
+        if cfg.vpn {
+            std::thread::spawn(|| {
+                runas::Command::new("geph5-client")
+                    .arg("-c")
+                    .arg(cfg_path)
+                    .gui(true)
+                    .show(false)
+                    .status()
+            });
+        } else {
+            let mut cmd = std::process::Command::new("geph5-client");
+
+            cmd.arg("-c").arg(cfg_path);
+
+            #[cfg(windows)]
+            {
+                use winapi::um::winbase::CREATE_NO_WINDOW;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+
+            cmd.spawn()?;
+        }
         Ok(())
     }
 

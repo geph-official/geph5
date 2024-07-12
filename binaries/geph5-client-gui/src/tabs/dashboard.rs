@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use egui_plot::{Line, Plot, PlotPoints};
 use geph5_client::ConnInfo;
 use once_cell::sync::Lazy;
+use smol_timeout::TimeoutExt;
 
 use crate::{
     daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES},
@@ -26,7 +27,14 @@ impl Dashboard {
         let conn_info = self
             .conn_info
             .get_or_refresh(Duration::from_millis(200), || {
-                smol::future::block_on(DAEMON_HANDLE.control_client().conn_info()).ok()
+                smol::future::block_on(
+                    DAEMON_HANDLE
+                        .control_client()
+                        .conn_info()
+                        .timeout(Duration::from_millis(100)),
+                )
+                .map(|s| s.ok())
+                .flatten()
             })
             .cloned()
             .flatten();
