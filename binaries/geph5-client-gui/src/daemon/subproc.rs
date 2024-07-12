@@ -37,7 +37,7 @@ impl Daemon for SubprocDaemon {
 
             #[cfg(windows)]
             {
-                use std::os::windows::process::CommandExt,
+                use std::os::windows::process::CommandExt;
                 use winapi::um::winbase::CREATE_NO_WINDOW;
                 cmd.creation_flags(CREATE_NO_WINDOW);
             }
