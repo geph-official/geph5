@@ -135,7 +135,13 @@ pub async fn get_dialer(
 
     let bridge_dialer = route_to_dialer(&bridge_routes);
 
-    Ok((pubkey, exit, direct_dialer.race(bridge_dialer).dynamic()))
+    Ok((
+        pubkey,
+        exit,
+        direct_dialer
+            .race(bridge_dialer.delay(Duration::from_millis(500)))
+            .dynamic(),
+    ))
 }
 
 fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
