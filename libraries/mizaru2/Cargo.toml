@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 blake3 = { version = "1.5.1", features = ["serde"] }
-blind-rsa-signatures = "0.15.0"
+blind-rsa-signatures = "0.15.1"
 rand = "0.8.5"
 stdcode = "0.1.14"
-serde = { version = "1.0.202", features = ["derive", "rc"] }
+serde = { version = "1.0.204", features = ["derive", "rc"] }
 anyhow = "1.0.86"
 rayon = "1.10.0"
