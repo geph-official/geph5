@@ -92,12 +92,17 @@ fn main() {
             }),
         ..Default::default()
     };
-    eframe::run_native(
-        l10n("geph"),
-        native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
-    )
+
+    let mut cell = None;
+    eframe::run_simple_native(l10n("geph"), native_options, move |ctx, frame| {
+        let app = cell.get_or_insert_with(|| App::new(ctx));
+        app.render(ctx, frame)
+    })
     .unwrap();
+
+    eprintln!("****** STOPPED ******");
+    let _ = smol::future::block_on(DAEMON_HANDLE.control_client().stop());
+    unset_http_proxy().unwrap();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -118,8 +123,8 @@ pub struct App {
 
 impl App {
     /// Constructs the app.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        egui_extras::install_image_loaders(&cc.egui_ctx);
+    pub fn new(ctx: &egui::Context) -> Self {
+        egui_extras::install_image_loaders(ctx);
         // set up fonts. currently this uses SC for CJK, but this can be autodetected instead.
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
@@ -138,8 +143,8 @@ impl App {
             fonts.insert(0, "normal".into());
         }
 
-        cc.egui_ctx.set_fonts(fonts);
-        cc.egui_ctx.style_mut(|style| {
+        ctx.set_fonts(fonts);
+        ctx.style_mut(|style| {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
 
             style.visuals = Visuals::light();
@@ -157,8 +162,8 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl App {
+    pub fn render(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_zoom_factor(1.1);
         ctx.request_repaint_after(Duration::from_millis(200));
 
@@ -218,11 +223,5 @@ impl eframe::App for App {
                 .set_type(MessageType::Error)
                 .show_alert();
         }
-    }
-
-    fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
-        // stop the daemon, unset the proxies, etc
-        let _ = smol::future::block_on(DAEMON_HANDLE.control_client().stop());
-        unset_http_proxy().unwrap();
     }
 }
