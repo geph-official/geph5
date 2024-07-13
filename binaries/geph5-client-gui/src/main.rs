@@ -64,12 +64,6 @@ fn main() {
         )
         .with(LogLayer)
         .init();
-    // default prefs
-    for (key, value) in [("lang", "en")] {
-        if pref_read(key).is_err() {
-            pref_write(key, value).unwrap();
-        }
-    }
 
     let (icon_rgba, icon_width, icon_height) = {
         let icon = include_bytes!("../icon.ico");
