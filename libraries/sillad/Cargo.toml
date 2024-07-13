@@ -7,7 +7,7 @@ license = "ISC"
 description = "A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
 
 [dependencies]
-async-io = "2.3.2"
+async-io = "2.3.3"
 async-trait = "0.1.80"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.30", features = ["io"] }
