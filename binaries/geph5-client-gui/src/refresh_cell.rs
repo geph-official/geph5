@@ -8,6 +8,12 @@ pub struct RefreshCell<T: Send + Sync + 'static> {
     next: Option<Promise<T>>,
 }
 
+impl<T: Send + Sync + 'static> Default for RefreshCell<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Send + Sync + 'static> RefreshCell<T> {
     /// Creates a new RefreshCell.
     pub fn new() -> Self {

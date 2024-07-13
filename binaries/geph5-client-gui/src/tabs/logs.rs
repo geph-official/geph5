@@ -6,6 +6,12 @@ pub struct Logs {
     log_cache: String,
 }
 
+impl Default for Logs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Logs {
     pub fn new() -> Self {
         Logs {

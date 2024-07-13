@@ -17,6 +17,12 @@ pub struct Dashboard {
     conn_info: RefreshCell<Option<ConnInfo>>,
 }
 
+impl Default for Dashboard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dashboard {
     pub fn new() -> Self {
         Self {
@@ -33,8 +39,7 @@ impl Dashboard {
                         .conn_info()
                         .timeout(Duration::from_millis(100)),
                 )
-                .map(|s| s.ok())
-                .flatten()
+                .and_then(|s| s.ok())
             })
             .cloned()
             .flatten();

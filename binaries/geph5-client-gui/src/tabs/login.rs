@@ -16,6 +16,12 @@ pub struct Login {
     check_login: Option<Promise<anyhow::Result<()>>>,
 }
 
+impl Default for Login {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Login {
     pub fn new() -> Self {
         Self {
