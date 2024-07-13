@@ -55,7 +55,7 @@ pub fn vpn_whitelist(addr: IpAddr) {
     }
 }
 
-pub fn setup_routing() -> anyhow::Result<()> {
+fn setup_routing() -> anyhow::Result<()> {
     let cmd = include_str!("linux_routing_setup.sh");
     let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
     child.wait().context("iptables was not set up properly")?;
@@ -93,6 +93,7 @@ async fn packet_shuffle(
     // wait until we have a connection
     open_conn(&ctx, "", "").await?;
     setup_routing().unwrap();
+    scopeguard::defer!(teardown_routing());
     let (mut read, mut write) = up_file.split();
     let up = async {
         loop {
