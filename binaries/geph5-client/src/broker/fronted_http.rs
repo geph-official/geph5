@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Client;
@@ -26,7 +27,11 @@ impl RpcTransport for FrontedHttpTransport {
         }
 
         let request_body = serde_json::to_vec(&req)?;
-        let response = request_builder.body(request_body).send().await?;
+        let response = request_builder
+            .body(request_body)
+            .send()
+            .await
+            .context("cannot send request to front")?;
 
         let resp_bytes = response.bytes().await?;
         tracing::trace!(

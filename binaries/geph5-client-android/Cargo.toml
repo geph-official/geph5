@@ -18,8 +18,10 @@ egui-winit = { version = "0.28", default-features = false, features = [ "android
 # egui_demo_lib = "0.22"
 jni = {version="0.21.1", features=["invocation"]}
 once_cell = "1.19.0"
+reqwest = { version = "0.12.5", default-features = false, features = ["rustls-tls-webpki-roots"] }
 
 geph5-client-gui = { path = "../geph5-client-gui" }
+smolscale = "0.4.7"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 env_logger = "0.10"

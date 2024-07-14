@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::TcpStream, sync::Arc};
 
 use egui::ViewportId;
 use egui_wgpu::wgpu::{self, rwh::HasDisplayHandle};
@@ -78,7 +78,7 @@ fn create_window<T>(
         state.set_max_texture_side(max_size);
     }
 
-    let pixels_per_point = window.scale_factor() as f32;
+    // let pixels_per_point = window.scale_factor() as f32;
     // state.set_pixels_per_point(pixels_per_point);
 
     window.request_redraw();
@@ -159,7 +159,7 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
                     let full_output = ctx.run(raw_input, |ctx| {
                         let app = app.get_or_insert_with(|| App::new(ctx));
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            ui.add_space(50.0);
+                            // ui.add_space(90.0);
                             app.render(ctx);
                         });
                     });
@@ -177,7 +177,7 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
                     );
 
                     // if full_output.repaint_after.is_zero() {
-                    // window.request_redraw();
+                    window.request_redraw();
                     // }
                 } else {
                     log::debug!("RedrawRequested, with no window set");
@@ -225,13 +225,17 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
+    if let Some(input_connection) = app.input_connection() {
+        input_connection.show_soft_input(true);
+    }
+
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Trace) // Default comes from `log::max_level`, i.e. Off
             .with_filter(
                 android_logger::FilterBuilder::new()
                     .filter_level(log::LevelFilter::Debug)
-                    //.filter_module("android_activity", log::LevelFilter::Trace)
+                    .filter_module("geph5", log::LevelFilter::Trace)
                     //.filter_module("winit", log::LevelFilter::Trace)
                     .build(),
             ),
