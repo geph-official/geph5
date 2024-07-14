@@ -1,12 +1,18 @@
 use std::path::PathBuf;
 
 use anyhow::Context as _;
+use app_dirs2::{get_app_root, AppDataType, AppInfo};
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
 use smol_str::SmolStr;
 
+const APP_INFO: AppInfo = AppInfo {
+    name: "Geph5",
+    author: "Gephyra",
+};
+
 pub static PREF_DIR: Lazy<PathBuf> = Lazy::new(|| {
-    let dir = dirs::config_dir()
+    let dir = get_app_root(AppDataType::UserConfig, &APP_INFO)
         .context("no config dir")
         .unwrap()
         .join("geph5-prefs");

@@ -12,3 +12,7 @@ pub use windows::*;
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
+
+mod dummy;
+#[cfg(target_os = "android")]
+pub use dummy::*;

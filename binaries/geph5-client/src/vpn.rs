@@ -1,17 +1,24 @@
 //! This module provides functionality for setting up a system-level VPN.
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::*;
+
+mod dummy;
+
+#[cfg(target_os = "android")]
+pub use dummy::*;
 
 use std::{net::Ipv4Addr, time::Duration};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
-#[cfg(target_os = "linux")]
-pub use linux::*;
 
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::*;
 
 use moka::sync::Cache;
 
@@ -21,12 +28,9 @@ use smol::{
     future::FutureExt,
     io::{BufReader, BufWriter},
 };
-#[cfg(target_os = "windows")]
-pub use windows::*;
 
 #[cfg(target_os = "macos")]
 mod macos;
-
 #[cfg(target_os = "macos")]
 pub use macos::*;
 

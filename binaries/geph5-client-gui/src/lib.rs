@@ -5,7 +5,7 @@ use std::time::Duration;
 use daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES};
 use egui::{FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
-use native_dialog::MessageType;
+
 use refresh_cell::RefreshCell;
 use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
@@ -78,7 +78,7 @@ impl App {
 }
 
 impl App {
-    pub fn render(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    pub fn render(&mut self, ctx: &egui::Context) {
         ctx.set_zoom_factor(1.1);
         ctx.request_repaint_after(Duration::from_millis(200));
 
@@ -128,7 +128,9 @@ impl App {
             }
         });
 
+        #[cfg(not(target_os = "android"))]
         if let Err(err) = result.inner {
+            use native_dialog::MessageType;
             let _ = native_dialog::MessageDialog::new()
                 .set_title("Fatal error")
                 .set_text(&format!(

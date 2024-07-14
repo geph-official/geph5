@@ -6,11 +6,11 @@ use native_dialog::MessageType;
 
 use geph5_client_gui::pac::unset_http_proxy;
 
-use single_instance::SingleInstance;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
 
 // 0123456789
 
+#[cfg(not(target_os = "android"))]
 fn main() {
     let ((_, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
         if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
@@ -20,6 +20,7 @@ fn main() {
         }
     });
 
+    use single_instance::SingleInstance;
     let instance = SingleInstance::new("geph5-client-gui");
     if let Ok(instance) = instance {
         if !instance.is_single() {
@@ -72,7 +73,7 @@ fn main() {
     let mut cell = None;
     eframe::run_simple_native(l10n("geph"), native_options, move |ctx, frame| {
         let app = cell.get_or_insert_with(|| geph5_client_gui::App::new(ctx));
-        app.render(ctx, frame)
+        app.render(ctx)
     })
     .unwrap();
 
