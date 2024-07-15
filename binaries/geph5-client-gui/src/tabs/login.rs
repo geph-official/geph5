@@ -1,4 +1,4 @@
-use egui::{Align, Image, Key, Layout, TextEdit, Widget};
+use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
@@ -6,8 +6,6 @@ use crate::{
     l10n::l10n,
     settings::{get_config, PASSWORD, USERNAME},
 };
-
-
 
 pub struct Login {
     username: String,
@@ -38,8 +36,9 @@ impl Login {
             match promise.poll() {
                 std::task::Poll::Ready(ready) => match ready {
                     Ok(_) => {
-                        USERNAME.set(self.username.clone());
-                        PASSWORD.set(self.password.clone());
+                        self.check_login = None;
+                        USERNAME.set(self.username.take());
+                        PASSWORD.set(self.password.take());
                     }
                     Err(err) => {
                         let err = format!("{:?}", err);

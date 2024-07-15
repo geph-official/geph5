@@ -20,7 +20,7 @@ pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
 
 pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     if ui.button(l10n("logout")).clicked() {
-        smol::future::block_on(DAEMON_HANDLE.control_client().stop())?;
+        DAEMON_HANDLE.stop()?;
         USERNAME.set("".into());
         PASSWORD.set("".into());
     }
