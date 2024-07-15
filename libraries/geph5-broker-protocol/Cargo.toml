@@ -13,7 +13,7 @@ serde = { version = "1.0.204", features = ["derive"] }
 bytes = { version = "1.6.0", features = ["serde"] }
 ed25519-dalek = { version = "2.1.1", features = ["serde"] }
 stdcode = "0.1.14"
-blake3 = { version = "1.5.1", features = ["serde"] }
+blake3 = { version = "=1.5.1", features = ["serde"] }
 isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
 serde_with = { version = "3.8.3", features = ["hex"] }

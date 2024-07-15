@@ -1251,9 +1251,9 @@ dependencies = [
 
 [[package]]
 name = "blake3"
-version = "1.5.2"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d08263faac5cde2a4d52b513dadb80846023aade56fcd8fc99ba73ba8050e92"
+checksum = "30cca6d3674597c30ddf2c587bf8d9d65c9a84d2326d941cc79c9842dfe0ef52"
 dependencies = [
  "arrayref",
  "arrayvec",
@@ -1261,7 +1261,6 @@ dependencies = [
  "cfg-if",
  "constant_time_eq",
  "serde",
- "serde_bytes",
 ]
 
 [[package]]
@@ -5988,15 +5987,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc76f558e0cbb2a839d37354c575f1dc3fdc6546b5be373ba43d95f231bf7c12"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
-dependencies = [
- "serde",
 ]
 
 [[package]]
