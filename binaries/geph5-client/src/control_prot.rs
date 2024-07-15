@@ -1,6 +1,7 @@
 use std::{
+    collections::BTreeMap,
     convert::Infallible,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyctx::AnyCtx;
@@ -10,8 +11,9 @@ use geph5_broker_protocol::ExitDescriptor;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
-use crate::{client::CtxField, stats::stat_get_num, Config};
+use crate::{client::CtxField, logs::LOGS, stats::stat_get_num, Config};
 
 #[nanorpc_derive]
 #[async_trait]
@@ -20,6 +22,8 @@ pub trait ControlProtocol {
     async fn stat_num(&self, stat: String) -> f64;
     async fn start_time(&self) -> SystemTime;
     async fn stop(&self);
+
+    async fn recent_logs(&self) -> Vec<(SystemTime, String, BTreeMap<SmolStr, String>)>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -64,6 +68,26 @@ impl ControlProtocol for ControlProtocolImpl {
         })
         .detach();
     }
+
+    async fn recent_logs(&self) -> Vec<(SystemTime, String, BTreeMap<SmolStr, String>)> {
+        let logs = LOGS.read();
+        logs.iter()
+            .map(|log| {
+                let msg = log.fields.get("message").map(|s| s.as_str()).unwrap_or("");
+                (
+                    chrono_to_system_time(log.timestamp),
+                    format!("{} {}", log.level, msg),
+                    log.fields.clone(),
+                )
+            })
+            .collect()
+    }
+}
+
+fn chrono_to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
+    let duration_since_epoch = dt.timestamp_nanos_opt().unwrap();
+    let std_duration = Duration::from_nanos(duration_since_epoch as u64);
+    UNIX_EPOCH + std_duration
 }
 
 pub struct DummyControlProtocolTransport(pub ControlService<ControlProtocolImpl>);

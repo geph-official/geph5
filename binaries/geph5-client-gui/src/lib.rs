@@ -54,7 +54,6 @@ impl App {
         {
             let fonts = fonts.families.get_mut(&FontFamily::Proportional).unwrap();
             fonts.insert(0, "chinese".into());
-            // fonts.insert(0, "persian".into());
             fonts.insert(0, "normal".into());
         }
 
@@ -63,7 +62,6 @@ impl App {
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
 
             style.visuals = Visuals::light();
-            // style.visuals.override_text_color = Some(egui::Color32::BLACK);
         });
 
         Self {
