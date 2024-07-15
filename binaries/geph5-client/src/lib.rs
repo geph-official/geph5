@@ -12,6 +12,7 @@ mod client_inner;
 mod control_prot;
 mod database;
 mod http_proxy;
+pub mod logs;
 mod route;
 mod socks5;
 mod stats;

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use geph5_client::{Client, Config};
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
+use geph5_client::{logs::LogLayer, Client, Config};
+use tracing_subscriber::{prelude::*, EnvFilter};
 
 /// Run the Geph5 client.
 #[derive(Parser)]
@@ -28,6 +28,7 @@ fn main() -> anyhow::Result<()> {
                 .with_default_directive("geph5_client=debug".parse()?)
                 .from_env_lossy(),
         )
+        .with(LogLayer)
         .init();
 
     let args = CliArgs::parse();
