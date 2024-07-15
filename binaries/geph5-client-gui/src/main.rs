@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use egui::IconData;
 use geph5_client_gui::daemon::DAEMON_HANDLE;
 use geph5_client_gui::l10n::l10n;
