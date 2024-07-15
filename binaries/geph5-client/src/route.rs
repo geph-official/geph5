@@ -87,13 +87,15 @@ pub async fn get_dialer(
         "created dialer"
     );
 
-    let broker = broker_client(ctx)?;
+    let broker = broker_client(ctx).context("could not get broker client")?;
     let exits = broker
         .get_exits()
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
     // TODO we need to ACTUALLY verify the response!!!
-    let exits = exits.verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)?;
+    let exits = exits
+        .verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)
+        .context("could not verify")?;
     // filter for things that fit
     let (pubkey, exit) = exits
         .all_exits
@@ -123,7 +125,9 @@ pub async fn get_dialer(
     ));
 
     // Also obtain the bridges
-    let (_, conn_token, sig) = get_connect_token(ctx).await?;
+    let (_, conn_token, sig) = get_connect_token(ctx)
+        .await
+        .context("could not get connect token")?;
     let bridge_routes = broker
         .get_routes(conn_token, sig, exit.b2e_listen)
         .await?

@@ -98,7 +98,8 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     {
         let mut dialer = ctx.get(DIALER).lock().await;
         if dialer.is_none() {
-            let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
+            let (pubkey, exit, raw_dialer) =
+                get_dialer(&ctx).await.context("could not get initially")?;
             *dialer = Some((pubkey, exit, raw_dialer));
         }
     }
@@ -120,7 +121,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
 
     let once = || async {
         let authed_pipe = async {
-            let raw_pipe = raw_dialer.dial().await?;
+            let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
             tracing::debug!(
                 elapsed = debug(start.elapsed()),
                 protocol = raw_pipe.protocol(),
@@ -136,7 +137,9 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                     }
                 }
             });
-            let authed_pipe = client_auth(&ctx, raw_pipe, pubkey).await?;
+            let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
+                .await
+                .context("could not client auth")?;
             died.store(false, Ordering::SeqCst);
             tracing::debug!(
                 elapsed = debug(start.elapsed()),
@@ -214,7 +217,9 @@ async fn client_auth(
     let credentials = if ctx.init().broker.is_none() {
         Bytes::new()
     } else {
-        let (level, token, sig) = get_connect_token(ctx).await?;
+        let (level, token, sig) = get_connect_token(ctx)
+            .await
+            .context("cannot get connect token")?;
         (level, token, sig).stdcode().into()
     };
     match pipe.shared_secret().map(|s| s.to_owned()) {
@@ -229,7 +234,8 @@ async fn client_auth(
 
             let mac = blake3::keyed_hash(&challenge, &ss);
             let exit_response: ExitHello =
-                stdcode::deserialize(&read_prepend_length(&mut pipe).await?)?;
+                stdcode::deserialize(&read_prepend_length(&mut pipe).await?)
+                    .context("cannot deserialize exit hello")?;
             match exit_response.inner {
                 ExitHelloInner::SharedSecretResponse(response_mac) => {
                     if mac == response_mac {
@@ -252,7 +258,8 @@ async fn client_auth(
             write_prepend_length(&client_hello.stdcode(), &mut pipe).await?;
             tracing::trace!(server, "wrote client hello");
             let exit_hello: ExitHello =
-                stdcode::deserialize(&read_prepend_length(&mut pipe).await?)?;
+                stdcode::deserialize(&read_prepend_length(&mut pipe).await?)
+                    .context("could not deserialize exit hello")?;
             tracing::trace!(server, "received exit hello");
             // verify the exit hello
             let signed_value = (&client_hello, &exit_hello.inner).stdcode();
