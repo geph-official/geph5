@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
-          cp target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
+          mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
 
       - name: Build bridge and exit
         if: matrix.os == 'ubuntu-20.04'
@@ -77,6 +77,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
+          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml --all-features
           choco install innosetup
           cp target/${{ matrix.target }}/release/geph5-client-gui packaging/windows
           cp target/${{ matrix.target }}/release/geph5-client packaging/windows
