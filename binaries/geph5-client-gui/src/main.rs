@@ -3,7 +3,7 @@
 use egui::IconData;
 use geph5_client_gui::daemon::DAEMON_HANDLE;
 use geph5_client_gui::l10n::l10n;
-use geph5_client_gui::logs::LogLayer;
+
 use native_dialog::MessageType;
 
 use geph5_client_gui::pac::unset_http_proxy;
@@ -22,7 +22,9 @@ fn main() {
         }
     });
 
+    use geph5_client_gui::logs::LOGS;
     use single_instance::SingleInstance;
+    use tracing_subscriber::{fmt::format::FmtSpan, Layer};
     let instance = SingleInstance::new("geph5-client-gui");
     if let Ok(instance) = instance {
         if !instance.is_single() {
@@ -40,6 +42,11 @@ fn main() {
         .with(
             tracing_subscriber::fmt::layer()
                 .compact()
+                .with_writer(|| &*LOGS),
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
                 .with_writer(std::io::stderr),
         )
         .with(
@@ -47,7 +54,6 @@ fn main() {
                 .with_default_directive("geph5=debug".parse().unwrap())
                 .from_env_lossy(),
         )
-        .with(LogLayer)
         .init();
 
     let (icon_rgba, icon_width, icon_height) = {

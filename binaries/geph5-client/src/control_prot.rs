@@ -8,6 +8,7 @@ use anyctx::AnyCtx;
 use async_trait::async_trait;
 use geph5_broker_protocol::ExitDescriptor;
 
+use itertools::Itertools;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ pub trait ControlProtocol {
     async fn start_time(&self) -> SystemTime;
     async fn stop(&self);
 
-    async fn recent_logs(&self) -> Vec<(SystemTime, String, BTreeMap<SmolStr, String>)>;
+    async fn recent_logs(&self) -> Vec<String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -69,25 +70,13 @@ impl ControlProtocol for ControlProtocolImpl {
         .detach();
     }
 
-    async fn recent_logs(&self) -> Vec<(SystemTime, String, BTreeMap<SmolStr, String>)> {
-        let logs = LOGS.read();
-        logs.iter()
-            .map(|log| {
-                let msg = log.fields.get("message").map(|s| s.as_str()).unwrap_or("");
-                (
-                    chrono_to_system_time(log.timestamp),
-                    format!("{} {}", log.level, msg),
-                    log.fields.clone(),
-                )
-            })
-            .collect()
+    async fn recent_logs(&self) -> Vec<String> {
+        let logs = LOGS.lock();
+        String::from_utf8_lossy(&logs)
+            .split('\n')
+            .map(|s| s.to_string())
+            .collect_vec()
     }
-}
-
-fn chrono_to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
-    let duration_since_epoch = dt.timestamp_nanos_opt().unwrap();
-    let std_duration = Duration::from_nanos(duration_since_epoch as u64);
-    UNIX_EPOCH + std_duration
 }
 
 pub struct DummyControlProtocolTransport(pub ControlService<ControlProtocolImpl>);

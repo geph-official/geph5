@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::{ops::Deref, path::PathBuf};
 
 use clap::Parser;
-use geph5_client::{logs::LogLayer, Client, Config};
-use tracing_subscriber::{prelude::*, EnvFilter};
+use geph5_client::{logs::LOGS, Client, Config};
+use tracing_subscriber::{fmt::format::FmtSpan, prelude::*, EnvFilter};
 
 /// Run the Geph5 client.
 #[derive(Parser)]
@@ -17,6 +17,11 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    let json_layer = tracing_subscriber::fmt::layer()
+        .with_writer(|| &*LOGS)
+        .with_span_events(FmtSpan::FULL)
+        .json()
+        .with_filter(EnvFilter::from_default_env());
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
@@ -28,7 +33,7 @@ fn main() -> anyhow::Result<()> {
                 .with_default_directive("geph5_client=debug".parse()?)
                 .from_env_lossy(),
         )
-        .with(LogLayer)
+        .with(json_layer)
         .init();
 
     let args = CliArgs::parse();

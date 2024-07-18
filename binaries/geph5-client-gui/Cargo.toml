@@ -17,7 +17,7 @@ csv = "1.3.0"
 eframe = { version = "0.28.1" }
 egui = "0.28.1"
 moka = { version = "0.12.7", features = ["sync"] }
-
+arc-writer = { path = "../../libraries/arc-writer" }
 serde = { version = "1", features = ["derive"] }
 once_cell = "1.19.0"
 smol_str = { version = "0.2.2", features = ["serde"] } 
@@ -31,7 +31,7 @@ geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 serde_yaml = "0.9.34"
 smol-timeout = "0.6.0"
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = {version="0.3.18", features=["json"]}
 serde_json = "1.0.120"
 oneshot = "0.1.8"
 chrono = "0.4.38"
@@ -51,6 +51,7 @@ binary-search = "0.1.2"
 nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 sillad = { path = "../../libraries/sillad" }
 app_dirs2 = "2.5.5"
+strip-ansi-escapes = "0.2.0"
 
 [build-dependencies]
 winresource = "0.1"

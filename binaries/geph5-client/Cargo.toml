@@ -59,6 +59,7 @@ serde_json = "1.0.120"
 serde_yaml = "0.9.34"
 sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
+arc-writer = { path = "../../libraries/arc-writer" }
 simple-dns = "0.7.0"
 smol = "2.0.0"
 smol-timeout = "0.6.0"
@@ -73,7 +74,7 @@ thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["rt", "net", "io-util"] }
 tower-service = "0.3.2"
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = {version="0.3.18", features=["json"]}
 tun = "0.6.1"
 x25519-dalek = "2.0.1"
 

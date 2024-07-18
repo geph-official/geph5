@@ -32,34 +32,19 @@ impl Logs {
                 smol::future::block_on(async {
                     let mut remote_logs = DAEMON_HANDLE.control_client().recent_logs().await?;
                     {
-                        let raw_logs = LOGS.read();
-                        for log in raw_logs.iter() {
-                            let msg = log.fields.get("message").map(|s| s.as_str()).unwrap_or("");
-                            remote_logs.push((
-                                chrono_to_system_time(log.timestamp),
-                                msg.to_string(),
-                                log.fields.clone(),
-                            ));
+                        let raw_logs = LOGS.lock();
+                        let raw_logs = String::from_utf8_lossy(&raw_logs);
+                        for log in raw_logs.split('\n') {
+                            remote_logs.push(log.to_string());
                         }
                     }
-                    remote_logs.sort_unstable_by_key(|rl| rl.0);
 
-                    Ok(remote_logs
-                        .into_iter()
-                        .map(|log| {
-                            let datetime: DateTime<Utc> = log.0.into();
-                            let mut fields = log.2.clone();
-                            fields.retain(|k, _| k != "message");
-
-                            // Format the DateTime as a string
-                            let formatted_string = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
-                            format!("{} {} {:?}", formatted_string, log.1, fields)
-                        })
-                        .join("\n"))
+                    Ok(remote_logs.into_iter().join("\n"))
                 })
             });
 
         if let Some(Ok(logs)) = logs {
+            let logs = strip_ansi_escapes::strip_str(logs);
             ui.centered_and_justified(|ui| {
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(true)
