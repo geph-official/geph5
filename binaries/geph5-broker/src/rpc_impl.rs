@@ -5,12 +5,13 @@ use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
 use futures_util::future::join_all;
 use geph5_broker_protocol::{
-    AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, Credential, ExitDescriptor,
-    ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, BrokerService, Credential,
+    ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
+use nanorpc::{JrpcRequest, JrpcResponse, RpcService, ServerError};
 use once_cell::sync::Lazy;
 use std::{
     net::SocketAddr,
@@ -27,7 +28,29 @@ use crate::{
     CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
 };
 
-pub struct BrokerImpl {}
+pub struct WrappedBrokerService(BrokerService<BrokerImpl>);
+
+impl WrappedBrokerService {
+    pub fn new() -> Self {
+        Self(BrokerService(BrokerImpl {}))
+    }
+}
+
+#[async_trait]
+impl RpcService for WrappedBrokerService {
+    async fn respond(
+        &self,
+        method: &str,
+        params: Vec<serde_json::Value>,
+    ) -> Option<Result<serde_json::Value, ServerError>> {
+        if let Some(client) = STATSD_CLIENT.as_ref() {
+            client.count(&format!("broker.{method}"), 1).unwrap();
+        }
+        self.0.respond(method, params).await
+    }
+}
+
+struct BrokerImpl {}
 
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {

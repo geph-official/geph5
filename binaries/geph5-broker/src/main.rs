@@ -6,7 +6,8 @@ use ed25519_dalek::SigningKey;
 use geph5_broker_protocol::BrokerService;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
-use rpc_impl::BrokerImpl;
+
+use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
@@ -114,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
     let _tcp_loop = Immortal::respawn(RespawnStrategy::Immediate, || async {
         nanorpc_sillad::rpc_serve(
             sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
-            BrokerService(BrokerImpl {}),
+            WrappedBrokerService::new(),
         )
         .await?;
         anyhow::Ok(())
@@ -127,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
-    Json(BrokerService(BrokerImpl {}).respond_raw(payload).await)
+    Json(WrappedBrokerService::new().respond_raw(payload).await)
 }
 
 fn log_error(e: &impl Debug) {
