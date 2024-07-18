@@ -83,6 +83,10 @@ async fn broker_loop() -> anyhow::Result<()> {
                 client
                     .incr_stat(format!("{server_name}.throughput"), diff as _)
                     .await?;
+                let load = get_load();
+                client
+                    .set_stat(format!("{server_name}.load"), load as _)
+                    .await?;
 
                 let descriptor = ExitDescriptor {
                     c2e_listen: CONFIG_FILE
@@ -95,7 +99,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                         .tap_mut(|addr| addr.set_ip(my_ip)),
                     country: CONFIG_FILE.wait().country,
                     city: CONFIG_FILE.wait().city.clone(),
-                    load: get_load(),
+                    load,
                     expiry: SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()

@@ -224,6 +224,12 @@ impl BrokerProtocol for BrokerImpl {
             client.count(&stat, value).unwrap();
         }
     }
+
+    async fn set_stat(&self, stat: String, value: f64) {
+        if let Some(client) = STATSD_CLIENT.as_ref() {
+            client.gauge(&stat, value).unwrap();
+        }
+    }
 }
 
 static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {

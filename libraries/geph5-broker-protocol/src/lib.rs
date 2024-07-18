@@ -45,6 +45,8 @@ pub trait BrokerProtocol {
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
 
     async fn incr_stat(&self, stat: String, value: i32);
+
+    async fn set_stat(&self, stat: String, value: f64);
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
