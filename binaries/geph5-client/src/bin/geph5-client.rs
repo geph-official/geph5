@@ -1,8 +1,8 @@
-use std::{ops::Deref, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 use geph5_client::{logs::LOGS, Client, Config};
-use tracing_subscriber::{fmt::format::FmtSpan, prelude::*, EnvFilter};
+use tracing_subscriber::{prelude::*, EnvFilter};
 
 /// Run the Geph5 client.
 #[derive(Parser)]

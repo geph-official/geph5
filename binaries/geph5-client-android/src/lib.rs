@@ -1,4 +1,4 @@
-use std::{net::TcpStream, sync::Arc};
+use std::sync::Arc;
 
 use egui::ViewportId;
 use egui_wgpu::wgpu::{self, rwh::HasDisplayHandle};
@@ -8,10 +8,7 @@ use egui_winit::winit::{
 };
 
 use geph5_client_gui::App;
-use jni::{
-    objects::{JObject, JValue},
-    JNIEnv, JavaVM,
-};
+use jni::{objects::JObject, JNIEnv, JavaVM};
 use once_cell::sync::OnceCell;
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
 
@@ -148,7 +145,7 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
                 window = None;
             }
             Event::WindowEvent {
-                window_id,
+                window_id: _,
                 event: WindowEvent::RedrawRequested,
             } => {
                 if let Some(window) = window.as_ref() {
@@ -158,7 +155,7 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
                     log::debug!("RedrawRequested: calling ctx.run()");
                     let full_output = ctx.run(raw_input, |ctx| {
                         let app = app.get_or_insert_with(|| App::new(ctx));
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::CentralPanel::default().show(ctx, |_ui| {
                             // ui.add_space(90.0);
                             app.render(ctx);
                         });

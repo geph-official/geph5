@@ -10,7 +10,7 @@ pub struct VpnCapture {
 }
 
 impl VpnCapture {
-    pub fn new(ctx: AnyCtx<Config>) -> Self {
+    pub fn new(_ctx: AnyCtx<Config>) -> Self {
         todo!()
     }
 
@@ -19,6 +19,6 @@ impl VpnCapture {
     }
 }
 
-pub fn vpn_whitelist(addr: IpAddr) {
+pub fn vpn_whitelist(_addr: IpAddr) {
     // noop
 }

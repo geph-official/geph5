@@ -1,9 +1,5 @@
-use std::{
-    fmt::Write as _,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use itertools::Itertools;
 
 use crate::{daemon::DAEMON_HANDLE, logs::LOGS, refresh_cell::RefreshCell};
@@ -62,10 +58,4 @@ impl Logs {
         }
         Ok(())
     }
-}
-
-fn chrono_to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
-    let duration_since_epoch = dt.timestamp_nanos_opt().unwrap();
-    let std_duration = Duration::from_nanos(duration_since_epoch as u64);
-    UNIX_EPOCH + std_duration
 }

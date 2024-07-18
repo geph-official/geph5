@@ -24,7 +24,7 @@ fn main() {
 
     use geph5_client_gui::logs::LOGS;
     use single_instance::SingleInstance;
-    use tracing_subscriber::{fmt::format::FmtSpan, Layer};
+
     let instance = SingleInstance::new("geph5-client-gui");
     if let Ok(instance) = instance {
         if !instance.is_single() {
@@ -79,7 +79,7 @@ fn main() {
     };
 
     let mut cell = None;
-    eframe::run_simple_native(l10n("geph"), native_options, move |ctx, frame| {
+    eframe::run_simple_native(l10n("geph"), native_options, move |ctx, _frame| {
         let app = cell.get_or_insert_with(|| geph5_client_gui::App::new(ctx));
         app.render(ctx)
     })

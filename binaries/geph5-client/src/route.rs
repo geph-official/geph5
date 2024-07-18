@@ -117,7 +117,7 @@ pub async fn get_dialer(
         .context("no exits that fit the criterion")?;
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
     vpn_whitelist(exit.c2e_listen.ip());
-    let direct_dialer = TcpDialer {
+    let _direct_dialer = TcpDialer {
         dest_addr: exit.c2e_listen,
     }
     .delay(Duration::from_secs(
