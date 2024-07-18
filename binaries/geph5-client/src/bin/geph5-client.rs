@@ -17,11 +17,6 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    let json_layer = tracing_subscriber::fmt::layer()
-        .with_writer(|| &*LOGS)
-        .with_span_events(FmtSpan::FULL)
-        .json()
-        .with_filter(EnvFilter::from_default_env());
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
@@ -29,11 +24,15 @@ fn main() -> anyhow::Result<()> {
                 .with_writer(std::io::stderr),
         )
         .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_writer(|| &*LOGS),
+        )
+        .with(
             EnvFilter::builder()
                 .with_default_directive("geph5_client=debug".parse()?)
                 .from_env_lossy(),
         )
-        .with(json_layer)
         .init();
 
     let args = CliArgs::parse();
