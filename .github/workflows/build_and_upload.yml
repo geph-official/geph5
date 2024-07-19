@@ -62,28 +62,23 @@ jobs:
           cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
           cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-exit/Cargo.toml
 
-      - name: Move client binaries to artifacts directory
+      - name: Move bridge and exit binaries to artifacts directory
         if: matrix.os == 'ubuntu-20.04'
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-bridge artifacts/${{ matrix.dir }}/
           mv target/${{ matrix.target }}/release/geph5-exit artifacts/${{ matrix.dir }}/
 
-      - name: Build client GUI
-        if: matrix.dir != 'musl'
+      - name: Build client GUI (non-Windows)
+        if: matrix.dir != 'musl' && matrix.os != 'windows-latest'
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client-gui/Cargo.toml
 
-      - name: Build Windows installer
-        if: matrix.os == 'windows-latest'
+      - name: Move client GUI binaries to artifacts directory (non-Windows)
+        if: matrix.dir != 'musl' && matrix.os != 'windows-latest'
         shell: bash
         run: |
-          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml --all-features
-          choco install innosetup
-          cp target/${{ matrix.target }}/release/geph5-client-gui packaging/windows
-          cp target/${{ matrix.target }}/release/geph5-client packaging/windows
-          cp binaries/geph5-client/windows-lib/* packaging/windows
-          iscc packaging/windows/setup.iss
-          cp packaging/windows/Output/* artifacts/${{ matrix.dir }}/
+          mkdir -p artifacts/${{ matrix.dir }}
+          mv target/${{ matrix.target }}/release/geph5-client-gui artifacts/${{ matrix.dir }}/
 
       - name: Install cargo-bundle
         if: matrix.os == 'macos-latest'
@@ -95,27 +90,11 @@ jobs:
           cd binaries/geph5-client-gui
           cargo bundle --release --target ${{ matrix.target }}
 
-      - name: Move client GUI binaries to artifacts directory
-        if: matrix.dir != 'musl'
-        shell: bash
-        run: |
-          mkdir -p artifacts/${{ matrix.dir }}
-          mv target/${{ matrix.target }}/release/geph5-client-gui artifacts/${{ matrix.dir }}/
-
       - name: Create macOS .app zip
         if: matrix.os == 'macos-latest'
         run: |
-          # Move to the release directory
           cd target/${{ matrix.target }}/release/bundle/osx/
-
-          # Zip the `.app` folder
           zip -r "geph5-client-gui.app.zip" "Geph5.app"
-
-          ls
-
-          pwd
-
-          # Move the zip file to the artifacts directory
           mv "geph5-client-gui.app.zip" ../../../../../artifacts/${{ matrix.dir }}/
 
       - name: Upload artifact
@@ -124,9 +103,59 @@ jobs:
           name: ${{ matrix.dir }}-latest
           path: artifacts/${{ matrix.dir }}
 
+  build-windows-gui:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: i686-pc-windows-msvc
+
+      - name: Set default host
+        shell: bash
+        run: rustup set default-host i686-pc-windows-msvc
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: i686-pc-windows-msvc-gui
+
+      - name: Build Windows GUI client
+        run: |
+          cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client/Cargo.toml --all-features
+          cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client-gui/Cargo.toml
+
+      - name: Build Windows installer
+        shell: bash
+        run: |
+          choco install innosetup
+          cp target/i686-pc-windows-msvc/release/geph5-client-gui packaging/windows
+          cp target/i686-pc-windows-msvc/release/geph5-client packaging/windows
+          cp binaries/geph5-client/windows-lib/* packaging/windows
+          iscc packaging/windows/setup.iss
+
+      - name: Move Windows GUI artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/windows-gui
+          cp packaging/windows/Output/* artifacts/windows-gui/
+          cp target/i686-pc-windows-msvc/release/geph5-client-gui artifacts/windows-gui/
+
+      - name: Upload Windows GUI artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows-gui-latest
+          path: artifacts/windows-gui
+
   upload:
     if: github.ref == 'refs/heads/master'
-    needs: build
+    needs: [build, build-windows-gui]
     runs-on: ubuntu-20.04
     strategy:
       matrix:
@@ -135,6 +164,7 @@ jobs:
           - dir: musl
           - dir: macos
           - dir: windows
+          - dir: windows-gui
 
     steps:
       - name: Download all artifacts
@@ -147,7 +177,7 @@ jobs:
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set region apac
-          aws configure set output json # Set the default output format to JSON
+          aws configure set output json
 
       - name: Upload to Cloudflare R2
         run: |
