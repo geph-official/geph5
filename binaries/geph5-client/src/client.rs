@@ -31,6 +31,8 @@ pub struct Config {
     pub stats_listen: Option<SocketAddr>,
     pub control_listen: Option<SocketAddr>,
     pub exit_constraint: ExitConstraint,
+    #[serde(default)]
+    pub bridge_mode: BridgeMode,
     pub cache: Option<PathBuf>,
     pub broker: Option<BrokerSource>,
 
@@ -42,6 +44,19 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BridgeMode {
+    Auto,
+    ForceBridges,
+    ForceDirect,
+}
+
+impl Default for BridgeMode {
+    fn default() -> Self {
+        Self::Auto
+    }
 }
 
 pub struct Client {

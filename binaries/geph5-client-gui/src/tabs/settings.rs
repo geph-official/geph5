@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use egui::mutex::Mutex;
 use geph5_broker_protocol::{BrokerClient, ExitList};
+use geph5_client::BridgeMode;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 
@@ -10,8 +11,8 @@ use crate::{
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
-        SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
+        get_config, BRIDGE_MODE, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF,
+        SELECTED_CITY, SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
     },
 };
 
@@ -128,6 +129,29 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
     });
 
     ui.collapsing(l10n("advanced_settings"), |ui| {
+        BRIDGE_MODE.modify(|bridge_mode| {
+            let mode_label = |bm: BridgeMode| match bm {
+                BridgeMode::Auto => "Auto",
+                BridgeMode::ForceBridges => "Force bridges",
+                BridgeMode::ForceDirect => "Force direct",
+            };
+            ui.horizontal(|ui| {
+                ui.label("Bridge mode");
+
+                egui::ComboBox::from_id_source("bridge")
+                    .selected_text(mode_label(*bridge_mode))
+                    .show_ui(ui, |ui| {
+                        for this_mode in [
+                            BridgeMode::Auto,
+                            BridgeMode::ForceBridges,
+                            BridgeMode::ForceDirect,
+                        ] {
+                            ui.selectable_value(bridge_mode, this_mode, mode_label(this_mode));
+                        }
+                    });
+            });
+        });
+
         PROXY_AUTOCONF.modify(|proxy_autoconf| {
             ui.horizontal(|ui| {
                 ui.label(l10n("proxy_autoconf"));

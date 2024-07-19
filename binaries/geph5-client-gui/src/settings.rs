@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 
 use base32::Alphabet;
 use geph5_broker_protocol::Credential;
-use geph5_client::{BrokerSource, Config, ExitConstraint};
+use geph5_client::{BridgeMode, BrokerSource, Config, ExitConstraint};
 use isocountry::CountryCode;
 
 use once_cell::sync::Lazy;
@@ -34,6 +34,7 @@ pub fn get_config() -> anyhow::Result<Config> {
         (Some(country), None) => ExitConstraint::Country(country),
         _ => ExitConstraint::Auto,
     };
+    cfg.bridge_mode = BRIDGE_MODE.get();
     if let Some(custom_broker) = CUSTOM_BROKER.get() {
         cfg.broker = Some(custom_broker);
     }
@@ -60,6 +61,9 @@ pub static LANG_CODE: Lazy<StoreCell<SmolStr>> =
 
 pub static PROXY_AUTOCONF: Lazy<StoreCell<bool>> =
     Lazy::new(|| StoreCell::new_persistent("proxy_autoconff", || true));
+
+pub static BRIDGE_MODE: Lazy<StoreCell<BridgeMode>> =
+    Lazy::new(|| StoreCell::new_persistent("bridge_mode", || BridgeMode::Auto));
 
 pub static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_country", || None));

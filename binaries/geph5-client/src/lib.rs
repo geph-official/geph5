@@ -1,7 +1,7 @@
 pub use broker::broker_client;
 pub use broker::BrokerSource;
 pub use client::Client;
-pub use client::Config;
+pub use client::{BridgeMode, Config};
 pub use control_prot::{ConnInfo, ControlClient};
 pub use route::ExitConstraint;
 

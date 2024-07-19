@@ -117,7 +117,7 @@ pub async fn get_dialer(
         .context("no exits that fit the criterion")?;
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
     vpn_whitelist(exit.c2e_listen.ip());
-    let _direct_dialer = TcpDialer {
+    let direct_dialer = TcpDialer {
         dest_addr: exit.c2e_listen,
     }
     .delay(Duration::from_secs(
@@ -139,11 +139,15 @@ pub async fn get_dialer(
 
     let bridge_dialer = route_to_dialer(&bridge_routes);
 
-    // let final_dialer = direct_dialer
-    //     .race(bridge_dialer.delay(Duration::from_millis(500)))
-    //     .dynamic();
+    let final_dialer = match dbg!(ctx.init().bridge_mode) {
+        crate::BridgeMode::Auto => direct_dialer
+            .race(bridge_dialer.delay(Duration::from_millis(500)))
+            .dynamic(),
+        crate::BridgeMode::ForceBridges => bridge_dialer,
+        crate::BridgeMode::ForceDirect => direct_dialer.dynamic(),
+    };
 
-    Ok((pubkey, exit, bridge_dialer))
+    Ok((pubkey, exit, final_dialer))
 }
 
 fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {

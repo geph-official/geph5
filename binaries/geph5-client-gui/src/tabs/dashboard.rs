@@ -106,13 +106,6 @@ impl Dashboard {
         })
         .inner?;
 
-        // let daemon = DAEMON.lock();
-        // if let Some(daemon) = daemon.as_ref() {
-        //     if let Err(err) = daemon.check_dead() {
-        //         ui.colored_label(egui::Color32::RED, format!("{:?}", err));
-        //     }
-        // }
-
         static START: Lazy<Instant> = Lazy::new(Instant::now);
         let now = Instant::now();
         let quantum_ms = 200;

@@ -12,6 +12,7 @@ use geph5_misc_rpc::{
 use mizaru2::{ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use picomux::{LivenessConfig, PicoMux};
+use rand::Rng;
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use std::{
@@ -115,7 +116,8 @@ async fn broker_loop() -> anyhow::Result<()> {
                     .await?
                     .map_err(|e| anyhow::anyhow!(e.0))?;
 
-                smol::Timer::after(Duration::from_secs(1)).await;
+                let sleep_dur = rand::thread_rng().gen_range(3.0..8.0);
+                smol::Timer::after(Duration::from_secs_f64(sleep_dur)).await;
             }
         }
         None => {
