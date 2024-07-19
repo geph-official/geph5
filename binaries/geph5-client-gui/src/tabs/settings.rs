@@ -10,8 +10,8 @@ use crate::{
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY, SELECTED_COUNTRY, USERNAME,
-        VPN_MODE,
+        get_config, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF, SELECTED_CITY,
+        SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
     },
 };
 
@@ -41,14 +41,6 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
         ui.columns(2, |columns| {
             columns[0].label(l10n("vpn_mode"));
             columns[1].add(egui::Checkbox::new(vpn_mode, ""));
-        })
-    });
-
-    // #[cfg(not(target_os = "macos"))]
-    PROXY_AUTOCONF.modify(|proxy_autoconf| {
-        ui.columns(2, |columns| {
-            columns[0].label(l10n("proxy_autoconf"));
-            columns[1].add(egui::Checkbox::new(proxy_autoconf, ""));
         })
     });
 
@@ -135,19 +127,27 @@ pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Resul
         });
     });
 
-    // SOCKS5_PORT.modify(|socks5_port| {
-    //     ui.columns(2, |columns| {
-    //         columns[0].label(l10n("socks5_port"));
-    //         columns[1].add(egui::DragValue::new(socks5_port));
-    //     });
-    // });
+    ui.collapsing(l10n("advanced_settings"), |ui| {
+        PROXY_AUTOCONF.modify(|proxy_autoconf| {
+            ui.horizontal(|ui| {
+                ui.label(l10n("proxy_autoconf"));
+                ui.add(egui::Checkbox::new(proxy_autoconf, ""));
+            })
+        });
+        SOCKS5_PORT.modify(|socks5_port| {
+            ui.horizontal(|ui| {
+                ui.label(l10n("socks5_port"));
+                ui.add(egui::DragValue::new(socks5_port));
+            });
+        });
 
-    // HTTP_PROXY_PORT.modify(|http_proxy_port| {
-    //     ui.horizontal(|ui| {
-    //         ui.label(l10n("http_proxy_port"));
-    //         ui.add(egui::DragValue::new(http_proxy_port));
-    //     })
-    // });
+        HTTP_PROXY_PORT.modify(|http_proxy_port| {
+            ui.horizontal(|ui| {
+                ui.label(l10n("http_proxy_port"));
+                ui.add(egui::DragValue::new(http_proxy_port));
+            })
+        });
+    });
 
     Ok(())
 }

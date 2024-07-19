@@ -1,5 +1,6 @@
 label,en,zh,ru,fa
 about,About,关于,О программе,Darbāre
+advanced_settings,Advanced Settings,高级设置,Расширенные настройки,Tanzimāt-e pīšrafte
 account_info,Account Info,帐户信息,Информация об аккаунте,Eṭṭelā'āt-e ḥesāb
 auto,Auto,自动,Авто,Xodkār
 broker,Broker server,Broker服务器,Брокерский сервер,Serveur de courtier
@@ -71,6 +72,7 @@ download_speed,Download speed,下载速度,Скорость загрузки,Sor
 exit,Exit,退出,Выход,Koruj
 exit,Exit,退出,Выход,Koruj
 exit_location,Exit location,出口位置,Выходная точка,Makān-e xoroj
+export_logs,Export Logs,导出日志,Экспорт журналов,Ṣodūr-e lāg-hā
 geph,Geph,迷雾通,Геф,Gef
 geph,Geph,迷雾通,Геф,Gef
 geph_already_running,Geph is already running,Geph 已在运行,Geph уже запущен,Geph dar ḥāl-e ejrā ast

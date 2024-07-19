@@ -90,6 +90,12 @@ impl App {
                             .stat_num("total_rx_bytes".to_string()),
                     )
                     .unwrap_or_default()
+                        + smol::future::block_on(
+                            DAEMON_HANDLE
+                                .control_client()
+                                .stat_num("total_tx_bytes".to_string()),
+                        )
+                        .unwrap_or_default()
                 })
                 .copied()
                 .unwrap_or_default();

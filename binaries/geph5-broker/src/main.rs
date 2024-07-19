@@ -3,7 +3,7 @@ use axum::{routing::post, Json, Router};
 use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
-use geph5_broker_protocol::BrokerService;
+
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 

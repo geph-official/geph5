@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use itertools::Itertools;
+use native_dialog::FileDialog;
 
-use crate::{daemon::DAEMON_HANDLE, logs::LOGS, refresh_cell::RefreshCell};
+use crate::{daemon::DAEMON_HANDLE, l10n, logs::LOGS, refresh_cell::RefreshCell};
 
 pub struct Logs {
-    log_cache: RefreshCell<anyhow::Result<String>>,
+    log_cache: RefreshCell<anyhow::Result<Vec<String>>>,
 }
 
 impl Default for Logs {
@@ -35,12 +36,31 @@ impl Logs {
                         }
                     }
 
-                    Ok(remote_logs.into_iter().join("\n"))
+                    Ok(remote_logs)
                 })
             });
 
         if let Some(Ok(logs)) = logs {
-            let logs = strip_ansi_escapes::strip_str(logs);
+            let logs = strip_ansi_escapes::strip_str(logs.join("\n"));
+            if ui.button(l10n("export_logs")).clicked() {
+                let path = FileDialog::new()
+                    .add_filter("Text Files", &["txt"])
+                    .set_filename("geph-logs.txt")
+                    .show_save_single_file()
+                    .unwrap();
+
+                if let Some(path) = path {
+                    let _ = std::fs::write(path, logs.as_bytes());
+                }
+            }
+            let last_1000_lines: String = logs
+                .lines()
+                .rev()
+                .take(1000)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .join("\n");
             ui.centered_and_justified(|ui| {
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(true)
@@ -52,7 +72,9 @@ impl Logs {
                             .unwrap()
                             .size = 8.0; // Change font size
 
-                        ui.add(egui::TextEdit::multiline(&mut logs.as_str()).code_editor())
+                        ui.add(
+                            egui::TextEdit::multiline(&mut last_1000_lines.as_str()).code_editor(),
+                        )
                     })
             });
         }

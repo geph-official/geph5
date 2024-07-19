@@ -12,7 +12,6 @@ use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTranspor
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-
 use crate::{client::CtxField, logs::LOGS, stats::stat_get_num, Config};
 
 #[nanorpc_derive]
