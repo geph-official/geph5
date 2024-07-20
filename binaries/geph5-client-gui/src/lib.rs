@@ -6,6 +6,7 @@ use daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES};
 use egui::{FontData, FontDefinitions, FontFamily, Visuals};
 use l10n::l10n;
 
+use once_cell::sync::OnceCell;
 use refresh_cell::RefreshCell;
 use settings::USERNAME;
 use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
@@ -19,6 +20,15 @@ pub mod settings;
 pub mod store_cell;
 pub mod tabs;
 pub mod timeseries;
+
+pub static SHOW_KEYBOARD_CALLBACK: OnceCell<Box<dyn Fn(bool) + Send + Sync + 'static>> =
+    OnceCell::new();
+
+pub(crate) fn show_keyboard(show: bool) {
+    if let Some(callback) = SHOW_KEYBOARD_CALLBACK.get() {
+        callback(show);
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TabName {

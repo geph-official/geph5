@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use itertools::Itertools;
-use native_dialog::FileDialog;
 
 use crate::{daemon::DAEMON_HANDLE, l10n, logs::LOGS, refresh_cell::RefreshCell};
 
@@ -42,7 +41,10 @@ impl Logs {
 
         if let Some(Ok(logs)) = logs {
             let logs = strip_ansi_escapes::strip_str(logs.join("\n"));
+
+            #[cfg(not(target_os = "android"))]
             if ui.button(l10n("export_logs")).clicked() {
+                use native_dialog::FileDialog;
                 let path = FileDialog::new()
                     .add_filter("Text Files", &["txt"])
                     .set_filename("geph-logs.txt")
@@ -53,6 +55,7 @@ impl Logs {
                     let _ = std::fs::write(path, logs.as_bytes());
                 }
             }
+
             let last_1000_lines: String = logs
                 .lines()
                 .rev()

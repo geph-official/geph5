@@ -1,10 +1,11 @@
-use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
+use egui::{epaint::text, Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
 use crate::{
     l10n::l10n,
     settings::{get_config, PASSWORD, USERNAME},
+    show_keyboard,
 };
 
 pub struct Login {
@@ -67,13 +68,19 @@ impl Login {
                         .fit_to_exact_size(egui::vec2(140., 140.))
                         .ui(ui);
                     ui.add_space(10.);
-                    TextEdit::singleline(&mut self.username)
+                    let username_edit = TextEdit::singleline(&mut self.username)
                         .hint_text(l10n("username"))
                         .ui(ui);
-                    TextEdit::singleline(&mut self.password)
+                    let password_edit = TextEdit::singleline(&mut self.password)
                         .hint_text(l10n("password"))
                         .password(true)
                         .ui(ui);
+                    if username_edit.clicked() || password_edit.clicked() {
+                        show_keyboard(true)
+                    }
+                    if username_edit.clicked_elsewhere() && password_edit.clicked_elsewhere() {
+                        show_keyboard(false)
+                    }
                     anyhow::Ok(())
                 })
                 .inner?;

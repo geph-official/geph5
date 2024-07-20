@@ -2710,6 +2710,7 @@ dependencies = [
  "picomux",
  "rand",
  "reqwest",
+ "serde_json",
  "sillad",
  "sillad-sosistab3",
  "smol 2.0.0",
@@ -2864,6 +2865,7 @@ name = "geph5-client-android"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "anyhow",
  "egui",
  "egui-wgpu",
  "egui-winit",
@@ -2871,10 +2873,12 @@ dependencies = [
  "geph5-client-gui",
  "jni",
  "log",
+ "ndk-context",
  "once_cell",
  "pollster 0.2.5",
  "reqwest",
  "smolscale",
+ "tracing",
 ]
 
 [[package]]

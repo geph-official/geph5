@@ -61,11 +61,39 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         "starting upload loop"
     );
 
+    let ip_api_info: serde_json::Value = reqwest::get("http://ip-api.com/json/")
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let bridge_key = format!(
+        "bridges.{}-{}--{}",
+        ip_api_info["countryCode"].as_str().unwrap(),
+        ip_api_info["as"]
+            .as_str()
+            .unwrap()
+            .split_ascii_whitespace()
+            .next()
+            .unwrap(),
+        control_listen.ip().to_string().replace(".", "-")
+    );
+
     let broker_rpc =
         geph5_broker_protocol::BrokerClient(nanorpc_sillad::DialerTransport(TcpDialer {
             dest_addr: broker_addr,
         }));
     loop {
+        let load_average: f64 = {
+            let raw = std::fs::read("/proc/loadavg").unwrap();
+            String::from_utf8_lossy(&raw)
+                .split_ascii_whitespace()
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
         tracing::info!(
             auth_token,
             broker_addr = display(broker_addr),
@@ -87,6 +115,10 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             ))
             .await
             .unwrap()
+            .unwrap();
+        broker_rpc
+            .set_stat(format!("{bridge_key}.load_average"), load_average)
+            .await
             .unwrap();
         async_io::Timer::after(Duration::from_secs(10)).await;
     }

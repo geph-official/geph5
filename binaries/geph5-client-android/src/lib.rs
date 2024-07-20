@@ -1,14 +1,17 @@
+mod keyboard;
+
 use std::sync::Arc;
 
 use egui::ViewportId;
 use egui_wgpu::wgpu::{self, rwh::HasDisplayHandle};
 use egui_winit::winit::{
     self,
-    event::{Event, WindowEvent},
+    event::{ElementState, Event, WindowEvent},
 };
 
 use geph5_client_gui::App;
 use jni::{objects::JObject, JNIEnv, JavaVM};
+use keyboard::show_soft_input;
 use once_cell::sync::OnceCell;
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
 
@@ -84,6 +87,12 @@ fn create_window<T>(
 }
 
 fn _main(event_loop: EventLoop<CustomEvent>) {
+    geph5_client_gui::SHOW_KEYBOARD_CALLBACK
+        .set(Box::new(|b| {
+            show_soft_input(b).unwrap();
+        }))
+        .ok()
+        .unwrap();
     let ctx = egui::Context::default();
     let repaint_signal = RepaintSignal(std::sync::Arc::new(std::sync::Mutex::new(
         event_loop.create_proxy(),
@@ -155,10 +164,7 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
                     log::debug!("RedrawRequested: calling ctx.run()");
                     let full_output = ctx.run(raw_input, |ctx| {
                         let app = app.get_or_insert_with(|| App::new(ctx));
-                        egui::CentralPanel::default().show(ctx, |_ui| {
-                            // ui.add_space(90.0);
-                            app.render(ctx);
-                        });
+                        app.render(ctx);
                     });
                     log::debug!("RedrawRequested: called ctx.run()");
                     state.handle_platform_output(window, full_output.platform_output);
@@ -183,13 +189,27 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
 
             Event::WindowEvent { event, .. } => {
                 log::debug!("Window Event: {event:?}");
-                match event {
+                match &event {
                     winit::event::WindowEvent::Resized(size) => {
                         painter.on_window_resized(
                             ViewportId::ROOT,
                             size.width.try_into().unwrap(),
                             size.height.try_into().unwrap(),
                         );
+                    }
+                    winit::event::WindowEvent::KeyboardInput { event, .. } => {
+                        let evt = egui::Event::Key {
+                            key: egui::Key::from_name(event.logical_key.to_text().unwrap())
+                                .unwrap(),
+                            physical_key: None,
+                            pressed: event.state.is_pressed(),
+                            repeat: event.repeat,
+                            modifiers: Default::default(),
+                        };
+                        log::debug!("input key {:?}", evt);
+                        state.egui_input_mut().events.push(evt);
+
+                        window.as_ref().unwrap().request_redraw();
                     }
                     winit::event::WindowEvent::CloseRequested => {
                         todo!()
@@ -205,12 +225,6 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
                 }
             }
 
-            // MainEventsCleared | UserEvent(CustomEvent::RequestRedraw) => {
-            //     if let Some(window) = window.as_ref() {
-            //         log::debug!("Winit event (main events cleared or user event) - request_redraw()");
-            //         window.request_redraw();
-            //     }
-            // }
             _ => (),
         })
         .unwrap();
@@ -221,10 +235,6 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
 #[no_mangle]
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
-
-    if let Some(input_connection) = app.input_connection() {
-        input_connection.show_soft_input(true);
-    }
 
     android_logger::init_once(
         android_logger::Config::default()
