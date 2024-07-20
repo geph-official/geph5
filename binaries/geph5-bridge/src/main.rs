@@ -89,9 +89,9 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             let output = Command::new("bash").arg("c").arg(r#"steal() { cat /proc/stat | grep '^cpu ' | awk '{print $9}'; }; s1=$(steal); sleep 1; s2=$(steal); echo "scale=2; ($s2 - $s1) / 100" | bc"#).output().await.unwrap().stdout;
             String::from_utf8_lossy(&output).parse().unwrap()
         };
-        if steal_time > 0.3 {
-            Command::new("reboot").status().await.unwrap();
-        }
+        // if steal_time > 0.3 {
+        //     Command::new("reboot").status().await.unwrap();
+        // }
         tracing::info!(
             auth_token,
             broker_addr = display(broker_addr),
