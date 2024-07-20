@@ -2,6 +2,7 @@ mod listen_forward;
 
 use std::{
     net::{IpAddr, SocketAddr},
+    process::Command,
     str::FromStr,
     time::{Duration, SystemTime},
 };
@@ -93,6 +94,9 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
                 .parse()
                 .unwrap()
         };
+        if load_average > 1.5 {
+            Command::new("reboot").status().unwrap();
+        }
         tracing::info!(
             auth_token,
             broker_addr = display(broker_addr),
