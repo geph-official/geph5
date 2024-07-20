@@ -89,8 +89,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             let raw = std::fs::read("/proc/loadavg").unwrap();
             String::from_utf8_lossy(&raw)
                 .split_ascii_whitespace()
-                .next()
-                .unwrap()
+                .collect::<Vec<_>>()[1]
                 .parse()
                 .unwrap()
         };
