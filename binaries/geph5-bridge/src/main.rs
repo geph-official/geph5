@@ -2,7 +2,6 @@ mod listen_forward;
 
 use std::{
     net::{IpAddr, SocketAddr},
-    process::Command,
     str::FromStr,
     time::{Duration, SystemTime},
 };
@@ -11,7 +10,7 @@ use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::listen_forward_loop;
 use sillad::tcp::{TcpDialer, TcpListener};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
-use smol::future::FutureExt as _;
+use smol::{future::FutureExt as _, process::Command};
 use tap::Tap;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -86,16 +85,12 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             dest_addr: broker_addr,
         }));
     loop {
-        let load_average: f64 = {
-            let raw = std::fs::read("/proc/loadavg").unwrap();
-            String::from_utf8_lossy(&raw)
-                .split_ascii_whitespace()
-                .collect::<Vec<_>>()[1]
-                .parse()
-                .unwrap()
+        let steal_time: f64 = {
+            let output = Command::new("bash").arg("c").arg(r#"steal() { cat /proc/stat | grep '^cpu ' | awk '{print $9}'; }; s1=$(steal); sleep 1; s2=$(steal); echo "scale=2; ($s2 - $s1) / 100" | bc"#).output().await.unwrap().stdout;
+            String::from_utf8_lossy(&output).parse().unwrap()
         };
-        if load_average > 1.5 {
-            Command::new("reboot").status().unwrap();
+        if steal_time > 0.3 {
+            Command::new("reboot").status().await.unwrap();
         }
         tracing::info!(
             auth_token,
@@ -120,7 +115,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             .unwrap()
             .unwrap();
         broker_rpc
-            .set_stat(format!("{bridge_key}.load_average"), load_average)
+            .set_stat(format!("{bridge_key}.steal_time"), steal_time)
             .await
             .unwrap();
         async_io::Timer::after(Duration::from_secs(10)).await;
