@@ -14,7 +14,7 @@ icon = ["icon.png"]
 anyhow = "1.0.86"
 csv = "1.3.0"
 # dirs = "5.0.1"
-eframe = { version = "0.28.1", features=["wgpu", "wayland", "x11"], default-features=false }
+eframe = { version = "0.28.1" }
 egui = "0.28.1"
 moka = { version = "0.12.7", features = ["sync"] }
 arc-writer = { path = "../../libraries/arc-writer" }
