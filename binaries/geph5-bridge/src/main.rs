@@ -102,9 +102,9 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             let s2 = get_steal().await;
             (s2 as f64 - s1 as f64) / 100.0
         };
-        // if steal_time > 0.3 {
-        //     Command::new("reboot").status().await.unwrap();
-        // }
+        if steal_time > 0.3 {
+            Command::new("reboot").status().await.unwrap();
+        }
         tracing::info!(
             auth_token,
             broker_addr = display(broker_addr),
