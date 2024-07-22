@@ -6,7 +6,7 @@ use egui::ViewportId;
 use egui_wgpu::wgpu::{self, rwh::HasDisplayHandle};
 use egui_winit::winit::{
     self,
-    event::{ElementState, Event, WindowEvent},
+    event::{Event, WindowEvent},
 };
 
 use geph5_client_gui::App;
