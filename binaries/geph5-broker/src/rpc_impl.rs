@@ -5,7 +5,7 @@ use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
 use futures_util::future::join_all;
 use geph5_broker_protocol::{
-    AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, BrokerService, Credential,
+    AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, BrokerService, Captcha, Credential,
     ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
@@ -13,6 +13,7 @@ use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignat
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
+use reqwest::StatusCode;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -65,6 +66,51 @@ impl BrokerProtocol for BrokerImpl {
         .to_der()
         .unwrap()
         .into()
+    }
+
+    /// Obtains a fresh CAPTCHA for user registration.
+    async fn get_captcha(&self) -> Result<Captcha, GenericError> {
+        // call out to the microservice
+        let captcha_service = "https://single-verve-156821.ew.r.appspot.com";
+        let resp = reqwest::get(&format!("{}/new", &captcha_service)).await?;
+        let captcha_id;
+        if resp.status() == StatusCode::OK {
+            captcha_id = String::from_utf8_lossy(&resp.bytes().await?).into();
+        } else {
+            return Err(GenericError(
+                "cannot contact captcha microservice to generate".into(),
+            ));
+        }
+
+        let resp = reqwest::get(&format!("{}/img/{}", &captcha_service, captcha_id)).await?;
+        let png_data;
+        if resp.status() == StatusCode::OK {
+            png_data = resp.bytes().await?;
+        } else {
+            return Err(GenericError(
+                "cannot concact captcha microservice to render".into(),
+            ));
+        }
+        Ok(Captcha {
+            captcha_id,
+            png_data,
+        })
+    }
+
+    async fn verify_captcha(
+        &self,
+        captcha: Captcha,
+        solution: String,
+    ) -> Result<bool, GenericError> {
+        let captcha_service = "https://single-verve-156821.ew.r.appspot.com";
+        // call out to the microservice
+        let resp = reqwest::get(&format!(
+            "{}/solve?id={}&soln={}",
+            captcha_service, captcha.captcha_id, solution
+        ))
+        .await?;
+        // TODO handle network errors
+        Ok(resp.status() == StatusCode::OK)
     }
 
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError> {

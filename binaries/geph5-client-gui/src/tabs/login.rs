@@ -1,5 +1,5 @@
 use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
-use geph5_broker_protocol::{BrokerClient, Credential};
+use geph5_broker_protocol::{BrokerClient, Captcha, Credential, GenericError};
 use poll_promise::Promise;
 
 use crate::{
@@ -17,6 +17,7 @@ pub struct Login {
     mode: LoginPageMode,
     username: String,
     password: String,
+    captcha_sln: String,
 
     check_login: Option<Promise<anyhow::Result<()>>>,
 }
@@ -33,6 +34,7 @@ impl Login {
             mode: LoginPageMode::Login,
             username: "".to_string(),
             password: "".to_string(),
+            captcha_sln: "".to_string(),
 
             check_login: None,
         }
@@ -95,7 +97,7 @@ impl Login {
                             }
                         }
                         LoginPageMode::Signup => {
-                            let captcha_edit = TextEdit::singleline(&mut self.username)
+                            let captcha_edit = TextEdit::singleline(&mut self.captcha_sln)
                                 .hint_text(l10n("captcha"))
                                 .ui(ui);
 
@@ -135,9 +137,10 @@ impl Login {
                         };
                     }
                     LoginPageMode::Signup => {
-                        // TODO: Filler image for now. This would be where the
-                        // Captcha is shown.
-                        Image::new(egui::include_image!("../../icon.png"))
+                        // TODO: Handle error
+
+                        let captcha = smolscale::block_on(get_captcha()).unwrap();
+                        Image::from_bytes("bytes://captcha.png", captcha.png_data.to_vec())
                             .fit_to_exact_size(egui::vec2(140., 70.))
                             .ui(ui);
 
@@ -147,10 +150,8 @@ impl Login {
                             //TODO
                             let username = self.username.clone();
                             let password = self.password.clone();
-                            self.check_login =
-                                Some(Promise::spawn_thread("check_login", move || {
-                                    smolscale::block_on(check_login(username, password))
-                                }));
+                            let sln = self.captcha_sln.clone();
+                            let _ = smolscale::block_on(signup_user(captcha, sln));
                         }
 
                         if ui.link(l10n("login_instead")).clicked() {
@@ -174,4 +175,20 @@ async fn check_login(username: String, password: String) -> anyhow::Result<()> {
     let client = BrokerClient::from(rpc_transport);
     client.get_auth_token(config.credentials.clone()).await??;
     Ok(())
+}
+
+async fn signup_user(captcha: Captcha, solution: String) -> Result<(), GenericError> {
+    let config = get_config()?;
+    let rpc_transport = config.broker.unwrap().rpc_transport();
+    let client = BrokerClient::from(rpc_transport);
+    client.verify_captcha(captcha, solution).await??;
+    //TODO: Should be modified to actually sign user up here.
+    Ok(())
+}
+
+async fn get_captcha() -> Result<Captcha, GenericError> {
+    let config = get_config()?;
+    let rpc_transport = config.broker.unwrap().rpc_transport();
+    let client = BrokerClient::from(rpc_transport);
+    client.get_captcha().await?
 }

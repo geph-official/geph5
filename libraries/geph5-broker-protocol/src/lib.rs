@@ -10,6 +10,7 @@ mod exit;
 pub use exit::*;
 mod signed;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 pub use signed::*;
 
 mod mac;
@@ -23,6 +24,13 @@ use thiserror::Error;
 pub trait BrokerProtocol {
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
+    /// Obtains a unique captcha, for user registry.
+    async fn get_captcha(&self) -> Result<Captcha, GenericError>;
+    async fn verify_captcha(
+        &self,
+        captcha: Captcha,
+        solution: String,
+    ) -> Result<bool, GenericError>;
     async fn get_connect_token(
         &self,
         auth_token: String,
@@ -53,6 +61,15 @@ pub trait BrokerProtocol {
 pub enum AccountLevel {
     Free,
     Plus,
+}
+
+/// A Captcha
+#[serde_as]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Hash)]
+pub struct Captcha {
+    pub captcha_id: String,
+    #[serde_as(as = "serde_with::base64::Base64")]
+    pub png_data: Bytes,
 }
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize)]

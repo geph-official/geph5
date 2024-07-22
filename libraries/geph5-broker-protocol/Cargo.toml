@@ -16,6 +16,6 @@ stdcode = "0.1.14"
 blake3 = { version = "=1.5.1", features = ["serde"] }
 isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
-serde_with = { version = "3.8.3", features = ["hex"] }
+serde_with = { version = "3.8.3", features = ["base64", "hex"] }
 mizaru2 = { path = "../mizaru2" }
 tracing = "0.1.40"
