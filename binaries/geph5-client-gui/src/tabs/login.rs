@@ -1,4 +1,4 @@
-use egui::{epaint::text, Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
+use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
@@ -8,7 +8,13 @@ use crate::{
     show_keyboard,
 };
 
+enum LoginPageMode {
+    Login,
+    Signup,
+}
+
 pub struct Login {
+    mode: LoginPageMode,
     username: String,
     password: String,
 
@@ -24,6 +30,7 @@ impl Default for Login {
 impl Login {
     pub fn new() -> Self {
         Self {
+            mode: LoginPageMode::Login,
             username: "".to_string(),
             password: "".to_string(),
 
@@ -75,23 +82,82 @@ impl Login {
                         .hint_text(l10n("password"))
                         .password(true)
                         .ui(ui);
-                    if username_edit.clicked() || password_edit.clicked() {
-                        show_keyboard(true)
-                    }
-                    if username_edit.clicked_elsewhere() && password_edit.clicked_elsewhere() {
-                        show_keyboard(false)
+
+                    match self.mode {
+                        LoginPageMode::Login => {
+                            if username_edit.clicked() || password_edit.clicked() {
+                                show_keyboard(true)
+                            }
+                            if username_edit.clicked_elsewhere()
+                                && password_edit.clicked_elsewhere()
+                            {
+                                show_keyboard(false)
+                            }
+                        }
+                        LoginPageMode::Signup => {
+                            let captcha_edit = TextEdit::singleline(&mut self.username)
+                                .hint_text(l10n("captcha"))
+                                .ui(ui);
+
+                            if username_edit.clicked()
+                                || password_edit.clicked()
+                                || captcha_edit.clicked()
+                            {
+                                show_keyboard(true)
+                            }
+                            if username_edit.clicked_elsewhere()
+                                && password_edit.clicked_elsewhere()
+                                && captcha_edit.clicked_elsewhere()
+                            {
+                                show_keyboard(false)
+                            }
+                        }
                     }
                     anyhow::Ok(())
                 })
                 .inner?;
 
-                if ui.button(l10n("login")).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
-                    let username = self.username.clone();
-                    let password = self.password.clone();
-                    self.check_login = Some(Promise::spawn_thread("check_login", move || {
-                        smolscale::block_on(check_login(username, password))
-                    }));
-                }
+                match self.mode {
+                    LoginPageMode::Login => {
+                        if ui.button(l10n("login")).clicked()
+                            || ui.input(|i| i.key_pressed(Key::Enter))
+                        {
+                            let username = self.username.clone();
+                            let password = self.password.clone();
+                            self.check_login =
+                                Some(Promise::spawn_thread("check_login", move || {
+                                    smolscale::block_on(check_login(username, password))
+                                }));
+                        }
+
+                        if ui.link(l10n("signup_instead")).clicked() {
+                            self.mode = LoginPageMode::Signup;
+                        };
+                    }
+                    LoginPageMode::Signup => {
+                        // TODO: Filler image for now. This would be where the
+                        // Captcha is shown.
+                        Image::new(egui::include_image!("../../icon.png"))
+                            .fit_to_exact_size(egui::vec2(140., 70.))
+                            .ui(ui);
+
+                        if ui.button(l10n("signup")).clicked()
+                            || ui.input(|i| i.key_pressed(Key::Enter))
+                        {
+                            //TODO
+                            let username = self.username.clone();
+                            let password = self.password.clone();
+                            self.check_login =
+                                Some(Promise::spawn_thread("check_login", move || {
+                                    smolscale::block_on(check_login(username, password))
+                                }));
+                        }
+
+                        if ui.link(l10n("login_instead")).clicked() {
+                            self.mode = LoginPageMode::Login;
+                        };
+                    }
+                };
                 anyhow::Ok(())
             })
             .inner?;

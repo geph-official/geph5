@@ -86,6 +86,10 @@ loading_exit_list,Loading exit list...,正在加载出口列表...,Загруз�
 logging_in,Logging in,登录中,Вход в систему,Dar hāl-e vorūd
 login,Login,登录,Вход,Vorūd
 login,Login,登录,Вход,Vorūd
+signup_instead,Don't have an account? Sign up!,TODO!,TODO!,TODO!
+login_instead,Have an account? Login!,TODO!,TODO!,TODO!
+signup,Sign up,TODO!,TODO!,TODO!
+captcha,captcha,TODO!,TODO!,TODO!
 logout,Logout,登出,Выход,Az vorūd khārej shodan
 logs,Logs,日志,Журналы,Lāg-hā
 logs,Logs,日志,Журналы,Lāg-hā
