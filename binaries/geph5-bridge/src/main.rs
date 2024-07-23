@@ -10,7 +10,7 @@ use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::listen_forward_loop;
 use sillad::tcp::{TcpDialer, TcpListener};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
-use smol::future::FutureExt as _;
+use smol::{future::FutureExt as _, process::Command};
 use tap::Tap;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -68,7 +68,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         .await
         .unwrap();
 
-    let _bridge_key = format!(
+    let bridge_key = format!(
         "bridges.{}-{}--{}",
         ip_api_info["countryCode"].as_str().unwrap(),
         ip_api_info["as"]
@@ -84,31 +84,49 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         geph5_broker_protocol::BrokerClient(nanorpc_sillad::DialerTransport(TcpDialer {
             dest_addr: broker_addr,
         }));
+    let mut consec = 0;
     loop {
-        // let steal_time: f64 = {
-        //     async fn get_steal() -> u64 {
-        //         let output = Command::new("bash")
-        //             .arg("-c")
-        //             .arg("cat /proc/stat | grep '^cpu ' | awk '{print $9}'")
-        //             .output()
-        //             .await
-        //             .unwrap()
-        //             .stdout;
-        //         String::from_utf8_lossy(&output).trim().parse().unwrap()
-        //     }
+        let steal_time: f64 = {
+            async fn get_steal() -> u64 {
+                let output = Command::new("bash")
+                    .arg("-c")
+                    .arg("cat /proc/stat | grep '^cpu ' | awk '{print $9}'")
+                    .output()
+                    .await
+                    .unwrap()
+                    .stdout;
+                String::from_utf8_lossy(&output).trim().parse().unwrap()
+            }
 
-        //     let s1 = get_steal().await;
-        //     smol::Timer::after(Duration::from_secs(1)).await;
-        //     let s2 = get_steal().await;
-        //     (s2 as f64 - s1 as f64) / 100.0
-        // };
-        // if steal_time > 0.3 {
-        //     Command::new("reboot").status().await.unwrap();
-        // }
-        // broker_rpc
-        // .set_stat(format!("{bridge_key}.steal_time"), steal_time)
-        // .await
-        // .unwrap();
+            let s1 = get_steal().await;
+            smol::Timer::after(Duration::from_secs(10)).await;
+            let s2 = get_steal().await;
+            (s2 as f64 - s1 as f64) / 1000.0
+        };
+        if steal_time > 0.5 {
+            consec += 1;
+            if consec > 3 {
+                Command::new("systemctl")
+                    .arg("stop")
+                    .arg("geph4-bridge")
+                    .status()
+                    .await
+                    .unwrap();
+            }
+            broker_rpc
+                .set_stat(format!("{bridge_key}.overload_steal_time"), steal_time)
+                .await
+                .unwrap();
+        }
+        if steal_time < 0.1 {
+            consec = 0;
+            Command::new("systemctl")
+                .arg("start")
+                .arg("geph4-bridge")
+                .status()
+                .await
+                .unwrap();
+        }
         tracing::info!(
             auth_token,
             broker_addr = display(broker_addr),
