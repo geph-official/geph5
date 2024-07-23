@@ -14,13 +14,13 @@ icon = ["icon.png"]
 anyhow = "1.0.86"
 csv = "1.3.0"
 # dirs = "5.0.1"
-eframe = { version = "0.28.1" }
-egui = "0.28.1"
+eframe = { git = "https://github.com/ArthurBrussee/egui/", branch = "winit-update" }
+egui = { git = "https://github.com/ArthurBrussee/egui/", branch = "winit-update" }
 moka = { version = "0.12.7", features = ["sync"] }
 arc-writer = { path = "../../libraries/arc-writer" }
 serde = { version = "1", features = ["derive"] }
 once_cell = "1.19.0"
-smol_str = { version = "0.2.2", features = ["serde"] } 
+smol_str = { version = "0.2.2", features = ["serde"] }
 tap = "1.0.1"
 geph5-client = { path = "../geph5-client", features = ["windivert"] }
 poll-promise = "0.3.0"
@@ -31,7 +31,7 @@ geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 serde_yaml = "0.9.34"
 smol-timeout = "0.6.0"
 tracing = "0.1.40"
-tracing-subscriber = {version="0.3.18", features=["json"]}
+tracing-subscriber = { version = "0.3.18", features = ["json"] }
 serde_json = "1.0.120"
 oneshot = "0.1.8"
 chrono = "0.4.38"
@@ -41,9 +41,14 @@ image = { version = "0.25.1", default-features = false, features = ["ico"] }
 itertools = "0.13.0"
 
 elevated-command = "1.1.2"
-egui_plot = "0.28.1"
+egui_plot = { git = "https://github.com/cyb77/egui_plot" }
 runas = "1.2.0"
-egui_extras = { version = "0.28.1", features = ["all_loaders"] }
+egui_extras = { git = "https://github.com/ArthurBrussee/egui/", branch = "winit-update", features = [
+  "all_loaders",
+] }
+egui-winit = { git = "https://github.com/ArthurBrussee/egui/", branch = "winit-update", default-features = false, features = [
+  "android-native-activity",
+] }
 base32 = "0.5.0"
 rlimit = "0.10.1"
 binary-search = "0.1.2"
@@ -60,6 +65,14 @@ winresource = "0.1"
 single-instance = "0.3.3"
 native-dialog = "0.7.0"
 
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.13.0"
+jni = "0.21.1"
+ndk-context = "0.1.1"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52.0"
 winapi = { version = "0.3.9", features = ["wininet"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

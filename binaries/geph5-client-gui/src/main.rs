@@ -78,11 +78,11 @@ fn main() {
         ..Default::default()
     };
 
-    let mut cell = None;
-    eframe::run_simple_native(l10n("geph"), native_options, move |ctx, _frame| {
-        let app = cell.get_or_insert_with(|| geph5_client_gui::App::new(ctx));
-        app.render(ctx)
-    })
+    eframe::run_native(
+        l10n("geph"),
+        native_options,
+        Box::new(|cc| Ok(Box::new(geph5_client_gui::App::new(cc)))),
+    )
     .unwrap();
 
     eprintln!("****** STOPPED ******");
