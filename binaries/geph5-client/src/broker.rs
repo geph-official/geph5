@@ -1,5 +1,6 @@
 mod aws_lambda;
 mod fronted_http;
+mod race;
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -7,7 +8,9 @@ use anyhow::Context;
 use aws_lambda::AwsLambdaTransport;
 use fronted_http::FrontedHttpTransport;
 use geph5_broker_protocol::BrokerClient;
+use itertools::Itertools;
 use nanorpc::DynRpcTransport;
+use race::RaceTransport;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
@@ -30,6 +33,7 @@ pub enum BrokerSource {
         access_key_id: String,
         secret_access_key: String,
     },
+    Race(Vec<BrokerSource>),
 }
 
 impl BrokerSource {
@@ -63,6 +67,13 @@ impl BrokerSource {
                 access_key_id: access_key_id.clone(),
                 secret_access_key: secret_access_key.clone(),
             }),
+            BrokerSource::Race(race_between) => {
+                let transports = race_between
+                    .iter()
+                    .map(|bs| bs.rpc_transport())
+                    .collect_vec();
+                DynRpcTransport::new(RaceTransport::new(transports))
+            }
         }
     }
 }
