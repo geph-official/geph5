@@ -104,7 +104,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
                 let s2 = get_steal().await;
                 (s2 as f64 - s1 as f64) / 100.0
             };
-            if steal_time > 0.2 {
+            if steal_time > 0.4 {
                 consec += 1;
                 if consec > 3 {
                     Command::new("systemctl")
