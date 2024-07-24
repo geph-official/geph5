@@ -7,28 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E36F10DA2C511ED6004FD70A /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = E36F10D92C511ED6004FD70A /* AppDelegate.m */; };
-		E36F10DD2C511ED6004FD70A /* SceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = E36F10DC2C511ED6004FD70A /* SceneDelegate.m */; };
-		E36F10E02C511ED6004FD70A /* ViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E36F10DF2C511ED6004FD70A /* ViewController.m */; };
-		E36F10E32C511ED6004FD70A /* Base in Resources */ = {isa = PBXBuildFile; fileRef = E36F10E22C511ED6004FD70A /* Base */; };
 		E36F10E52C511ED7004FD70A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E36F10E42C511ED7004FD70A /* Assets.xcassets */; };
 		E36F10E82C511ED7004FD70A /* Base in Resources */ = {isa = PBXBuildFile; fileRef = E36F10E72C511ED7004FD70A /* Base */; };
 		E36F10EB2C511ED7004FD70A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = E36F10EA2C511ED7004FD70A /* main.m */; };
+		E36F10F42C51278F004FD70A /* libgeph5_ios.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E36F10F32C512763004FD70A /* libgeph5_ios.a */; };
+		E36F10F62C512A35004FD70A /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E36F10F52C512A35004FD70A /* UIKit.framework */; };
+		E36F10F82C512A53004FD70A /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E36F10F72C512A53004FD70A /* Metal.framework */; };
+		E36F10F92C512C64004FD70A /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E36F10E62C511ED7004FD70A /* LaunchScreen.storyboard */; };
+		E36F10FC2C512D43004FD70A /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E36F10FA2C512D43004FD70A /* Main.storyboard */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		E36F10D52C511ED6004FD70A /* geph5.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = geph5.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		E36F10D82C511ED6004FD70A /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
-		E36F10D92C511ED6004FD70A /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
-		E36F10DB2C511ED6004FD70A /* SceneDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SceneDelegate.h; sourceTree = "<group>"; };
-		E36F10DC2C511ED6004FD70A /* SceneDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SceneDelegate.m; sourceTree = "<group>"; };
-		E36F10DE2C511ED6004FD70A /* ViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
-		E36F10DF2C511ED6004FD70A /* ViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ViewController.m; sourceTree = "<group>"; };
-		E36F10E22C511ED6004FD70A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		E36F10E42C511ED7004FD70A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E36F10E72C511ED7004FD70A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		E36F10E92C511ED7004FD70A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E36F10EA2C511ED7004FD70A /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		E36F10F12C511F3E004FD70A /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		E36F10F32C512763004FD70A /* libgeph5_ios.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libgeph5_ios.a; path = "../../../target/aarch64-apple-ios/debug/libgeph5_ios.a"; sourceTree = "<group>"; };
+		E36F10F52C512A35004FD70A /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		E36F10F72C512A53004FD70A /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		E36F10FB2C512D43004FD70A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -36,6 +35,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E36F10F42C51278F004FD70A /* libgeph5_ios.a in Frameworks */,
+				E36F10F82C512A53004FD70A /* Metal.framework in Frameworks */,
+				E36F10F62C512A35004FD70A /* UIKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -47,6 +49,7 @@
 			children = (
 				E36F10D72C511ED6004FD70A /* geph5 */,
 				E36F10D62C511ED6004FD70A /* Products */,
+				E36F10F22C512763004FD70A /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -61,19 +64,24 @@
 		E36F10D72C511ED6004FD70A /* geph5 */ = {
 			isa = PBXGroup;
 			children = (
-				E36F10D82C511ED6004FD70A /* AppDelegate.h */,
-				E36F10D92C511ED6004FD70A /* AppDelegate.m */,
-				E36F10DB2C511ED6004FD70A /* SceneDelegate.h */,
-				E36F10DC2C511ED6004FD70A /* SceneDelegate.m */,
-				E36F10DE2C511ED6004FD70A /* ViewController.h */,
-				E36F10DF2C511ED6004FD70A /* ViewController.m */,
-				E36F10E12C511ED6004FD70A /* Main.storyboard */,
+				E36F10FA2C512D43004FD70A /* Main.storyboard */,
 				E36F10E42C511ED7004FD70A /* Assets.xcassets */,
 				E36F10E62C511ED7004FD70A /* LaunchScreen.storyboard */,
 				E36F10E92C511ED7004FD70A /* Info.plist */,
 				E36F10EA2C511ED7004FD70A /* main.m */,
+				E36F10F12C511F3E004FD70A /* bindings.h */,
 			);
 			path = geph5;
+			sourceTree = "<group>";
+		};
+		E36F10F22C512763004FD70A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				E36F10F72C512A53004FD70A /* Metal.framework */,
+				E36F10F52C512A35004FD70A /* UIKit.framework */,
+				E36F10F32C512763004FD70A /* libgeph5_ios.a */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -134,8 +142,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				E36F10E52C511ED7004FD70A /* Assets.xcassets in Resources */,
+				E36F10F92C512C64004FD70A /* LaunchScreen.storyboard in Resources */,
 				E36F10E82C511ED7004FD70A /* Base in Resources */,
-				E36F10E32C511ED6004FD70A /* Base in Resources */,
+				E36F10FC2C512D43004FD70A /* Main.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,30 +155,27 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E36F10E02C511ED6004FD70A /* ViewController.m in Sources */,
-				E36F10DA2C511ED6004FD70A /* AppDelegate.m in Sources */,
 				E36F10EB2C511ED7004FD70A /* main.m in Sources */,
-				E36F10DD2C511ED6004FD70A /* SceneDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXVariantGroup section */
-		E36F10E12C511ED6004FD70A /* Main.storyboard */ = {
-			isa = PBXVariantGroup;
-			children = (
-				E36F10E22C511ED6004FD70A /* Base */,
-			);
-			name = Main.storyboard;
-			sourceTree = "<group>";
-		};
 		E36F10E62C511ED7004FD70A /* LaunchScreen.storyboard */ = {
 			isa = PBXVariantGroup;
 			children = (
 				E36F10E72C511ED7004FD70A /* Base */,
 			);
 			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		E36F10FA2C512D43004FD70A /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				E36F10FB2C512D43004FD70A /* Base */,
+			);
+			name = Main.storyboard;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
@@ -298,6 +304,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9GV4V293LJ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = geph5/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -305,6 +312,7 @@
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -324,6 +332,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9GV4V293LJ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = geph5/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -331,6 +340,7 @@
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
