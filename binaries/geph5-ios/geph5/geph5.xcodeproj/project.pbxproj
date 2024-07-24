@@ -91,6 +91,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = E36F10EE2C511ED7004FD70A /* Build configuration list for PBXNativeTarget "geph5" */;
 			buildPhases = (
+				E36F11012C51370F004FD70A /* ShellScript */,
 				E36F10D12C511ED6004FD70A /* Sources */,
 				E36F10D22C511ED6004FD70A /* Frameworks */,
 				E36F10D32C511ED6004FD70A /* Resources */,
@@ -149,6 +150,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E36F11012C51370F004FD70A /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\ncd ../ && ./build.sh\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E36F10D12C511ED6004FD70A /* Sources */ = {
