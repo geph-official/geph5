@@ -14,7 +14,7 @@ serde = "1.0.204"
 serde_json = "1.0.120"
 serde_yaml = "0.9.34"
 smolscale = "0.4.7"
-sqlx = { version = "0.7", features = [
+sqlx = { version = "0.8.0", features = [
   "runtime-tokio-rustls",
   "postgres",
   "chrono",

@@ -47,4 +47,4 @@ tachyonix = "0.3.0"
 clap = { version = "4.5.10", features = ["derive"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.5"
+tikv-jemallocator = "0.6.0"

@@ -35,7 +35,7 @@ http = "1.1.0"
 http-body-util = "0.1.2"
 hyper = { version = "1.4.1", features = ["http1", "client", "server"] }
 hyper-util = { version = "0.1.6" }
-ipstack-geph = "0.2.1" 
+ipstack-geph = "0.2.1"
 # ipstack-geph={path="../../../ipstack-geph"}
 isocountry = "0.3.2"
 itertools = "0.13.0"
@@ -52,7 +52,9 @@ picomux = { path = "../../libraries/picomux" }
 pin-project = "1.1.5"
 pnet_packet = "0.35.0"
 rand = "0.8.5"
-reqwest = { version = "0.12.5", default-features = false, features = ["rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12.5", default-features = false, features = [
+  "rustls-tls-webpki-roots",
+] }
 scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.120"
@@ -66,7 +68,7 @@ smol-timeout = "0.6.0"
 smol_str = { version = "0.2.2", features = ["serde"] }
 smolscale = "0.4.7"
 socksv5 = "0.3.1"
-sqlx = { version = "0.7.4", features = ["sqlite", "runtime-async-std"] }
+sqlx = { version = "0.8.0", features = ["sqlite", "runtime-async-std"] }
 stdcode = "0.1.14"
 tachyonix = "0.3.0"
 tap = "1.0.1"
@@ -74,13 +76,18 @@ thiserror = "1.0.63"
 tokio = { version = "1.39.1", features = ["rt", "net", "io-util"] }
 tower-service = "0.3.2"
 tracing = "0.1.40"
-tracing-subscriber = {version="0.3.18", features=["json"]}
+tracing-subscriber = { version = "0.3.18", features = ["json"] }
 tun = "0.6.1"
 x25519-dalek = "2.0.1"
 futures-concurrency = "7.6.1"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }
+winapi = { version = "0.3.9", features = [
+  "minwindef",
+  "mmsystem",
+  "timeapi",
+  "std",
+] }
 
 
 [target.'cfg(unix)'.dependencies]
