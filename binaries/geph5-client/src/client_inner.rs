@@ -107,8 +107,12 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let dial_refresh = async {
         loop {
             tracing::info!("refreshing dialer");
-            let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
-            *ctx.get(DIALER).lock().await = Some((pubkey, exit, raw_dialer));
+            match get_dialer(&ctx).await {
+                Ok((pubkey, exit, raw_dialer)) => {
+                    *ctx.get(DIALER).lock().await = Some((pubkey, exit, raw_dialer));
+                }
+                Err(e) => tracing::warn!(err = debug(e), "failed to refresh dialer"),
+            }
             let secs = rand::thread_rng().gen_range(300..600);
             tracing::info!(secs, "waiting until refresh");
             smol::Timer::after(Duration::from_secs(secs)).await;
