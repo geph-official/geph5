@@ -9,4 +9,4 @@ crate-type = ["staticlib"]
 [dependencies]
 
 # I couldn't get it to work with glow, but I think wgpu shoulg be better on iOS anyway, since it uses metal (opengl is deprecated on iOS)
-eframe = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix", version = "0.28.1", features = ["wgpu"], default-features = false }
+eframe = { version = "0.28.1", features = ["wgpu", "default_fonts"], default-features = false }

@@ -1,2 +1,5 @@
 /target
 test.yaml
+
+binaries/geph5-ios/geph5/geph5.xcodeproj/xcuserdata
+binaries/geph5-ios/geph5/geph5.xcodeproj/project.xcworkspace/xcuserdata
