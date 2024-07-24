@@ -15,7 +15,8 @@ async-dup = "1.2.4"
 async-trait = "0.1.80"
 atomic_float = "1.0.0"
 aws-config = "1.5.4"
-aws-sdk-lambda = "1.35.0"
+aws-sdk-lambda = { version = "1.35.0", features = ["rustls"] }
+aws-smithy-runtime = "1"
 blake3 = "1.5.1"
 blind-rsa-signatures = "0.15.1"
 bytes = "1.6.0"
@@ -34,6 +35,7 @@ hex = "0.4.3"
 http = "1.1.0"
 http-body-util = "0.1.2"
 hyper = { version = "1.4.0", features = ["http1", "client", "server"] }
+hyper-rustls = { version = "0.24.2", features = ["webpki-roots"] }
 hyper-util = { version = "0.1.6" }
 ipstack-geph = "0.2.0" 
 # ipstack-geph={path="../../../ipstack-geph"}

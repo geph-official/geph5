@@ -4,6 +4,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_lambda::{config::Credentials, primitives::Blob};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use serde::Deserialize;
+use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 
 pub struct AwsLambdaTransport {
     pub function_name: String,
@@ -16,6 +17,19 @@ pub struct AwsLambdaTransport {
 impl RpcTransport for AwsLambdaTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        // To use webpki-roots we need to create a custom http client, as explained here: https://github.com/smithy-lang/smithy-rs/discussions/3022
+
+        // Create a connector that will be used to establish TLS connections
+        let tls_connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_only()
+            .enable_http1()
+            .enable_http2()
+            .build();
+
+        // Create a hyper-based HTTP client that uses this TLS connector.
+        let http_client = HyperClientBuilder::new().build(tls_connector);
+
         let client = aws_sdk_lambda::Client::new(
             &aws_config::defaults(BehaviorVersion::v2024_03_28())
                 .region(string_to_static_str(self.region.clone()))
@@ -26,6 +40,7 @@ impl RpcTransport for AwsLambdaTransport {
                     None,
                     "test",
                 ))
+                .http_client(http_client)
                 .load()
                 .await,
         );
