@@ -8,7 +8,7 @@ use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crate::Cookie;
 
 /// A initial handshake message, which must be encrypted with the cookie before being sent.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Handshake {
     pub eph_pk: x25519_dalek::PublicKey,
     pub timestamp: u64,

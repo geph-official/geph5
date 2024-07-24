@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet, VecDeque},
     io::ErrorKind,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -9,6 +10,7 @@ use async_executor::Executor;
 use async_task::Task;
 use async_trait::async_trait;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
+use once_cell::sync::Lazy;
 use rand::{Rng, RngCore};
 use sillad::{listener::Listener, Pipe};
 use tachyonix::{Receiver, Sender};
@@ -23,7 +25,7 @@ pub struct SosistabListener<P: Pipe> {
 }
 
 impl<P: Pipe> SosistabListener<P> {
-    /// Listens to incoming sosistab3 pipes by wrapping an existing sillad Listener. If a cookie is passed, then uses that cookie, but if not, a random cookie is generated.
+    /// Listens to incoming sosistab3 pipes by wrapping an existing sillad Listener.
     pub fn new(listener: impl Listener<P = P>, cookie: Cookie) -> Self {
         let (send_pipe, recv_pipe) = tachyonix::channel(1);
         let _task = smolscale::spawn(listen_loop(listener, send_pipe, cookie));
@@ -53,6 +55,10 @@ async fn listen_loop<P: Pipe>(
                 let send_pipe = send_pipe.clone();
                 lexec
                     .spawn(async move {
+                        let current_timestamp = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
                         // receive their handshake
                         let mut their_handshake = [0u8; 140];
                         lower.read_exact(&mut their_handshake).await?;
@@ -62,6 +68,7 @@ async fn listen_loop<P: Pipe>(
                             their_handshake_hash = debug(their_handshake_hash),
                             "handshake received"
                         );
+                        dedup_handshake(current_timestamp, their_handshake)?;
                         // read their padding
                         let mut buff = vec![0u8; their_handshake.padding_len as usize];
                         lower.read_exact(&mut buff).await?;
@@ -98,10 +105,7 @@ async fn listen_loop<P: Pipe>(
                         // generate the handshake
                         let my_handshake = Handshake {
                             eph_pk,
-                            timestamp: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs(),
+                            timestamp: current_timestamp,
                             padding_len,
                             padding_hash,
                             responding_to: their_handshake_hash,
@@ -143,4 +147,42 @@ impl<P: Pipe> Listener for SosistabListener<P> {
             )
         })
     }
+}
+
+fn dedup_handshake(current_timestamp: u64, handshake: Handshake) -> std::io::Result<()> {
+    if current_timestamp.abs_diff(handshake.timestamp) > 600 {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "current timestamp too far away from handshake time",
+        ));
+    }
+    // deduplicate now
+    static DEDUP_MAP: Lazy<Mutex<(VecDeque<(Handshake, u64)>, HashSet<Handshake>)>> =
+        Lazy::new(Default::default);
+
+    let mut dedup_map = DEDUP_MAP.lock().unwrap();
+    let (handshake_list, handshake_set) = &mut *dedup_map;
+
+    // Check if the handshake is already seen
+    if handshake_set.contains(&handshake) {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "handshake already seen",
+        ));
+    }
+
+    // Insert the new handshake
+    handshake_list.push_back((handshake.clone(), current_timestamp));
+    handshake_set.insert(handshake);
+
+    // Remove outdated handshakes
+    while let Some((old_handshake, timestamp)) = handshake_list.front() {
+        if current_timestamp.abs_diff(*timestamp) <= 600 {
+            break;
+        }
+        handshake_set.remove(old_handshake);
+        handshake_list.pop_front();
+    }
+
+    Ok(())
 }
