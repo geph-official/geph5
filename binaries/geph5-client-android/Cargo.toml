@@ -40,7 +40,7 @@ desktop = []
 
 [lib]
 name = "na_egui"
-crate_type = ["cdylib"]
+crate-type = ["cdylib"]
 
 [[bin]]
 path = "src/lib.rs"
