@@ -2,21 +2,19 @@ use eframe::egui::Window;
 
 #[no_mangle]
 pub extern "C" fn start_app() {
-  start()
+    start()
 }
 
 fn start() {
-
     let mut text = String::new();
 
+    let mut app = None;
+
     eframe::run_simple_native("geph5", Default::default(), move |ctx, frame| {
-
-        Window::new("Hello, world!").show(ctx, |ui| {
-            ui.label("Hello, world!");
-
-            ui.text_edit_singleline(&mut text);
+        let app = app.get_or_insert_with(|| {
+            geph5_client_gui::App::new(ctx)
         });
 
-    });
-
+        app.render(ctx);
+    }).unwrap();
 }

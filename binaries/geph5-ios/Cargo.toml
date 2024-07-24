@@ -10,3 +10,5 @@ crate-type = ["staticlib"]
 
 # I couldn't get it to work with glow, but I think wgpu shoulg be better on iOS anyway, since it uses metal (opengl is deprecated on iOS)
 eframe = { version = "0.28.1", features = ["wgpu", "default_fonts"], default-features = false }
+
+geph5-client-gui = { path = "../geph5-client-gui" }

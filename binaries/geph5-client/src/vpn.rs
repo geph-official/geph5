@@ -4,10 +4,10 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 mod dummy;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub use dummy::*;
 
 use std::{net::Ipv4Addr, time::Duration};
