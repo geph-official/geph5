@@ -12,15 +12,15 @@ anyctx = "0.1.0"
 anyhow = "1.0.86"
 async-compat = "0.2.4"
 async-dup = "1.2.4"
-async-trait = "0.1.80"
+async-trait = "0.1.81"
 atomic_float = "1.0.0"
 aws-config = "1.5.4"
-aws-sdk-lambda = "1.35.0"
-blake3 = "1.5.1"
+aws-sdk-lambda = "1.37.0"
+blake3 = "1.5.3"
 blind-rsa-signatures = "0.15.1"
-bytes = "1.6.0"
+bytes = "1.6.1"
 chrono = "0.4.38"
-clap = { version = "4.5.8", features = ["derive"] }
+clap = { version = "4.5.10", features = ["derive"] }
 clone-macro = "0.1.0"
 dashmap = "6.0.1"
 dirs = "5.0.1"
@@ -33,15 +33,15 @@ geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
 hex = "0.4.3"
 http = "1.1.0"
 http-body-util = "0.1.2"
-hyper = { version = "1.4.0", features = ["http1", "client", "server"] }
+hyper = { version = "1.4.1", features = ["http1", "client", "server"] }
 hyper-util = { version = "0.1.6" }
-ipstack-geph = "0.2.0" 
+ipstack-geph = "0.2.1" 
 # ipstack-geph={path="../../../ipstack-geph"}
 isocountry = "0.3.2"
 itertools = "0.13.0"
 libc = "0.2.155"
 mizaru2 = { path = "../../libraries/mizaru2" }
-moka = { version = "0.12.7", features = ["future", "sync"] }
+moka = { version = "0.12.8", features = ["future", "sync"] }
 nanorpc = "0.1.12"
 nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 nursery_macro = "0.1.0"
@@ -70,8 +70,8 @@ sqlx = { version = "0.7.4", features = ["sqlite", "runtime-async-std"] }
 stdcode = "0.1.14"
 tachyonix = "0.3.0"
 tap = "1.0.1"
-thiserror = "1.0.61"
-tokio = { version = "1.38.0", features = ["rt", "net", "io-util"] }
+thiserror = "1.0.63"
+tokio = { version = "1.39.1", features = ["rt", "net", "io-util"] }
 tower-service = "0.3.2"
 tracing = "0.1.40"
 tracing-subscriber = {version="0.3.18", features=["json"]}

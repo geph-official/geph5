@@ -21,17 +21,17 @@ sqlx = { version = "0.7", features = [
 ] }
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
-async-trait = "0.1.80"
+async-trait = "0.1.81"
 nanorpc = "0.1.12"
-thiserror = "1.0.61"
+thiserror = "1.0.63"
 tracing = "0.1.40"
 rand = "0.8.5"
 async-io = "2.3.3"
-moka = { version = "0.12.7", features = ["future"] }
-blake3 = "1.5.1"
+moka = { version = "0.12.8", features = ["future"] }
+blake3 = "1.5.3"
 isocountry = "0.3.2"
 ed25519-dalek = "2.1.1"
-tokio = { version = "1.38", features = ["full"] }
+tokio = { version = "1.39", features = ["full"] }
 tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
 nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 sillad = { path = "../../libraries/sillad" }
@@ -39,9 +39,9 @@ mizaru2 = { path = "../../libraries/mizaru2" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 smol-timeout = "0.6.0"
 stdcode = "0.1.14"
-bytes = { version = "1.6.0", features = ["serde"] }
+bytes = { version = "1.6.1", features = ["serde"] }
 argon2 = "0.5.3"
 rusty_pool = "0.7.0"
 oneshot = "0.1.8"
 cadence = "1.4.0"
-clap = { version = "4.5.8", features = ["derive"] }
+clap = { version = "4.5.10", features = ["derive"] }

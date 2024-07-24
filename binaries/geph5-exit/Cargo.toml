@@ -9,9 +9,9 @@ geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 picomux = { path = "../../libraries/picomux" }
-async-trait = "0.1.80"
+async-trait = "0.1.81"
 nanorpc = "0.1.12"
-thiserror = "1.0.61"
+thiserror = "1.0.63"
 smolscale = "0.4.7"
 futures-util = "0.3.30"
 async-io = "2.3.3"
@@ -28,7 +28,7 @@ reqwest = { version = "0.12.5", default-features = false, features = [
 ] }
 isocountry = "0.3.2"
 ed25519-dalek = "2.1.1"
-blake3 = "1.5.1"
+blake3 = "1.5.3"
 tracing-subscriber = "0.3.18"
 tap = "1.0.1"
 geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
@@ -36,15 +36,15 @@ stdcode = "0.1.14"
 x25519-dalek = "2.0.1"
 hex = "0.4.3"
 nursery_macro = "0.1.0"
-moka = { version = "0.12.7", features = ["future"] }
+moka = { version = "0.12.8", features = ["future"] }
 mizaru2 = { path = "../../libraries/mizaru2" }
 governor = "0.6.3"
 quanta = "0.12.3"
-sysinfo = "0.30.12"
+sysinfo = "0.30.13"
 atomic_float = "1.0.0"
 fastrand = "2.1.0"
 tachyonix = "0.3.0"
-clap = { version = "4.5.8", features = ["derive"] }
+clap = { version = "4.5.10", features = ["derive"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
