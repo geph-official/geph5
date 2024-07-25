@@ -19,10 +19,9 @@ inherits = "dev"
 opt-level = 3
 
 [patch.crates-io]
-egui = { git = "https://github.com/lucasmerlin/egui", branch = "hp-improvements-0.28.0-unreleased" }
-eframe = { git = "https://github.com/lucasmerlin/egui", branch = "hp-improvements-0.28.0-unreleased" }
-egui-wgpu = { git = "https://github.com/lucasmerlin/egui", branch = "hp-improvements-0.28.0-unreleased" }
-egui_extras = { git = "https://github.com/lucasmerlin/egui", branch = "hp-improvements-0.28.0-unreleased" }
-egui_plot = { git = "https://github.com/lucasmerlin/egui", branch = "hp-improvements-0.28.0-unreleased" }
-winit = { git = "https://github.com/lucasmerlin/winit", branch = "hp-fixes-v0.29.15" }
-android-activity = { git = "https://github.com/lucasmerlin/android-activity", branch = "hp_changes_2" }
+egui = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+eframe = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+egui-wgpu = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+egui_extras = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+emath = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+winit = { git = "https://github.com/lucasmerlin/winit", branch = "geph-v0.29.x" }

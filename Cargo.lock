@@ -150,7 +150,8 @@ checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
 [[package]]
 name = "android-activity"
 version = "0.5.2"
-source = "git+https://github.com/lucasmerlin/android-activity?branch=hp_changes_2#d02aed361622790f1f4787ad93367d57268df782"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee91c0c2905bae44f84bfa4e044536541df26b7703fd0888deeb9060fcc44289"
 dependencies = [
  "android-properties",
  "bitflags 2.6.0",
@@ -2295,7 +2296,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "ecolor"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "bytemuck",
  "emath",
@@ -2330,14 +2331,14 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
  "egui",
  "egui-wgpu",
- "egui-winit 0.28.1 (git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased)",
+ "egui-winit 0.28.1 (git+https://github.com/ardocrat/egui?branch=eframe_ios_fix)",
  "egui_glow",
  "glow",
  "glutin",
@@ -2366,7 +2367,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "accesskit",
  "ahash",
@@ -2380,7 +2381,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -2412,7 +2413,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "accesskit_winit",
  "ahash",
@@ -2429,7 +2430,7 @@ dependencies = [
 [[package]]
 name = "egui_extras"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "egui",
@@ -2445,7 +2446,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -2461,7 +2462,8 @@ dependencies = [
 [[package]]
 name = "egui_plot"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7acc4fe778c41b91d57e04c1a2cf5765b3dc977f9f8384d2bb2eb4254855365"
 dependencies = [
  "ahash",
  "egui",
@@ -2508,7 +2510,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "bytemuck",
  "serde",
@@ -2592,7 +2594,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.28.1"
-source = "git+https://github.com/lucasmerlin/egui?branch=hp-improvements-0.28.0-unreleased#f612e5735f9493f5cd9a649e566fce25e596b2cd"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -8450,7 +8452,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 [[package]]
 name = "winit"
 version = "0.29.15"
-source = "git+https://github.com/lucasmerlin/winit?branch=hp-fixes-v0.29.15#f130dbcb1d3cad57417027a0b041b2b67cb5bad6"
+source = "git+https://github.com/lucasmerlin/winit?branch=geph-v0.29.x#68df516b3c7dda35b48b7eb9e8c478e7ca4e25e6"
 dependencies = [
  "ahash",
  "android-activity",
