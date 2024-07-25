@@ -21,6 +21,9 @@ pub mod store_cell;
 pub mod tabs;
 pub mod timeseries;
 
+#[cfg(target_os = "ios")]
+mod ios_ui;
+
 pub static SHOW_KEYBOARD_CALLBACK: OnceCell<Box<dyn Fn(bool) + Send + Sync + 'static>> =
     OnceCell::new();
 

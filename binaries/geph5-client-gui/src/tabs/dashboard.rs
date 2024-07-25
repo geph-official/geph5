@@ -106,6 +106,9 @@ impl Dashboard {
         })
         .inner?;
 
+        #[cfg(target_os = "ios")]
+        crate::ios_ui::ios_ui(ui);
+
         static START: Lazy<Instant> = Lazy::new(Instant::now);
         let now = Instant::now();
         let quantum_ms = 200;
