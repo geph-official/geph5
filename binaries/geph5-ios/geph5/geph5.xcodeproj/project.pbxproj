@@ -17,6 +17,7 @@
 		E36F10FC2C512D43004FD70A /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E36F10FA2C512D43004FD70A /* Main.storyboard */; };
 		E36F11042C524FED004FD70A /* dummy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36F11032C524FED004FD70A /* dummy.swift */; };
 		E36F11062C526358004FD70A /* GlobalFunctions.m in Sources */ = {isa = PBXBuildFile; fileRef = E36F11052C526358004FD70A /* GlobalFunctions.m */; };
+		E36F110A2C5269CF004FD70A /* SwiftRs in Frameworks */ = {isa = PBXBuildFile; productRef = E36F11092C5269CF004FD70A /* SwiftRs */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		E36F11032C524FED004FD70A /* dummy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dummy.swift; sourceTree = "<group>"; };
 		E36F11052C526358004FD70A /* GlobalFunctions.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GlobalFunctions.m; sourceTree = "<group>"; };
 		E36F11072C52636C004FD70A /* GlobalFunctions.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GlobalFunctions.h; sourceTree = "<group>"; };
+		E36F110B2C526DFD004FD70A /* SwiftLib */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = SwiftLib; path = ../SwiftLib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,6 +44,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E36F10F42C51278F004FD70A /* libgeph5_ios.a in Frameworks */,
+				E36F110A2C5269CF004FD70A /* SwiftRs in Frameworks */,
 				E36F10F82C512A53004FD70A /* Metal.framework in Frameworks */,
 				E36F10F62C512A35004FD70A /* UIKit.framework in Frameworks */,
 			);
@@ -53,6 +56,7 @@
 		E36F10CC2C511ED6004FD70A = {
 			isa = PBXGroup;
 			children = (
+				E36F110B2C526DFD004FD70A /* SwiftLib */,
 				E36F10D72C511ED6004FD70A /* geph5 */,
 				E36F10D62C511ED6004FD70A /* Products */,
 				E36F10F22C512763004FD70A /* Frameworks */,
@@ -111,6 +115,9 @@
 			dependencies = (
 			);
 			name = geph5;
+			packageProductDependencies = (
+				E36F11092C5269CF004FD70A /* SwiftRs */,
+			);
 			productName = geph5;
 			productReference = E36F10D52C511ED6004FD70A /* geph5.app */;
 			productType = "com.apple.product-type.application";
@@ -139,6 +146,9 @@
 				Base,
 			);
 			mainGroup = E36F10CC2C511ED6004FD70A;
+			packageReferences = (
+				E36F11082C5269CF004FD70A /* XCRemoteSwiftPackageReference "swift-rs" */,
+			);
 			productRefGroup = E36F10D62C511ED6004FD70A /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -418,6 +428,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E36F11082C5269CF004FD70A /* XCRemoteSwiftPackageReference "swift-rs" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Brendonovich/swift-rs";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E36F11092C5269CF004FD70A /* SwiftRs */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E36F11082C5269CF004FD70A /* XCRemoteSwiftPackageReference "swift-rs" */;
+			productName = SwiftRs;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E36F10CD2C511ED6004FD70A /* Project object */;
 }

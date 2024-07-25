@@ -28,19 +28,30 @@ extern "C" {
     fn dummyFn();
 }
 
+
+
+swift_rs::swift!(fn swiftrs_dummy_fn(data: &swift_rs::SRString));
+
 pub fn ios_ui(ui: &mut Ui) {
-
-    if ui.button("buy c").clicked() {
-        unsafe {
-            dummyFn();
+    ui.horizontal(|ui| {
+        if ui.button("buy c").clicked() {
+            unsafe {
+                dummyFn();
+            }
         }
-    }
 
-    if ui.button("buy objc").clicked() {
-        unsafe {
-            let ns_string = NSString::from_str("I was called via rust and can have a custom message!");
-            GlobalFunctionsObjc::objcDummyFn(&ns_string);
+        if ui.button("buy objc").clicked() {
+            unsafe {
+                let ns_string = NSString::from_str("I was called via rust / objc2 and can have a custom message!");
+                GlobalFunctionsObjc::objcDummyFn(&ns_string);
+            }
         }
-    }
 
+        if ui.button("buy swift").clicked() {
+            unsafe {
+                let swift_string = swift_rs::SRString::from("I was called via rust / swiftrs and can have a custom message!");
+                swiftrs_dummy_fn(&swift_string);
+            }
+        }
+    });
 }

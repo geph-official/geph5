@@ -1,22 +1,5 @@
-
-import Foundation
-import UIKit
 import SwiftRs
-
-
-/// Using ObjC allows us to easily pass Strings / Data
-@objc public class GlobalFunctions: NSObject {
-    @objc public static func objcDummyFn(data: NSString) {
-        
-        showAlert(text: data as String)
-    }
-}
-
-
-@_cdecl("dummyFn")
-func dummyFn() {
-    showAlert(text: "I was called via c!")
-}
+import UIKit
 
 
 @_cdecl("swiftrs_dummy_fn")
