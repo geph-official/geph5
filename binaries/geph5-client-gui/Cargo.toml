@@ -66,3 +66,7 @@ eframe = { version = "0.28.1", default-features = true }
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52.0"
 winapi = { version = "0.3.9", features = ["wininet"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = [] }

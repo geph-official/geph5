@@ -3195,6 +3195,8 @@ dependencies = [
  "moka",
  "nanorpc-sillad",
  "native-dialog",
+ "objc2 0.5.2",
+ "objc2-foundation",
  "once_cell",
  "oneshot",
  "poll-promise",

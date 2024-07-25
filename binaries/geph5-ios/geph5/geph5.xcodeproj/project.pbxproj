@@ -16,6 +16,7 @@
 		E36F10F92C512C64004FD70A /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E36F10E62C511ED7004FD70A /* LaunchScreen.storyboard */; };
 		E36F10FC2C512D43004FD70A /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E36F10FA2C512D43004FD70A /* Main.storyboard */; };
 		E36F11042C524FED004FD70A /* dummy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36F11032C524FED004FD70A /* dummy.swift */; };
+		E36F11062C526358004FD70A /* GlobalFunctions.m in Sources */ = {isa = PBXBuildFile; fileRef = E36F11052C526358004FD70A /* GlobalFunctions.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,8 @@
 		E36F10FB2C512D43004FD70A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		E36F11022C524FED004FD70A /* geph5-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "geph5-Bridging-Header.h"; sourceTree = "<group>"; };
 		E36F11032C524FED004FD70A /* dummy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dummy.swift; sourceTree = "<group>"; };
+		E36F11052C526358004FD70A /* GlobalFunctions.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GlobalFunctions.m; sourceTree = "<group>"; };
+		E36F11072C52636C004FD70A /* GlobalFunctions.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GlobalFunctions.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +75,8 @@
 				E36F10E62C511ED7004FD70A /* LaunchScreen.storyboard */,
 				E36F10E92C511ED7004FD70A /* Info.plist */,
 				E36F10EA2C511ED7004FD70A /* main.m */,
+				E36F11052C526358004FD70A /* GlobalFunctions.m */,
+				E36F11072C52636C004FD70A /* GlobalFunctions.h */,
 				E36F10F12C511F3E004FD70A /* bindings.h */,
 				E36F11032C524FED004FD70A /* dummy.swift */,
 				E36F11022C524FED004FD70A /* geph5-Bridging-Header.h */,
@@ -184,6 +189,7 @@
 			files = (
 				E36F11042C524FED004FD70A /* dummy.swift in Sources */,
 				E36F10EB2C511ED7004FD70A /* main.m in Sources */,
+				E36F11062C526358004FD70A /* GlobalFunctions.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

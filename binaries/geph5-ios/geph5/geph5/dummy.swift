@@ -2,14 +2,30 @@
 import Foundation
 import UIKit
 
+
+/// Using ObjC allows us to easily pass Strings / Data
+@objc public class GlobalFunctions: NSObject {
+    @objc public static func objcDummyFn(data: NSString) {
+        
+        showAlert(text: data as String)
+    }
+}
+
+
 @_cdecl("dummyFn")
 func dummyFn() {
+    showAlert(text: "I was called via c!")
+}
+
+
+func showAlert(text: String) {
     if let vc = UIApplication.getTopViewController() {
-        let alert = UIAlertController(title: "Alert", message: "Message", preferredStyle: UIAlertController.Style.alert)
+        let alert = UIAlertController(title: "Alert", message: text, preferredStyle: UIAlertController.Style.alert)
         alert.addAction(UIAlertAction(title: "Click", style: UIAlertAction.Style.default, handler: nil))
         vc.present(alert, animated: true, completion: nil)
     }
 }
+
 
 extension UIApplication {
 
