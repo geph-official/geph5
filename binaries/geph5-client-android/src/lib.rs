@@ -7,13 +7,14 @@ use egui_wgpu::wgpu::{self, rwh::HasDisplayHandle};
 use egui_winit::winit::{
     self,
     event::{Event, WindowEvent},
+    event_loop::ActiveEventLoop,
 };
 
 use geph5_client_gui::App;
 use jni::{objects::JObject, JNIEnv, JavaVM};
 use keyboard::show_soft_input;
 use once_cell::sync::OnceCell;
-use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget};
+use winit::event_loop::EventLoop;
 
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
@@ -46,22 +47,24 @@ struct RepaintSignal(
     std::sync::Arc<std::sync::Mutex<winit::event_loop::EventLoopProxy<CustomEvent>>>,
 );
 
-fn create_window<T>(
-    event_loop: &EventLoopWindowTarget<T>,
+fn create_window(
+    event_loop: &ActiveEventLoop,
     state: &mut State,
     painter: &mut Painter,
 ) -> Option<Arc<winit::window::Window>> {
     let window = Arc::new(
-        winit::window::WindowBuilder::new()
-            .with_decorations(true)
-            .with_resizable(true)
-            .with_transparent(false)
-            .with_title("egui winit + wgpu example")
-            .with_inner_size(winit::dpi::PhysicalSize {
-                width: INITIAL_WIDTH,
-                height: INITIAL_HEIGHT,
-            })
-            .build(event_loop)
+        event_loop
+            .create_window(
+                winit::window::Window::default_attributes()
+                    .with_decorations(true)
+                    .with_resizable(true)
+                    .with_transparent(false)
+                    .with_title("egui winit + wgpu example")
+                    .with_inner_size(winit::dpi::PhysicalSize {
+                        width: INITIAL_WIDTH,
+                        height: INITIAL_HEIGHT,
+                    }),
+            )
             .unwrap(),
     );
 
@@ -120,14 +123,14 @@ fn _main(event_loop: EventLoop<CustomEvent>) {
             power_preference: wgpu::PowerPreference::LowPower,
             device_descriptor: std::sync::Arc::new(|_adapter| wgpu::DeviceDescriptor {
                 label: None,
-                required_features: Default::default(),
-                required_limits: Default::default(),
+                ..Default::default()
             }),
             present_mode: wgpu::PresentMode::Fifo,
             ..Default::default()
         },
         1, // msaa samples
         Some(wgpu::TextureFormat::Depth24Plus),
+        false,
         false,
     );
     let mut window: Option<Arc<winit::window::Window>> = None;
@@ -248,7 +251,7 @@ fn android_main(app: AndroidApp) {
             ),
     );
 
-    let event_loop = EventLoopBuilder::with_user_event()
+    let event_loop = EventLoop::with_user_event()
         .with_android_app(app)
         .build()
         .unwrap();
@@ -263,6 +266,6 @@ fn main() {
         .parse_default_env()
         .init();
 
-    let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
+    let event_loop = EventLoop::with_user_event().build().unwrap();
     _main(event_loop);
 }
