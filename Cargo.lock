@@ -2296,8 +2296,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "ecolor"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e6b451ff1143f6de0f33fc7f1b68fecfd2c7de06e104de96c4514de3f5396f8"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "bytemuck",
  "emath",
@@ -2332,15 +2331,14 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6490ef800b2e41ee129b1f32f9ac15f713233fe3bc18e241a1afe1e4fb6811e0"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
  "egui",
  "egui-wgpu",
- "egui-winit",
+ "egui-winit 0.28.1 (git+https://github.com/ardocrat/egui?branch=eframe_ios_fix)",
  "egui_glow",
  "glow",
  "glutin",
@@ -2353,6 +2351,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
+ "pollster 0.3.0",
  "raw-window-handle 0.5.2",
  "raw-window-handle 0.6.2",
  "static_assertions",
@@ -2360,6 +2359,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
+ "wgpu",
  "winapi",
  "winit",
 ]
@@ -2367,8 +2367,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20c97e70a2768de630f161bb5392cbd3874fcf72868f14df0e002e82e06cb798"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "accesskit",
  "ahash",
@@ -2382,8 +2381,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47c7a7c707877c3362a321ebb4f32be811c0b91f7aebf345fb162405c0218b4c"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -2404,6 +2402,19 @@ version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fac4e066af341bf92559f60dbdf2020b2a03c963415349af5f3f8d79ff7a4926"
 dependencies = [
+ "ahash",
+ "egui",
+ "log",
+ "raw-window-handle 0.6.2",
+ "web-time",
+ "winit",
+]
+
+[[package]]
+name = "egui-winit"
+version = "0.28.1"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+dependencies = [
  "accesskit_winit",
  "ahash",
  "arboard",
@@ -2419,8 +2430,7 @@ dependencies = [
 [[package]]
 name = "egui_extras"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bb783d9fa348f69ed5c340aa25af78b5472043090e8b809040e30960cc2a746"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "egui",
@@ -2436,8 +2446,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e2bdc8b38cfa17cc712c4ae079e30c71c00cd4c2763c9e16dc7860a02769103"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -2501,8 +2510,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a6a21708405ea88f63d8309650b4d77431f4bc28fb9d8e6f77d3963b51249e6"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "bytemuck",
  "serde",
@@ -2586,8 +2594,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.28.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f0dcc0a0771e7500e94cd1cb797bd13c9f23b9409bdc3c824e2cbc562b7fa01"
+source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -3075,6 +3082,7 @@ dependencies = [
  "atomic_float",
  "aws-config",
  "aws-sdk-lambda",
+ "aws-smithy-runtime",
  "blake3",
  "blind-rsa-signatures",
  "bytes",
@@ -3094,6 +3102,7 @@ dependencies = [
  "http 1.1.0",
  "http-body-util",
  "hyper 1.4.1",
+ "hyper-rustls 0.24.2",
  "hyper-util",
  "ipstack-geph",
  "isahc",
@@ -3147,7 +3156,7 @@ dependencies = [
  "anyhow",
  "egui",
  "egui-wgpu",
- "egui-winit",
+ "egui-winit 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger",
  "geph5-client-gui",
  "jni",
@@ -3252,6 +3261,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x25519-dalek",
+]
+
+[[package]]
+name = "geph5-ios"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "geph5-client-gui",
 ]
 
 [[package]]
@@ -3772,6 +3789,7 @@ dependencies = [
  "rustls-native-certs",
  "tokio",
  "tokio-rustls 0.24.1",
+ "webpki-roots 0.25.4",
 ]
 
 [[package]]
@@ -7997,6 +8015,7 @@ dependencies = [
  "document-features",
  "js-sys",
  "log",
+ "naga",
  "parking_lot",
  "profiling",
  "raw-window-handle 0.6.2",
@@ -8047,6 +8066,7 @@ dependencies = [
  "arrayvec",
  "ash",
  "bitflags 2.6.0",
+ "block",
  "cfg_aliases",
  "core-graphics-types",
  "glow",
@@ -8433,8 +8453,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 [[package]]
 name = "winit"
 version = "0.29.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d59ad965a635657faf09c8f062badd885748428933dad8e8bdd64064d92e5ca"
+source = "git+https://github.com/lucasmerlin/winit?branch=geph-v0.29.x#68df516b3c7dda35b48b7eb9e8c478e7ca4e25e6"
 dependencies = [
  "ahash",
  "android-activity",

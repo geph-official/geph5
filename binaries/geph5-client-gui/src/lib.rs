@@ -142,7 +142,7 @@ impl App {
             }
         });
 
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if let Err(err) = result.inner {
             use native_dialog::MessageType;
             let _ = native_dialog::MessageDialog::new()

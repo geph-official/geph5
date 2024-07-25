@@ -1,0 +1,14 @@
+[package]
+name = "geph5-ios"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+
+# I couldn't get it to work with glow, but I think wgpu shoulg be better on iOS anyway, since it uses metal (opengl is deprecated on iOS)
+eframe = { version = "0.28.1", features = ["wgpu", "default_fonts"], default-features = false }
+
+geph5-client-gui = { path = "../geph5-client-gui" }
