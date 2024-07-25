@@ -17,3 +17,11 @@ opt-level = 3
 [profile.release-dbg]
 inherits = "dev"
 opt-level = 3
+
+[patch.crates-io]
+egui = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+eframe = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+egui-wgpu = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+egui_extras = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+emath = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+winit = { git = "https://github.com/lucasmerlin/winit", branch = "geph-v0.29.x" }

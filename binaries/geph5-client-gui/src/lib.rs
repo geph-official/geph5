@@ -21,6 +21,9 @@ pub mod store_cell;
 pub mod tabs;
 pub mod timeseries;
 
+#[cfg(target_os = "ios")]
+mod ios_ui;
+
 pub static SHOW_KEYBOARD_CALLBACK: OnceCell<Box<dyn Fn(bool) + Send + Sync + 'static>> =
     OnceCell::new();
 
@@ -142,7 +145,7 @@ impl App {
             }
         });
 
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if let Err(err) = result.inner {
             use native_dialog::MessageType;
             let _ = native_dialog::MessageDialog::new()

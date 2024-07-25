@@ -42,7 +42,7 @@ impl Logs {
         if let Some(Ok(logs)) = logs {
             let logs = strip_ansi_escapes::strip_str(logs.join("\n"));
 
-            #[cfg(not(target_os = "android"))]
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if ui.button(l10n("export_logs")).clicked() {
                 use native_dialog::FileDialog;
                 let path = FileDialog::new()
