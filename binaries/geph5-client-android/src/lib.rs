@@ -20,9 +20,12 @@ fn android_main(app: egui_winit::winit::platform::android::activity::AndroidApp)
     let mut cell = None;
     {
         let app = app.clone();
-        geph5_client_gui::SHOW_KEYBOARD_CALLBACK.set(Box::new(move |s| {
-            crate::keyboard::show_hide_keyboard_infal(app.clone(), s)
-        }));
+        geph5_client_gui::SHOW_KEYBOARD_CALLBACK
+            .set(Box::new(move |s| {
+                crate::keyboard::show_hide_keyboard_infal(app.clone(), s)
+            }))
+            .ok()
+            .unwrap();
     }
     eframe::run_simple_native(
         "geph",

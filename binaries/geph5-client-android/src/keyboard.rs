@@ -2,7 +2,7 @@ use egui_winit::winit::platform::android::activity::AndroidApp;
 use jni::{objects::JObject, JavaVM};
 
 pub fn show_hide_keyboard_infal(app: AndroidApp, show: bool) {
-    show_hide_keyboard(app, show).unwrap();
+    let _ = show_hide_keyboard(app, show);
 }
 
 pub fn show_hide_keyboard(app: AndroidApp, show: bool) -> anyhow::Result<()> {
