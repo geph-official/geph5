@@ -20,7 +20,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun initJvm() {
-        NativeBridge().setjvm()
+//        NativeBridge().setjvm()
     }
 
     private fun startNativeActivity() {

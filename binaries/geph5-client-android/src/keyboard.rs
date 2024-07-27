@@ -1,95 +1,38 @@
-pub fn show_soft_input(show: bool) -> anyhow::Result<bool> {
-    use jni::objects::JValue;
+use egui_winit::winit::platform::android::activity::AndroidApp;
+use jni::{objects::JObject, JavaVM};
 
-    let ctx = ndk_context::android_context();
-    let vm = match unsafe { jni::JavaVM::from_raw(ctx.vm() as _) } {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no vm !! : {:?}", e);
-        }
-    };
-    let activity = unsafe { jni::objects::JObject::from_raw(ctx.context() as _) };
-    let mut env = match vm.attach_current_thread() {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no env !! : {:?}", e);
-        }
-    };
+pub fn show_hide_keyboard_infal(app: AndroidApp, show: bool) {
+    show_hide_keyboard(app, show).unwrap();
+}
 
-    let class_ctxt = match env.find_class("android/content/Context") {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no class_ctxt !! : {:?}", e);
-        }
-    };
-    let ims = match env.get_static_field(class_ctxt, "INPUT_METHOD_SERVICE", "Ljava/lang/String;") {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no ims !! : {:?}", e);
-        }
-    };
-
-    let im_manager = match env
+pub fn show_hide_keyboard(app: AndroidApp, show: bool) -> anyhow::Result<()> {
+    // After Android R, it is no longer possible to show the soft keyboard
+    // with `showSoftInput` alone.
+    // Here we use `WindowInsetsController`, which is the other way.
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as _)? };
+    let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as _) };
+    let mut env = vm.attach_current_thread()?;
+    let window = env
+        .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])?
+        .l()?;
+    let wic = env
         .call_method(
-            &activity,
-            "getSystemService",
-            "(Ljava/lang/String;)Ljava/lang/Object;",
-            &[ims.borrow()],
-        )
-        .unwrap()
-        .l()
-    {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no im_manager !! : {:?}", e);
-        }
-    };
-
-    let jni_window = match env
-        .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])
-        .unwrap()
-        .l()
-    {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no jni_window !! : {:?}", e);
-        }
-    };
-    let view = match env
-        .call_method(jni_window, "getDecorView", "()Landroid/view/View;", &[])
-        .unwrap()
-        .l()
-    {
-        Ok(value) => value,
-        Err(e) => {
-            anyhow::bail!("virtual_kbd : no view !! : {:?}", e);
-        }
-    };
-
-    if show {
-        let result = env
-            .call_method(
-                im_manager,
-                "showSoftInput",
-                "(Landroid/view/View;I)Z",
-                &[JValue::Object(&view), 0i32.into()],
-            )?
-            .z()?;
-        Ok(result)
-    } else {
-        let window_token = env
-            .call_method(view, "getWindowToken", "()Landroid/os/IBinder;", &[])?
-            .l()?;
-        let jvalue_window_token = jni::objects::JValueGen::Object(&window_token);
-
-        let result = env
-            .call_method(
-                im_manager,
-                "hideSoftInputFromWindow",
-                "(Landroid/os/IBinder;I)Z",
-                &[jvalue_window_token, 0i32.into()],
-            )?
-            .z()?;
-        Ok(result)
-    }
+            window,
+            "getInsetsController",
+            "()Landroid/view/WindowInsetsController;",
+            &[],
+        )?
+        .l()?;
+    let window_insets_types = env.find_class("android/view/WindowInsets$Type")?;
+    let ime_type = env
+        .call_static_method(&window_insets_types, "ime", "()I", &[])?
+        .i()?;
+    env.call_method(
+        &wic,
+        if show { "show" } else { "hide" },
+        "(I)V",
+        &[ime_type.into()],
+    )?
+    .v()?;
+    Ok(())
 }
