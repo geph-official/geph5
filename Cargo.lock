@@ -3077,6 +3077,7 @@ dependencies = [
  "atomic_float",
  "aws-config",
  "aws-sdk-lambda",
+ "aws-smithy-runtime",
  "blake3",
  "blind-rsa-signatures",
  "bytes",
@@ -3096,6 +3097,7 @@ dependencies = [
  "http 1.1.0",
  "http-body-util",
  "hyper 1.4.1",
+ "hyper-rustls 0.24.2",
  "hyper-util",
  "ipstack-geph",
  "isahc",
@@ -3774,6 +3776,7 @@ dependencies = [
  "rustls-native-certs",
  "tokio",
  "tokio-rustls 0.24.1",
+ "webpki-roots 0.25.4",
 ]
 
 [[package]]

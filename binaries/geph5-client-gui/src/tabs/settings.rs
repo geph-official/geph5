@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use egui::mutex::Mutex;
+use egui::{mutex::Mutex, Id};
 use geph5_broker_protocol::{BrokerClient, ExitList};
 use geph5_client::BridgeMode;
 use itertools::Itertools as _;
@@ -14,12 +14,18 @@ use crate::{
         get_config, BRIDGE_MODE, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF,
         SELECTED_CITY, SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
     },
+    store_cell::StoreCell,
 };
 
 pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
     Lazy::new(|| Mutex::new(RefreshCell::new()));
 
-pub fn render_settings(_ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
+pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
+    ctx.data(|data| {
+        let daemon_running: &mut RefreshCell<bool> =
+            data.get_temp_mut_or(Id::new("sdae"), || RefreshCell::new());
+    });
+
     if ui.button(l10n("logout")).clicked() {
         let _ = DAEMON_HANDLE.stop();
         USERNAME.set("".into());
