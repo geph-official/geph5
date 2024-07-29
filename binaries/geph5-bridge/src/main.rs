@@ -106,20 +106,20 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             };
             if steal_time > 0.4 {
                 consec += 1;
-                // if consec > 3 {
-                //     Command::new("systemctl")
-                //         .arg("stop")
-                //         .arg("geph4-bridge")
-                //         .status()
-                //         .await
-                //         .unwrap();
-                // }
+                if consec > 3 {
+                    Command::new("systemctl")
+                        .arg("stop")
+                        .arg("geph4-bridge")
+                        .status()
+                        .await
+                        .unwrap();
+                }
                 broker_rpc
                     .set_stat(format!("{bridge_key}.overload_steal_time"), steal_time)
                     .await
                     .unwrap();
             }
-            if steal_time < 0.1 {
+            if steal_time < 0.1 && consec > 0 {
                 consec = 0;
                 Command::new("systemctl")
                     .arg("start")
