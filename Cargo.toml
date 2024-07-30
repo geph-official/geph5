@@ -19,9 +19,15 @@ inherits = "dev"
 opt-level = 3
 
 [patch.crates-io]
-egui = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
-eframe = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
-egui-wgpu = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
-egui_extras = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
-emath = { git = "https://github.com/ardocrat/egui", branch = "eframe_ios_fix" }
+# We currently need two egui PRs to fix iOS builds:
+# https://github.com/emilk/egui/pull/4855
+# https://github.com/emilk/egui/pull/4851
+# I've combined the changes in a branch in my fork:
+egui = { git = "https://github.com/lucasmerlin/egui", branch = "eframe_ios_fixes" }
+eframe = { git = "https://github.com/lucasmerlin/egui", branch = "eframe_ios_fixes" }
+egui-wgpu = { git = "https://github.com/lucasmerlin/egui", branch = "eframe_ios_fixes" }
+egui_extras = { git = "https://github.com/lucasmerlin/egui", branch = "eframe_ios_fixes" }
+emath = { git = "https://github.com/lucasmerlin/egui", branch = "eframe_ios_fixes" }
+
+
 winit = { git = "https://github.com/lucasmerlin/winit", branch = "geph-v0.29.x" }

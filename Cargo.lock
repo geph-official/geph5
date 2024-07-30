@@ -2296,7 +2296,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "ecolor"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "bytemuck",
  "emath",
@@ -2331,14 +2331,14 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
  "egui",
  "egui-wgpu",
- "egui-winit 0.28.1 (git+https://github.com/ardocrat/egui?branch=eframe_ios_fix)",
+ "egui-winit 0.28.1 (git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes)",
  "egui_glow",
  "glow",
  "glutin",
@@ -2367,7 +2367,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "accesskit",
  "ahash",
@@ -2381,7 +2381,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -2413,7 +2413,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "accesskit_winit",
  "ahash",
@@ -2430,7 +2430,7 @@ dependencies = [
 [[package]]
 name = "egui_extras"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "ahash",
  "egui",
@@ -2446,7 +2446,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -2510,7 +2510,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "bytemuck",
  "serde",
@@ -2594,7 +2594,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.28.1"
-source = "git+https://github.com/ardocrat/egui?branch=eframe_ios_fix#491e2b382d267d39932319abe9611fc9911a2ea9"
+source = "git+https://github.com/lucasmerlin/egui?branch=eframe_ios_fixes#d30a8fba0d84366f3aa53181a10c4906e9351c6b"
 dependencies = [
  "ab_glyph",
  "ahash",
