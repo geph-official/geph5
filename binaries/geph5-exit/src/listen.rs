@@ -122,7 +122,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
                 }
 
-                let sleep_dur = rand::thread_rng().gen_range(10.0..30.0);
+                let sleep_dur = rand::thread_rng().gen_range(1.0..5.0);
                 smol::Timer::after(Duration::from_secs_f64(sleep_dur)).await;
             }
         }
