@@ -57,8 +57,8 @@ pub fn fake_dns_backtranslate(ctx: &AnyCtx<Config>, fake: Ipv4Addr) -> Option<St
 pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
     ctx.get(FAKE_DNS_FORWARD)
         .get_with(dns_name.to_string(), || {
-            let base = u32::from_be_bytes([100, 64, 0, 0]);
-            let mask = u32::from_be_bytes([255, 192, 0, 0]);
+            let base = u32::from_be_bytes([240, 0, 0, 0]);
+            let mask = u32::from_be_bytes([240, 0, 0, 0]);
             let offset = rand::thread_rng().gen_range(0..=!mask);
             let ip_addr = base | offset;
             let ip_addr = Ipv4Addr::from(ip_addr);

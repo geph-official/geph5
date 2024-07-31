@@ -9,6 +9,7 @@ description = "A framework for talking about TCP-like dialers and listeners, wit
 [dependencies]
 async-io = "2.3.3"
 async-trait = "0.1.80"
+futures-concurrency = "7.6.1"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.30", features = ["io"] }
 libc = "0.2.155"

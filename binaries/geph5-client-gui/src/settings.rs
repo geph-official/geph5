@@ -14,7 +14,7 @@ pub static DEFAULT_SETTINGS: Lazy<serde_yaml::Value> = Lazy::new(|| {
     serde_yaml::from_slice(
         &base32::decode(
             Alphabet::Crockford,
-            include_str!("settings_default.yaml.base32"),
+            include_str!("settings_default.yaml.base32").trim(),
         )
         .expect("no base32 decode"),
     )

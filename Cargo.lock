@@ -3115,6 +3115,7 @@ dependencies = [
  "picomux",
  "pin-project",
  "pnet_packet",
+ "psl",
  "rand",
  "reqwest",
  "scopeguard",
@@ -5418,6 +5419,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43d84d1d7a6ac92673717f9f6d1518374ef257669c24ebc5ac25d5033828be58"
 
 [[package]]
+name = "psl"
+version = "2.1.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce9398ad066421139b2e3afe16ea46772ffda30bd9ba57554dc035df5e26edc8"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
 name = "quanta"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6270,6 +6286,7 @@ version = "0.1.1"
 dependencies = [
  "async-io 2.3.3",
  "async-trait",
+ "futures-concurrency",
  "futures-lite 2.3.0",
  "futures-util",
  "libc",

@@ -1,11 +1,19 @@
-use std::{net::SocketAddr, net::TcpStream};
+use std::{
+    net::{SocketAddr, TcpStream},
+    time::Duration,
+};
 
 use async_io::Async;
 use async_trait::async_trait;
+use futures_concurrency::future::FutureGroup;
 use futures_lite::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 
-use crate::{dialer::Dialer, listener::Listener, Pipe};
+use crate::{
+    dialer::{Dialer, DialerExt},
+    listener::Listener,
+    Pipe,
+};
 
 /// A TcpListener is a listener for TCP endpoints.
 pub struct TcpListener {
@@ -55,6 +63,32 @@ fn set_tcp_options(conn: &Async<TcpStream>) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// A HappyEyeballsTcpDialer is a dialer for TCP endpoints which tries the given addresses in sequence intelligently.
+pub struct HappyEyeballsTcpDialer(pub Vec<SocketAddr>);
+
+#[async_trait]
+impl Dialer for HappyEyeballsTcpDialer {
+    type P = Box<dyn Pipe>;
+    async fn dial(&self) -> std::io::Result<Self::P> {
+        let res = self
+            .0
+            .iter()
+            .enumerate()
+            .map(|(idx, addr)| {
+                let delay = Duration::from_millis(250 * idx as u64);
+                TcpDialer { dest_addr: *addr }.delay(delay).dynamic()
+            })
+            .reduce(|a, b| a.race(b).dynamic());
+        match res {
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "no addresses given",
+            )),
+            Some(dialer) => dialer.dial().await,
+        }
+    }
 }
 
 /// A TcpDialer is a dialer for TCP endpoints. It is configured by its fields.

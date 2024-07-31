@@ -230,7 +230,7 @@ use tokio::task::JoinSet;
 
 async fn establish_connect_tunnel(
     upgraded: Upgraded,
-    stream: picomux::Stream,
+    stream: impl sillad::Pipe,
     client_addr: SocketAddr,
 ) {
     use tokio::io::{copy, split};

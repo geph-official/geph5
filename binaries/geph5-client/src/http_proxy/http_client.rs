@@ -71,7 +71,7 @@ impl Future for SocksConnecting {
 }
 pub type CtxClient = hyper_util::client::legacy::Client<Connector, BoxBody<Bytes, Infallible>>;
 
-pub struct PicomuxConnection(Compat<picomux::Stream>);
+pub struct PicomuxConnection(Compat<Box<dyn sillad::Pipe>>);
 
 impl Connection for PicomuxConnection {
     fn connected(&self) -> hyper_util::client::legacy::connect::Connected {

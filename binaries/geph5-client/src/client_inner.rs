@@ -36,7 +36,7 @@ use crate::{
     control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
     route::{deprioritize_route, get_dialer},
     stats::stat_incr_num,
-    vpn::fake_dns_backtranslate,
+    vpn::{fake_dns_backtranslate, vpn_whitelist},
     ConnInfo,
 };
 
@@ -46,7 +46,7 @@ pub async fn open_conn(
     ctx: &AnyCtx<Config>,
     protocol: &str,
     dest_addr: &str,
-) -> anyhow::Result<picomux::Stream> {
+) -> anyhow::Result<Box<dyn sillad::Pipe>> {
     let dest_addr = if let Ok(sock_addr) = SocketAddr::from_str(dest_addr) {
         if let IpAddr::V4(v4) = sock_addr.ip() {
             if let Some(orig) = fake_dns_backtranslate(ctx, v4) {
@@ -61,6 +61,23 @@ pub async fn open_conn(
         dest_addr.to_string()
     };
 
+    let dest_host = dest_addr
+        .split(":")
+        .next()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    if whitelist_host(&dest_host) {
+        let addrs = smol::net::resolve(&dest_addr).await?;
+        for addr in addrs.iter() {
+            vpn_whitelist(addr.ip());
+        }
+        tracing::debug!(
+            dest_addr = debug(dest_addr),
+            "passing through whitelisted address"
+        );
+        return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
+    }
+
     let (send, recv) = oneshot::channel();
     let elem = (format!("{protocol}${dest_addr}"), send);
     let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
@@ -72,7 +89,24 @@ pub async fn open_conn(
     conn.set_on_write(clone!([ctx], move |n| {
         stat_incr_num(&ctx, "total_tx_bytes", n as _)
     }));
-    Ok(conn)
+    Ok(Box::new(conn))
+}
+
+fn whitelist_host(host: &str) -> bool {
+    if host.is_empty() {
+        return false;
+    }
+    if let Ok(ip) = IpAddr::from_str(host) {
+        match ip {
+            IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        }
+    } else {
+        match psl::suffix(host.as_bytes()) {
+            None => true,
+            Some(suf) => !suf.is_known(),
+        }
+    }
 }
 
 type ChanElem = (String, oneshot::Sender<picomux::Stream>);
