@@ -78,45 +78,51 @@ async fn broker_loop() -> anyhow::Result<()> {
             let client = BrokerClient(transport);
             let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
             loop {
-                let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                let diff = byte_count - last_byte_count;
-                last_byte_count = byte_count;
-                client
-                    .incr_stat(format!("{server_name}.throughput"), diff as _)
-                    .await?;
-                let load = get_load();
-                client
-                    .set_stat(format!("{server_name}.load"), load as _)
-                    .await?;
+                let upload = async {
+                    let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+                    let diff = byte_count - last_byte_count;
+                    last_byte_count = byte_count;
+                    client
+                        .incr_stat(format!("{server_name}.throughput"), diff as _)
+                        .await?;
+                    let load = get_load();
+                    client
+                        .set_stat(format!("{server_name}.load"), load as _)
+                        .await?;
 
-                let descriptor = ExitDescriptor {
-                    c2e_listen: CONFIG_FILE
-                        .wait()
-                        .c2e_listen
-                        .tap_mut(|addr| addr.set_ip(my_ip)),
-                    b2e_listen: CONFIG_FILE
-                        .wait()
-                        .b2e_listen
-                        .tap_mut(|addr| addr.set_ip(my_ip)),
-                    country: CONFIG_FILE.wait().country,
-                    city: CONFIG_FILE.wait().city.clone(),
-                    load,
-                    expiry: SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        + 60,
+                    let descriptor = ExitDescriptor {
+                        c2e_listen: CONFIG_FILE
+                            .wait()
+                            .c2e_listen
+                            .tap_mut(|addr| addr.set_ip(my_ip)),
+                        b2e_listen: CONFIG_FILE
+                            .wait()
+                            .b2e_listen
+                            .tap_mut(|addr| addr.set_ip(my_ip)),
+                        country: CONFIG_FILE.wait().country,
+                        city: CONFIG_FILE.wait().city.clone(),
+                        load,
+                        expiry: SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + 60,
+                    };
+                    let to_upload = Mac::new(
+                        Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
+                        blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
+                    );
+                    client
+                        .insert_exit(to_upload)
+                        .await?
+                        .map_err(|e| anyhow::anyhow!(e.0))?;
+                    anyhow::Ok(())
                 };
-                let to_upload = Mac::new(
-                    Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
-                    blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
-                );
-                client
-                    .insert_exit(to_upload)
-                    .await?
-                    .map_err(|e| anyhow::anyhow!(e.0))?;
+                if let Err(err) = upload.await {
+                    tracing::warn!(err = debug(err), "failed to upload descriptor")
+                }
 
-                let sleep_dur = rand::thread_rng().gen_range(3.0..8.0);
+                let sleep_dur = rand::thread_rng().gen_range(10.0..30.0);
                 smol::Timer::after(Duration::from_secs_f64(sleep_dur)).await;
             }
         }
