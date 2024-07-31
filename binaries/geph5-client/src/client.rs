@@ -41,6 +41,8 @@ pub struct Config {
     #[serde(default)]
     pub spoof_dns: bool,
     #[serde(default)]
+    pub passthrough_china: bool,
+    #[serde(default)]
     pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,

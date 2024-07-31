@@ -32,6 +32,7 @@ use stdcode::StdcodeSerializeExt;
 
 use crate::{
     auth::get_connect_token,
+    china::is_chinese_host,
     client::CtxField,
     control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
     route::{deprioritize_route, get_dialer},
@@ -66,7 +67,7 @@ pub async fn open_conn(
         .next()
         .map(|s| s.to_string())
         .unwrap_or_default();
-    if whitelist_host(&dest_host) {
+    if whitelist_host(ctx, &dest_host) {
         let addrs = smol::net::resolve(&dest_addr).await?;
         for addr in addrs.iter() {
             vpn_whitelist(addr.ip());
@@ -92,7 +93,7 @@ pub async fn open_conn(
     Ok(Box::new(conn))
 }
 
-fn whitelist_host(host: &str) -> bool {
+fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if host.is_empty() {
         return false;
     }
@@ -102,6 +103,13 @@ fn whitelist_host(host: &str) -> bool {
             IpAddr::V6(v6) => v6.is_loopback(),
         }
     } else {
+        if ctx.init().passthrough_china {
+            if let Some(domain) = psl::domain_str(host) {
+                if is_chinese_host(domain) {
+                    return true;
+                }
+            }
+        }
         match psl::suffix(host.as_bytes()) {
             None => true,
             Some(suf) => !suf.is_known(),
