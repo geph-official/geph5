@@ -47,6 +47,7 @@ pub fn get_config() -> anyhow::Result<Config> {
         HTTP_PROXY_PORT.get(),
     )));
     cfg.vpn = VPN_MODE.get();
+    cfg.passthrough_china = PASSTHROUGH_CHINA.get();
     Ok(cfg)
 }
 
@@ -67,6 +68,9 @@ pub static BRIDGE_MODE: Lazy<StoreCell<BridgeMode>> =
 
 pub static SELECTED_COUNTRY: Lazy<StoreCell<Option<CountryCode>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_country", || None));
+
+pub static PASSTHROUGH_CHINA: Lazy<StoreCell<bool>> =
+    Lazy::new(|| StoreCell::new_persistent("passthrough_china", || false));
 
 pub static SELECTED_CITY: Lazy<StoreCell<Option<String>>> =
     Lazy::new(|| StoreCell::new_persistent("selected_city", || None));

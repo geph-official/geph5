@@ -64,6 +64,7 @@ country_ua,Ukraine,乌克兰,Украина,Okrāīn
 country_us,United States,美国,Соединенные Штаты,Īālāt-e Mottaḥed-e Amrīkā
 country_ve,Venezuela,委内瑞拉,Венесуэла,Venēzūelā
 country_za,South Africa,南非,Южная Африка,Afrīqā-ye Jonūbī
+china_passthrough,Passthrough Chinese traffic,不代理中国流量,Пропуск китайского трафика,ʿObūr az tarāffic-e Chīnī
 dashboard,Dashboard,仪表盘,Приборная панель,Dāšbord
 data_used,Data used,已用流量,Использ. данные,Dādehā-ye maṣraf-šode
 disconnect,Disconnect,断开连接,Отключить,Qat'-e etesāl

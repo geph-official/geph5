@@ -1,24 +1,22 @@
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
 
 use egui::{mutex::Mutex, Id};
 use geph5_broker_protocol::{BrokerClient, ExitList};
 use geph5_client::BridgeMode;
 use itertools::Itertools as _;
-use once_cell::sync::Lazy;
 
 use crate::{
     daemon::DAEMON_HANDLE,
     l10n::{l10n, l10n_country},
     refresh_cell::RefreshCell,
     settings::{
-        get_config, BRIDGE_MODE, HTTP_PROXY_PORT, LANG_CODE, PASSWORD, PROXY_AUTOCONF,
-        SELECTED_CITY, SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
+        get_config, BRIDGE_MODE, HTTP_PROXY_PORT, LANG_CODE, PASSTHROUGH_CHINA, PASSWORD,
+        PROXY_AUTOCONF, SELECTED_CITY, SELECTED_COUNTRY, SOCKS5_PORT, USERNAME, VPN_MODE,
     },
-    store_cell::StoreCell,
 };
 
-pub static LOCATION_LIST: Lazy<Mutex<RefreshCell<ExitList>>> =
-    Lazy::new(|| Mutex::new(RefreshCell::new()));
+pub static LOCATION_LIST: LazyLock<Mutex<RefreshCell<ExitList>>> =
+    LazyLock::new(|| Mutex::new(RefreshCell::new()));
 
 pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
     if ui.button(l10n("logout")).clicked() {
@@ -43,6 +41,13 @@ pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result
         ui.columns(2, |columns| {
             columns[0].label(l10n("vpn_mode"));
             columns[1].add(egui::Checkbox::new(vpn_mode, ""));
+        })
+    });
+
+    PASSTHROUGH_CHINA.modify(|china_passthrough| {
+        ui.columns(2, |columns| {
+            columns[0].label(l10n("china_passthrough"));
+            columns[1].add(egui::Checkbox::new(china_passthrough, ""));
         })
     });
 
