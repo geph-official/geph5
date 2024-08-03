@@ -172,7 +172,7 @@ fn dedup_handshake(current_timestamp: u64, handshake: Handshake) -> std::io::Res
     }
 
     // Insert the new handshake
-    handshake_list.push_back((handshake.clone(), current_timestamp));
+    handshake_list.push_back((handshake, current_timestamp));
     handshake_set.insert(handshake);
 
     // Remove outdated handshakes

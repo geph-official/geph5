@@ -42,3 +42,5 @@ fn android_main(app: egui_winit::winit::platform::android::activity::AndroidApp)
     )
     .unwrap();
 }
+
+fn main() {}

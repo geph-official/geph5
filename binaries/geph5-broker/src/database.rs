@@ -1,9 +1,11 @@
-use std::{ops::Deref, str::FromStr, time::Duration};
+use std::{
+    ops::Deref, str::FromStr, sync::LazyLock, thread::available_parallelism, time::Duration,
+};
 
 use async_io::Timer;
 use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
-use once_cell::sync::Lazy;
+
 use rand::Rng;
 use sqlx::{
     pool::PoolOptions,
@@ -14,10 +16,10 @@ use sqlx::{
 
 use crate::CONFIG_FILE;
 
-pub static POSTGRES: Lazy<PgPool> = Lazy::new(|| {
+pub static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     smolscale::block_on(
         PoolOptions::new()
-            .max_connections(160)
+            .max_connections(available_parallelism().unwrap().get() as u32 * 4)
             .acquire_timeout(Duration::from_secs(10))
             .max_lifetime(Duration::from_secs(600))
             .connect_with({
@@ -90,17 +92,16 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeDescriptor>> {
-    static CACHE: Lazy<Cache<String, Vec<BridgeDescriptor>>> = Lazy::new(|| {
+    static CACHE: LazyLock<Cache<String, Vec<BridgeDescriptor>>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(300))
             .build()
     });
-    static RANDOM: Lazy<String> = Lazy::new(|| format!("rando-{}", rand::random::<u128>()));
 
     CACHE.try_get_with(key.to_string(), async {
         let raw: Vec<(String, String, String, i64)> = sqlx::query_as(r"
-        select distinct on (pool) listen, cookie, pool, expiry from bridges_new order by pool, encode(digest(listen || $1 || $2, 'sha256'), 'hex');
-        ").bind(key).bind(RANDOM.deref()).fetch_all(POSTGRES.deref()).await?;
+        select distinct on (pool) listen, cookie, pool, expiry from bridges_new order by pool, encode(digest(listen || $1, 'sha256'), 'hex');
+        ").bind(key).fetch_all(POSTGRES.deref()).await?;
         anyhow::Ok(raw
         .into_iter()
         .map(|row| BridgeDescriptor {

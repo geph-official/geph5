@@ -1,4 +1,4 @@
-use egui::{epaint::text, Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
+use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 

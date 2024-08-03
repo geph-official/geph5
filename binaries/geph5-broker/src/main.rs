@@ -10,7 +10,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
-use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
+use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod auth;
@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
 
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
-    Lazy::force(&database::POSTGRES);
+    LazyLock::force(&database::POSTGRES);
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
 

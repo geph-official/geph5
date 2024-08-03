@@ -13,6 +13,7 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
+#[cfg(target_os = "android")]
 mod dummy;
 #[cfg(target_os = "android")]
 pub use dummy::*;
