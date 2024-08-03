@@ -3027,6 +3027,7 @@ dependencies = [
  "oneshot",
  "pollster 0.3.0",
  "rand",
+ "reqwest",
  "rusty_pool",
  "serde",
  "serde_json",

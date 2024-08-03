@@ -255,7 +255,7 @@ impl BrokerProtocol for BrokerImpl {
     }
 }
 
-static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {
+pub static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {
     if let Some(statsd_addr) = CONFIG_FILE.wait().statsd_addr {
         let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
         Some(StatsdClient::from_sink(

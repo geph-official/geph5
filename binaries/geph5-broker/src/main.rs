@@ -8,6 +8,7 @@ use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
 use rpc_impl::WrappedBrokerService;
+use self_stat::self_stat_loop;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock};
@@ -17,6 +18,7 @@ mod auth;
 mod database;
 mod routes;
 mod rpc_impl;
+mod self_stat;
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
@@ -111,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
     LazyLock::force(&database::POSTGRES);
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
-
+    let _self_stat_loop = Immortal::respawn(RespawnStrategy::Immediate, self_stat_loop);
     let _tcp_loop = Immortal::respawn(RespawnStrategy::Immediate, || async {
         nanorpc_sillad::rpc_serve(
             sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
