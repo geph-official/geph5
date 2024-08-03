@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{thread::available_parallelism, time::Duration};
 
 use anyhow::Context;
 use cadence::Gauged;
@@ -22,7 +22,10 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
             .context("no first")?
             .parse()?;
         if let Some(client) = STATSD_CLIENT.as_ref() {
-            client.gauge(&format!("broker.{ip_addr}.nmlz_load_factor"), load_avg)?;
+            client.gauge(
+                &format!("broker.{ip_addr}.nmlz_load_factor"),
+                load_avg / available_parallelism().unwrap().get() as f64,
+            )?;
         }
         async_io::Timer::after(Duration::from_secs(1)).await;
     }
