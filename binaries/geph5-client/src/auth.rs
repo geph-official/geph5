@@ -22,21 +22,25 @@ pub async fn get_connect_token(
     )?)
 }
 
-pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    if ctx.init().broker.is_none() {
-        return smol::future::pending().await;
-    }
-
-    let auth_token = if let Some(token) = db_read(ctx, "auth_token").await? {
-        String::from_utf8_lossy(&token).to_string()
+async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
+    if let Some(token) = db_read(ctx, "auth_token").await? {
+        Ok(String::from_utf8_lossy(&token).to_string())
     } else {
         tracing::debug!("obtaining auth token");
         let auth_token = broker_client(ctx)?
             .get_auth_token(ctx.init().credentials.clone())
             .await??;
         db_write(ctx, "auth_token", auth_token.as_bytes()).await?;
-        auth_token
-    };
+        Ok(auth_token)
+    }
+}
+
+pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
+    if ctx.init().broker.is_none() {
+        return smol::future::pending().await;
+    }
+
+    let auth_token = get_auth_token(ctx).await?;
     loop {
         if let Err(err) = refresh_conn_token(ctx, &auth_token).await {
             tracing::warn!(err = debug(err), "failed to refresh conn token");

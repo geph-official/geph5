@@ -9,7 +9,7 @@ use l10n::l10n;
 use once_cell::sync::OnceCell;
 use refresh_cell::RefreshCell;
 use settings::USERNAME;
-use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::render_settings};
+use tabs::{dashboard::Dashboard, login::Login, logs::Logs, settings::Settings};
 pub mod daemon;
 pub mod l10n;
 pub mod logs;
@@ -44,6 +44,7 @@ pub struct App {
 
     dashboard: Dashboard,
     logs: Logs,
+    settings: Settings,
 }
 
 impl App {
@@ -81,6 +82,7 @@ impl App {
 
             dashboard: Dashboard::new(),
             logs: Logs::new(),
+            settings: Settings::new(),
         }
     }
 }
@@ -135,11 +137,7 @@ impl App {
         let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
             TabName::Dashboard => self.dashboard.render(ui),
             TabName::Logs => self.logs.render(ui),
-            TabName::Settings => {
-                egui::ScrollArea::vertical()
-                    .show(ui, |ui| render_settings(ctx, ui))
-                    .inner
-            }
+            TabName::Settings => self.settings.render(ui),
         });
 
         #[cfg(not(target_os = "android"))]

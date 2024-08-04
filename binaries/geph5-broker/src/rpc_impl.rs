@@ -6,7 +6,8 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::future::join_all;
 use geph5_broker_protocol::{
     AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, BrokerService, Credential,
-    ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, DOMAIN_EXIT_DESCRIPTOR,
+    ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, UserInfo,
+    DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
@@ -51,6 +52,58 @@ impl RpcService for WrappedBrokerService {
 }
 
 struct BrokerImpl {}
+
+impl BrokerImpl {
+    async fn get_all_exits(&self) -> Result<ExitList, GenericError> {
+        static EXIT_CACHE: Lazy<Cache<(), ExitList>> = Lazy::new(|| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(10))
+                .build()
+        });
+
+        let exit_list = EXIT_CACHE
+            .try_get_with((), async {
+                let exits: Vec<(VerifyingKey, ExitDescriptor)> =
+                    sqlx::query_as("select * from exits_new")
+                        .fetch_all(POSTGRES.deref())
+                        .await?
+                        .into_iter()
+                        .map(|row: ExitRow| {
+                            (
+                                VerifyingKey::from_bytes(&row.pubkey).unwrap(),
+                                ExitDescriptor {
+                                    c2e_listen: row.c2e_listen.parse().unwrap(),
+                                    b2e_listen: row.b2e_listen.parse().unwrap(),
+                                    country: CountryCode::for_alpha2_caseless(&row.country)
+                                        .unwrap(),
+                                    city: row.city,
+                                    load: row.load,
+                                    expiry: row.expiry as _,
+                                },
+                            )
+                        })
+                        .collect();
+                let exit_list = ExitList {
+                    all_exits: exits,
+                    city_names: serde_yaml::from_str(include_str!("city_names.yaml")).unwrap(),
+                };
+                Ok(exit_list)
+            })
+            .await
+            .map_err(|e: Arc<GenericError>| e.deref().clone())?;
+        Ok(exit_list)
+    }
+}
+
+fn is_plus_exit(exit: &ExitDescriptor) -> bool {
+    match exit.country {
+        CountryCode::JPN => true,
+        CountryCode::SGP => true,
+        CountryCode::CZE => true,
+        CountryCode::CHE => true,
+        _ => false,
+    }
+}
 
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {
@@ -117,46 +170,55 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError> {
-        static EXIT_CACHE: Lazy<Cache<(), Signed<ExitList>>> = Lazy::new(|| {
-            Cache::builder()
-                .time_to_live(Duration::from_secs(10))
-                .build()
-        });
+        let exit_list = self.get_all_exits().await?;
 
-        EXIT_CACHE
-            .try_get_with((), async {
-                let exits: Vec<(VerifyingKey, ExitDescriptor)> =
-                    sqlx::query_as("select * from exits_new")
-                        .fetch_all(POSTGRES.deref())
-                        .await?
-                        .into_iter()
-                        .map(|row: ExitRow| {
-                            (
-                                VerifyingKey::from_bytes(&row.pubkey).unwrap(),
-                                ExitDescriptor {
-                                    c2e_listen: row.c2e_listen.parse().unwrap(),
-                                    b2e_listen: row.b2e_listen.parse().unwrap(),
-                                    country: CountryCode::for_alpha2_caseless(&row.country)
-                                        .unwrap(),
-                                    city: row.city,
-                                    load: row.load,
-                                    expiry: row.expiry as _,
-                                },
-                            )
-                        })
-                        .collect();
-                let exit_list = ExitList {
-                    all_exits: exits,
-                    city_names: serde_yaml::from_str(include_str!("city_names.yaml")).unwrap(),
+        Ok(Signed::new(
+            exit_list,
+            DOMAIN_EXIT_DESCRIPTOR,
+            MASTER_SECRET.deref(),
+        ))
+    }
+
+    async fn get_free_exits(&self) -> Result<Signed<ExitList>, GenericError> {
+        let mut exit_list = self.get_all_exits().await?;
+        exit_list.all_exits.retain(|(_, e)| !is_plus_exit(e));
+        Ok(Signed::new(
+            exit_list,
+            DOMAIN_EXIT_DESCRIPTOR,
+            MASTER_SECRET.deref(),
+        ))
+    }
+
+    async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError> {
+        match valid_auth_token(&auth_token).await {
+            Ok(Some(level)) => {
+                let user_id = sqlx::query_scalar::<_, i32>(
+                    "SELECT user_id FROM auth_tokens WHERE token = $1",
+                )
+                .bind(&auth_token)
+                .fetch_one(POSTGRES.deref())
+                .await
+                .map_err(|_| AuthError::Forbidden)?;
+
+                let plus_expires_unix = match level {
+                    AccountLevel::Plus => Some(
+                        sqlx::query_scalar::<_, i64>("SELECT plus_expiry FROM users WHERE id = $1")
+                            .bind(user_id)
+                            .fetch_one(POSTGRES.deref())
+                            .await
+                            .map_err(|_| AuthError::RateLimited)? as u64,
+                    ),
+                    AccountLevel::Free => None,
                 };
-                Ok(Signed::new(
-                    exit_list,
-                    DOMAIN_EXIT_DESCRIPTOR,
-                    MASTER_SECRET.deref(),
-                ))
-            })
-            .await
-            .map_err(|e: Arc<GenericError>| e.deref().clone())
+
+                Ok(Some(UserInfo {
+                    user_id: user_id as _,
+                    plus_expires_unix,
+                }))
+            }
+            Ok(None) => Ok(None),
+            Err(_) => Err(AuthError::RateLimited),
+        }
     }
 
     async fn get_routes(

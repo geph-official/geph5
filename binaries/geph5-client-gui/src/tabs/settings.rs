@@ -18,168 +18,182 @@ use crate::{
 pub static LOCATION_LIST: LazyLock<Mutex<RefreshCell<ExitList>>> =
     LazyLock::new(|| Mutex::new(RefreshCell::new()));
 
-pub fn render_settings(ctx: &egui::Context, ui: &mut egui::Ui) -> anyhow::Result<()> {
-    if ui.button(l10n("logout")).clicked() {
-        let _ = DAEMON_HANDLE.stop();
-        USERNAME.set("".into());
-        PASSWORD.set("".into());
+pub struct Settings {}
+
+impl Settings {
+    pub fn new() -> Self {
+        Settings {}
     }
 
-    // Preferences
-    ui.separator();
+    pub fn render(&self, ui: &mut egui::Ui) -> anyhow::Result<()> {
+        if ui.button(l10n("logout")).clicked() {
+            let _ = DAEMON_HANDLE.stop();
+            USERNAME.set("".into());
+            PASSWORD.set("".into());
+        }
 
-    ui.columns(2, |columns| {
-        columns[0].label(l10n("language"));
-        render_language_settings(&mut columns[1])
-    })?;
+        // Preferences
+        ui.separator();
 
-    // Network settings
-    ui.separator();
-
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    VPN_MODE.modify(|vpn_mode| {
         ui.columns(2, |columns| {
-            columns[0].label(l10n("vpn_mode"));
-            columns[1].add(egui::Checkbox::new(vpn_mode, ""));
-        })
-    });
+            columns[0].label(l10n("language"));
+            render_language_settings(&mut columns[1])
+        })?;
 
-    PASSTHROUGH_CHINA.modify(|china_passthrough| {
-        ui.columns(2, |columns| {
-            columns[0].label(l10n("china_passthrough"));
-            columns[1].add(egui::Checkbox::new(china_passthrough, ""));
-        })
-    });
+        // Network settings
+        ui.separator();
 
-    ui.columns(2, |columns| {
-        columns[0].label(l10n("exit_location"));
-        let mut location_list = LOCATION_LIST.lock();
-        let locations = location_list.get_or_refresh(Duration::from_secs(10), || {
-            smolscale::block_on(async {
-                let rpc_transport = get_config().unwrap().broker.unwrap().rpc_transport();
-                let client = BrokerClient::from(rpc_transport);
-                loop {
-                    let fallible = async {
-                        let exits = client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
-                        let mut inner = exits.inner;
-                        inner
-                            .all_exits
-                            .sort_unstable_by_key(|s| (s.1.country, s.1.city.clone()));
-                        anyhow::Ok(inner)
-                    };
-                    match fallible.await {
-                        Ok(v) => return v,
-                        Err(err) => tracing::warn!("Failed to get country list: {}", err),
-                    }
-                }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        VPN_MODE.modify(|vpn_mode| {
+            ui.columns(2, |columns| {
+                columns[0].label(l10n("vpn_mode"));
+                columns[1].add(egui::Checkbox::new(vpn_mode, ""));
             })
         });
 
-        columns[1].vertical(|ui| {
-            egui::ComboBox::from_id_source("country")
-                .selected_text(
-                    SELECTED_COUNTRY
-                        .get()
-                        .map(l10n_country)
-                        .unwrap_or_else(|| l10n("auto")),
-                )
-                .show_ui(ui, |ui| {
-                    let former = SELECTED_COUNTRY.get();
-                    SELECTED_COUNTRY.modify(|selected| {
-                        if let Some(locations) = locations {
-                            ui.selectable_value(selected, None, l10n("auto"));
+        PASSTHROUGH_CHINA.modify(|china_passthrough| {
+            ui.columns(2, |columns| {
+                columns[0].label(l10n("china_passthrough"));
+                columns[1].add(egui::Checkbox::new(china_passthrough, ""));
+            })
+        });
 
-                            for country in locations.all_exits.iter().map(|s| s.1.country).unique()
-                            {
-                                ui.selectable_value(selected, Some(country), l10n_country(country));
-                            }
-                        } else {
-                            ui.spinner();
+        ui.columns(2, |columns| {
+            columns[0].label(l10n("exit_location"));
+            let mut location_list = LOCATION_LIST.lock();
+            let locations = location_list.get_or_refresh(Duration::from_secs(10), || {
+                smolscale::block_on(async {
+                    let rpc_transport = get_config().unwrap().broker.unwrap().rpc_transport();
+                    let client = BrokerClient::from(rpc_transport);
+                    loop {
+                        let fallible = async {
+                            let exits =
+                                client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
+                            let mut inner = exits.inner;
+                            inner
+                                .all_exits
+                                .sort_unstable_by_key(|s| (s.1.country, s.1.city.clone()));
+                            anyhow::Ok(inner)
+                        };
+                        match fallible.await {
+                            Ok(v) => return v,
+                            Err(err) => tracing::warn!("Failed to get country list: {}", err),
                         }
-                    });
-                    if SELECTED_COUNTRY.get() != former {
-                        SELECTED_CITY.set(None);
                     }
-                });
-            if let Some(country) = SELECTED_COUNTRY.get() {
-                egui::ComboBox::from_id_source("city")
+                })
+            });
+
+            columns[1].vertical(|ui| {
+                egui::ComboBox::from_id_source("country")
                     .selected_text(
-                        SELECTED_CITY
+                        SELECTED_COUNTRY
                             .get()
-                            .unwrap_or_else(|| l10n("auto").to_string()),
+                            .map(l10n_country)
+                            .unwrap_or_else(|| l10n("auto")),
                     )
                     .show_ui(ui, |ui| {
-                        if let Some(locations) = locations {
-                            SELECTED_CITY.modify(|selected| {
+                        let former = SELECTED_COUNTRY.get();
+                        SELECTED_COUNTRY.modify(|selected| {
+                            if let Some(locations) = locations {
                                 ui.selectable_value(selected, None, l10n("auto"));
-                                for city in locations
-                                    .all_exits
-                                    .iter()
-                                    .filter(|s| s.1.country == country)
-                                    .map(|s| &s.1.city)
-                                    .unique()
+
+                                for country in
+                                    locations.all_exits.iter().map(|s| s.1.country).unique()
                                 {
                                     ui.selectable_value(
                                         selected,
-                                        Some(city.to_string()),
-                                        city.to_string(),
+                                        Some(country),
+                                        l10n_country(country),
                                     );
                                 }
-                            })
-                        } else {
-                            ui.spinner();
+                            } else {
+                                ui.spinner();
+                            }
+                        });
+                        if SELECTED_COUNTRY.get() != former {
+                            SELECTED_CITY.set(None);
                         }
                     });
-            }
-        });
-    });
-
-    ui.collapsing(l10n("advanced_settings"), |ui| {
-        BRIDGE_MODE.modify(|bridge_mode| {
-            let mode_label = |bm: BridgeMode| match bm {
-                BridgeMode::Auto => "Auto",
-                BridgeMode::ForceBridges => "Force bridges",
-                BridgeMode::ForceDirect => "Force direct",
-            };
-            ui.horizontal(|ui| {
-                ui.label("Bridge mode");
-
-                egui::ComboBox::from_id_source("bridge")
-                    .selected_text(mode_label(*bridge_mode))
-                    .show_ui(ui, |ui| {
-                        for this_mode in [
-                            BridgeMode::Auto,
-                            BridgeMode::ForceBridges,
-                            BridgeMode::ForceDirect,
-                        ] {
-                            ui.selectable_value(bridge_mode, this_mode, mode_label(this_mode));
-                        }
-                    });
+                if let Some(country) = SELECTED_COUNTRY.get() {
+                    egui::ComboBox::from_id_source("city")
+                        .selected_text(
+                            SELECTED_CITY
+                                .get()
+                                .unwrap_or_else(|| l10n("auto").to_string()),
+                        )
+                        .show_ui(ui, |ui| {
+                            if let Some(locations) = locations {
+                                SELECTED_CITY.modify(|selected| {
+                                    ui.selectable_value(selected, None, l10n("auto"));
+                                    for city in locations
+                                        .all_exits
+                                        .iter()
+                                        .filter(|s| s.1.country == country)
+                                        .map(|s| &s.1.city)
+                                        .unique()
+                                    {
+                                        ui.selectable_value(
+                                            selected,
+                                            Some(city.to_string()),
+                                            city.to_string(),
+                                        );
+                                    }
+                                })
+                            } else {
+                                ui.spinner();
+                            }
+                        });
+                }
             });
         });
 
-        PROXY_AUTOCONF.modify(|proxy_autoconf| {
-            ui.horizontal(|ui| {
-                ui.label(l10n("proxy_autoconf"));
-                ui.add(egui::Checkbox::new(proxy_autoconf, ""));
-            })
-        });
-        SOCKS5_PORT.modify(|socks5_port| {
-            ui.horizontal(|ui| {
-                ui.label(l10n("socks5_port"));
-                ui.add(egui::DragValue::new(socks5_port));
+        ui.collapsing(l10n("advanced_settings"), |ui| {
+            BRIDGE_MODE.modify(|bridge_mode| {
+                let mode_label = |bm: BridgeMode| match bm {
+                    BridgeMode::Auto => "Auto",
+                    BridgeMode::ForceBridges => "Force bridges",
+                    BridgeMode::ForceDirect => "Force direct",
+                };
+                ui.horizontal(|ui| {
+                    ui.label("Bridge mode");
+
+                    egui::ComboBox::from_id_source("bridge")
+                        .selected_text(mode_label(*bridge_mode))
+                        .show_ui(ui, |ui| {
+                            for this_mode in [
+                                BridgeMode::Auto,
+                                BridgeMode::ForceBridges,
+                                BridgeMode::ForceDirect,
+                            ] {
+                                ui.selectable_value(bridge_mode, this_mode, mode_label(this_mode));
+                            }
+                        });
+                });
+            });
+
+            PROXY_AUTOCONF.modify(|proxy_autoconf| {
+                ui.horizontal(|ui| {
+                    ui.label(l10n("proxy_autoconf"));
+                    ui.add(egui::Checkbox::new(proxy_autoconf, ""));
+                })
+            });
+            SOCKS5_PORT.modify(|socks5_port| {
+                ui.horizontal(|ui| {
+                    ui.label(l10n("socks5_port"));
+                    ui.add(egui::DragValue::new(socks5_port));
+                });
+            });
+
+            HTTP_PROXY_PORT.modify(|http_proxy_port| {
+                ui.horizontal(|ui| {
+                    ui.label(l10n("http_proxy_port"));
+                    ui.add(egui::DragValue::new(http_proxy_port));
+                })
             });
         });
 
-        HTTP_PROXY_PORT.modify(|http_proxy_port| {
-            ui.horizontal(|ui| {
-                ui.label(l10n("http_proxy_port"));
-                ui.add(egui::DragValue::new(http_proxy_port));
-            })
-        });
-    });
-
-    Ok(())
+        Ok(())
+    }
 }
 
 pub fn render_language_settings(ui: &mut egui::Ui) -> anyhow::Result<()> {

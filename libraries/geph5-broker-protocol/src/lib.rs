@@ -23,6 +23,7 @@ use thiserror::Error;
 pub trait BrokerProtocol {
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
+    async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError>;
     async fn get_connect_token(
         &self,
         auth_token: String,
@@ -32,6 +33,7 @@ pub trait BrokerProtocol {
     ) -> Result<BlindedSignature, AuthError>;
 
     async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError>;
+    async fn get_free_exits(&self) -> Result<Signed<ExitList>, GenericError>;
     async fn get_routes(
         &self,
         token: ClientToken,
@@ -47,6 +49,12 @@ pub trait BrokerProtocol {
     async fn incr_stat(&self, stat: String, value: i32);
 
     async fn set_stat(&self, stat: String, value: f64);
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserInfo {
+    pub user_id: u64,
+    pub plus_expires_unix: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
