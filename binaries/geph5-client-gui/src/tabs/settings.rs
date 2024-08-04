@@ -4,6 +4,7 @@ use egui::{mutex::Mutex, Id};
 use geph5_broker_protocol::{BrokerClient, ExitList, UserInfo};
 use geph5_client::{BridgeMode, Client};
 use itertools::Itertools as _;
+use smol_str::format_smolstr;
 
 use crate::{
     daemon::DAEMON_HANDLE,
@@ -22,6 +23,12 @@ pub struct Settings {
     user_info: RefreshCell<anyhow::Result<UserInfo>>,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Settings {
     pub fn new() -> Self {
         Settings {
@@ -34,17 +41,24 @@ impl Settings {
 
         let user_info = self.user_info.get_or_refresh(Duration::from_secs(10), || {
             let client = Client::start(inert_config);
-            smol::future::block_on(client.user_info())
+            smolscale::block_on(async move { client.user_info().await })
         });
         if let Some(user_info) = user_info {
             match user_info {
                 Ok(info) => {
-                    ui.label(info.user_id.to_string());
+                    let user_info_str = format_smolstr!(
+                        "{} / expires {}",
+                        info.user_id,
+                        info.plus_expires_unix.unwrap_or_default()
+                    );
+                    ui.label(user_info_str.as_str());
                 }
                 Err(err) => {
                     ui.colored_label(egui::Color32::DARK_RED, err.to_string());
                 }
             }
+        } else {
+            ui.colored_label(egui::Color32::DARK_GRAY, "Loading user info...");
         }
 
         if ui.button(l10n("logout")).clicked() {
@@ -81,20 +95,33 @@ impl Settings {
 
         ui.columns(2, |columns| {
             columns[0].label(l10n("exit_location"));
+            let is_plus = match user_info {
+                Some(Ok(user_info)) => user_info.plus_expires_unix.is_some(),
+                _ => false,
+            };
             let mut location_list = LOCATION_LIST.lock();
-            let locations = location_list.get_or_refresh(Duration::from_secs(10), || {
-                smolscale::block_on(async {
+            let locations = location_list.get_or_refresh(Duration::from_secs(10), move || {
+                smolscale::block_on(async move {
                     let rpc_transport = get_config().unwrap().broker.unwrap().rpc_transport();
                     let client = BrokerClient::from(rpc_transport);
                     loop {
                         let fallible = async {
-                            let exits =
+                            let all_exits =
                                 client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
-                            let mut inner = exits.inner;
-                            inner
+                            let all_free_exits = client
+                                .get_free_exits()
+                                .await?
+                                .map_err(|e| anyhow::anyhow!(e))?;
+
+                            let mut exits = if is_plus {
+                                all_exits.inner
+                            } else {
+                                all_free_exits.inner
+                            };
+                            exits
                                 .all_exits
                                 .sort_unstable_by_key(|s| (s.1.country, s.1.city.clone()));
-                            anyhow::Ok(inner)
+                            anyhow::Ok(exits)
                         };
                         match fallible.await {
                             Ok(v) => return v,
