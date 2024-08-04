@@ -234,7 +234,7 @@ impl BrokerProtocol for BrokerImpl {
         exit: SocketAddr,
     ) -> Result<RouteDescriptor, GenericError> {
         // authenticate the token
-        let _account_level = if PLUS_MIZARU_SK
+        let account_level = if PLUS_MIZARU_SK
             .to_public_key()
             .blind_verify(token, &sig)
             .is_ok()
@@ -249,6 +249,17 @@ impl BrokerProtocol for BrokerImpl {
         // TODO filter out plus only
 
         let raw_descriptors = query_bridges(&format!("{:?}", token)).await?;
+
+        let plus_pools = ["ls_ap_northeast_1", "ls_ap_northeast_2"];
+        let raw_descriptors = if account_level == AccountLevel::Free {
+            raw_descriptors
+                .into_iter()
+                .filter(|s| !plus_pools.iter().any(|plus_group| &s.pool == plus_group))
+                .collect()
+        } else {
+            raw_descriptors
+        };
+
         let mut routes = vec![];
         for route in join_all(
             raw_descriptors
