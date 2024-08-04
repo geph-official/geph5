@@ -22,7 +22,7 @@ pub async fn get_connect_token(
     )?)
 }
 
-async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
+pub async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
     if let Some(token) = db_read(ctx, "auth_token").await? {
         Ok(String::from_utf8_lossy(&token).to_string())
     } else {

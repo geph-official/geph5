@@ -201,13 +201,19 @@ impl BrokerProtocol for BrokerImpl {
                 .map_err(|_| AuthError::Forbidden)?;
 
                 let plus_expires_unix = match level {
-                    AccountLevel::Plus => Some(
-                        sqlx::query_scalar::<_, i64>("SELECT plus_expiry FROM users WHERE id = $1")
-                            .bind(user_id)
-                            .fetch_one(POSTGRES.deref())
-                            .await
-                            .map_err(|_| AuthError::RateLimited)? as u64,
-                    ),
+                    AccountLevel::Plus => {
+                        let expires: Option<i64> = sqlx::query_scalar(
+                            "SELECT EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp 
+                             FROM subscriptions 
+                             WHERE id = $1",
+                        )
+                        .bind(user_id)
+                        .fetch_optional(POSTGRES.deref())
+                        .await
+                        .map_err(|_| AuthError::RateLimited)?;
+
+                        expires.map(|ts| ts as u64)
+                    }
                     AccountLevel::Free => None,
                 };
 

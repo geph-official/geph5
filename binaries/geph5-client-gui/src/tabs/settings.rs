@@ -1,8 +1,8 @@
 use std::{sync::LazyLock, time::Duration};
 
 use egui::{mutex::Mutex, Id};
-use geph5_broker_protocol::{BrokerClient, ExitList};
-use geph5_client::BridgeMode;
+use geph5_broker_protocol::{BrokerClient, ExitList, UserInfo};
+use geph5_client::{BridgeMode, Client};
 use itertools::Itertools as _;
 
 use crate::{
@@ -18,14 +18,35 @@ use crate::{
 pub static LOCATION_LIST: LazyLock<Mutex<RefreshCell<ExitList>>> =
     LazyLock::new(|| Mutex::new(RefreshCell::new()));
 
-pub struct Settings {}
+pub struct Settings {
+    user_info: RefreshCell<anyhow::Result<UserInfo>>,
+}
 
 impl Settings {
     pub fn new() -> Self {
-        Settings {}
+        Settings {
+            user_info: RefreshCell::new(),
+        }
     }
 
-    pub fn render(&self, ui: &mut egui::Ui) -> anyhow::Result<()> {
+    pub fn render(&mut self, ui: &mut egui::Ui) -> anyhow::Result<()> {
+        let inert_config = get_config()?.inert();
+
+        let user_info = self.user_info.get_or_refresh(Duration::from_secs(10), || {
+            let client = Client::start(inert_config);
+            smol::future::block_on(client.user_info())
+        });
+        if let Some(user_info) = user_info {
+            match user_info {
+                Ok(info) => {
+                    ui.label(info.user_id.to_string());
+                }
+                Err(err) => {
+                    ui.colored_label(egui::Color32::DARK_RED, err.to_string());
+                }
+            }
+        }
+
         if ui.button(l10n("logout")).clicked() {
             let _ = DAEMON_HANDLE.stop();
             USERNAME.set("".into());

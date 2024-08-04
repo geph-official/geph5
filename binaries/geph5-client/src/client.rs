@@ -1,17 +1,18 @@
 use anyctx::AnyCtx;
 
+use anyhow::Context;
 use clone_macro::clone;
 use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
-use geph5_broker_protocol::{Credential, ExitList};
+use geph5_broker_protocol::{Credential, ExitList, UserInfo};
 use nanorpc::DynRpcTransport;
 use smol::future::FutureExt as _;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, task::Context, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
-    auth::auth_loop,
+    auth::{auth_loop, get_auth_token},
     broker::{broker_client, BrokerSource},
     client_inner::client_once,
     control_prot::{
@@ -46,6 +47,19 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,
+}
+
+impl Config {
+    /// Create an "inert" version of this config that does not start any processes.
+    pub fn inert(&self) -> Self {
+        let mut this = self.clone();
+        this.dry_run = true;
+        this.socks5_listen = None;
+        this.http_proxy_listen = None;
+        this.stats_listen = None;
+        this.control_listen = None;
+        this
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,7 +105,7 @@ impl Client {
         match self
             .task
             .clone()
-            .poll(&mut Context::from_waker(&noop_waker()))
+            .poll(&mut std::task::Context::from_waker(&noop_waker()))
         {
             std::task::Poll::Ready(val) => val.map_err(|e| anyhow::anyhow!(e))?,
             std::task::Poll::Pending => {}
@@ -107,6 +121,16 @@ impl Client {
                 ctx: self.ctx.clone(),
             }),
         )))
+    }
+
+    /// Gets the user info.
+    pub async fn user_info(&self) -> anyhow::Result<UserInfo> {
+        let auth_token = get_auth_token(&self.ctx).await?;
+        let user_info = broker_client(&self.ctx)?
+            .get_user_info(auth_token)
+            .await??
+            .context("no such user")?;
+        Ok(user_info)
     }
 }
 
