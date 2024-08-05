@@ -60,7 +60,7 @@ impl State {
 
     /// Encrypts a hunk of data.
     pub fn encrypt(&mut self, bts: &[u8], output: &mut Vec<u8>) {
-        let mut length = (bts.len() as u32).to_le_bytes();
+        let mut length = (bts.len() as i32).to_le_bytes();
 
         // Pad the nonce to 96 bits (12 bytes)
         let nonce = self.send_nonce();
@@ -135,18 +135,21 @@ impl State {
                     "decryption of the length failed".to_string(),
                 )
             })?;
-        let length = u32::from_le_bytes(enc_length) as usize;
+
+        let length = i32::from_le_bytes(enc_length);
+        let actual_length = length.unsigned_abs() as usize;
+
         // Check the length for sanity
-        if length + 16 > rest.len() {
+        if actual_length + 16 > rest.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "not enough data after the length",
             ));
         }
 
-        let (enc_body, tag_body) = rest.split_at(length);
+        let (enc_body, tag_body) = rest.split_at(actual_length);
         let tag_body = array_ref![tag_body, 0, 16];
-        let mut enc_body: SmallVec<[u8; 32768]> = enc_body[..length].to_smallvec();
+        let mut enc_body: SmallVec<[u8; 32768]> = enc_body[..actual_length].to_smallvec();
 
         // Prepare the next nonce for the body decryption
         let nonce = self.recv_nonce(1);
@@ -168,7 +171,9 @@ impl State {
             })?;
 
         // Append the decrypted body to the output
-        output.write_all(&enc_body).unwrap();
+        if length > 0 {
+            output.write_all(&enc_body).unwrap();
+        }
         self.recv_nonce += 2;
         Ok(enc_length.len() + tag_length.len() + tag_body.len() + enc_body.len())
     }

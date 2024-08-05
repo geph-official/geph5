@@ -102,7 +102,7 @@ mod tests {
             responding_to: blake3::hash(b""),
         };
 
-        let cookie = Cookie(*blake3::hash(b"cookie").as_bytes());
+        let cookie = Cookie::random();
 
         let encrypted_handshake = handshake.encrypt(cookie, false);
         let decrypted_handshake = Handshake::decrypt(encrypted_handshake, cookie, false).unwrap();

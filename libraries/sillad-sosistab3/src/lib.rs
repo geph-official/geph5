@@ -7,6 +7,7 @@ use std::{
 
 use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
+
 use serde::{Deserialize, Serialize};
 use sillad::Pipe;
 use state::State;
@@ -17,30 +18,65 @@ mod handshake;
 pub mod listener;
 mod state;
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
-pub struct Cookie([u8; 32]);
+#[derive(Clone, Copy)]
+pub struct Cookie {
+    key: [u8; 32],
+    params: CookieParams,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+pub struct CookieParams {
+    // whether or not to pad write lengths
+    pub obfs_lengths: bool,
+    // whether or not to add delays
+    pub obfs_timing: bool,
+}
 
 impl Debug for Cookie {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        hex::encode(self.0).fmt(f)
+        format!(
+            "{}---{}",
+            hex::encode(self.key),
+            serde_json::to_string(&self.params).unwrap()
+        )
+        .fmt(f)
     }
 }
 
 impl Cookie {
     /// Derives a cookie from a string.
     pub fn new(s: &str) -> Self {
-        let derived_cookie = blake3::derive_key("cookie", s.as_bytes());
-        Self(derived_cookie)
+        let (cookie, params) = if let Some((a, b)) = s.split_once("---") {
+            (a, serde_json::from_str(b).unwrap_or_default())
+        } else {
+            (s, CookieParams::default())
+        };
+        let derived_cookie = blake3::derive_key("cookie", cookie.as_bytes());
+        Self {
+            key: derived_cookie,
+            params,
+        }
     }
 
     /// Randomly generates a cookie.
     pub fn random() -> Self {
-        Self(rand::random())
+        Self {
+            key: rand::random(),
+            params: CookieParams::default(),
+        }
+    }
+
+    /// Randomly create a cookie with the given parameters.
+    pub fn random_with_params(params: CookieParams) -> Self {
+        Self {
+            key: rand::random(),
+            params,
+        }
     }
 
     /// Derives a key given the direction.
     pub fn derive_key(&self, is_server: bool) -> [u8; 32] {
-        blake3::derive_key(if is_server { "server" } else { "client" }, &self.0)
+        blake3::derive_key(if is_server { "server" } else { "client" }, &self.key)
     }
 }
 
