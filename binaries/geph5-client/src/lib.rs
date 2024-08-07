@@ -13,6 +13,7 @@ mod client_inner;
 mod control_prot;
 mod database;
 mod http_proxy;
+mod ipv6;
 pub mod logs;
 mod route;
 mod socks5;
