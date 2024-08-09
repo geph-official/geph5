@@ -195,13 +195,13 @@ mod tests {
         let secret = EphemeralSecret::random_from_rng(OsRng);
         let shared_secret = x25519_dalek::PublicKey::from(&secret).as_bytes().to_vec();
 
-        let mut state = State::new(&shared_secret, false);
+        let mut state = State::new(&shared_secret, false, ObfsParams::default());
 
         let data = b"Hello, world!";
         let mut encrypted_data = vec![];
         state.encrypt(data, &mut encrypted_data);
 
-        let mut state = State::new(&shared_secret, true);
+        let mut state = State::new(&shared_secret, true, ObfsParams::default());
         let mut decrypted_data = vec![];
         state.decrypt(&encrypted_data, &mut decrypted_data).unwrap();
 
@@ -213,7 +213,7 @@ mod tests {
         let secret = EphemeralSecret::random_from_rng(OsRng);
         let shared_secret = x25519_dalek::PublicKey::from(&secret).as_bytes().to_vec();
 
-        let mut state = State::new(&shared_secret, false);
+        let mut state = State::new(&shared_secret, false, ObfsParams::default());
 
         let data1 = b"Hello, world!";
         let mut encrypted_data1 = vec![];
@@ -223,7 +223,7 @@ mod tests {
         let mut encrypted_data2 = vec![];
         state.encrypt(data2, &mut encrypted_data2);
 
-        let mut state = State::new(&shared_secret, true);
+        let mut state = State::new(&shared_secret, true, ObfsParams::default());
         let mut decrypted_data1 = vec![];
         state
             .decrypt(&encrypted_data1, &mut decrypted_data1)

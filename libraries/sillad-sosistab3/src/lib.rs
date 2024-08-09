@@ -24,7 +24,7 @@ pub struct Cookie {
     params: ObfsParams,
 }
 
-#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Default, Deserialize, Serialize, Debug)]
 pub struct ObfsParams {
     // whether or not to pad write lengths
     pub obfs_lengths: bool,

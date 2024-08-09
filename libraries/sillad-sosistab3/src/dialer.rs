@@ -87,6 +87,7 @@ impl<D: Dialer> Dialer for SosistabDialer<D> {
         let state = State::new(
             eph_sk.diffie_hellman(&their_handshake.eph_pk).as_bytes(),
             false,
+            self.cookie.params,
         );
         tracing::debug!(
             cookie = debug(self.cookie),

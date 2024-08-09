@@ -120,6 +120,7 @@ async fn listen_loop<P: Pipe>(
                         let state = State::new(
                             eph_sk.diffie_hellman(&their_handshake.eph_pk).as_bytes(),
                             true,
+                            cookie.params,
                         );
                         tracing::debug!(
                             their_handshake_hash = debug(their_handshake_hash),
