@@ -86,51 +86,51 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         }));
     let mut consec = 0;
     loop {
-        for _ in 0..10 {
-            let steal_time: f64 = {
-                async fn get_steal() -> u64 {
-                    let output = Command::new("bash")
-                        .arg("-c")
-                        .arg("cat /proc/stat | grep '^cpu ' | awk '{print $9}'")
-                        .output()
-                        .await
-                        .unwrap()
-                        .stdout;
-                    String::from_utf8_lossy(&output).trim().parse().unwrap()
-                }
+        // for _ in 0..10 {
+        //     let steal_time: f64 = {
+        //         async fn get_steal() -> u64 {
+        //             let output = Command::new("bash")
+        //                 .arg("-c")
+        //                 .arg("cat /proc/stat | grep '^cpu ' | awk '{print $9}'")
+        //                 .output()
+        //                 .await
+        //                 .unwrap()
+        //                 .stdout;
+        //             String::from_utf8_lossy(&output).trim().parse().unwrap()
+        //         }
 
-                let s1 = get_steal().await;
-                smol::Timer::after(Duration::from_secs(1)).await;
-                let s2 = get_steal().await;
-                (s2 as f64 - s1 as f64) / 100.0
-            };
-            if steal_time > 0.4 {
-                consec += 1;
-                if consec > 3 {
-                    Command::new("systemctl")
-                        .arg("stop")
-                        .arg("geph4-bridge")
-                        .status()
-                        .await
-                        .unwrap();
-                }
-                broker_rpc
-                    .set_stat(format!("{bridge_key}.overload_steal_time"), steal_time)
-                    .await
-                    .unwrap();
-            }
-            if steal_time < 0.1 && consec > 0 {
-                consec = 0;
-                Command::new("systemctl")
-                    .arg("start")
-                    .arg("geph4-bridge")
-                    .status()
-                    .await
-                    .unwrap();
-            }
+        //         let s1 = get_steal().await;
+        //         smol::Timer::after(Duration::from_secs(1)).await;
+        //         let s2 = get_steal().await;
+        //         (s2 as f64 - s1 as f64) / 100.0
+        //     };
+        //     if steal_time > 0.4 {
+        //         consec += 1;
+        //         // if consec > 3 {
+        //         //     Command::new("systemctl")
+        //         //         .arg("stop")
+        //         //         .arg("geph4-bridge")
+        //         //         .status()
+        //         //         .await
+        //         //         .unwrap();
+        //         // }
+        //         broker_rpc
+        //             .set_stat(format!("{bridge_key}.overload_steal_time"), steal_time)
+        //             .await
+        //             .unwrap();
+        //     }
+        //     if steal_time < 0.1 && consec > 0 {
+        //         consec = 0;
+        //         Command::new("systemctl")
+        //             .arg("start")
+        //             .arg("geph4-bridge")
+        //             .status()
+        //             .await
+        //             .unwrap();
+        //     }
 
-            async_io::Timer::after(Duration::from_secs(1)).await;
-        }
+        //     async_io::Timer::after(Duration::from_secs(1)).await;
+        // }
 
         tracing::info!(
             auth_token,

@@ -21,11 +21,11 @@ mod state;
 #[derive(Clone, Copy)]
 pub struct Cookie {
     key: [u8; 32],
-    params: CookieParams,
+    params: ObfsParams,
 }
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
-pub struct CookieParams {
+pub struct ObfsParams {
     // whether or not to pad write lengths
     pub obfs_lengths: bool,
     // whether or not to add delays
@@ -49,7 +49,7 @@ impl Cookie {
         let (cookie, params) = if let Some((a, b)) = s.split_once("---") {
             (a, serde_json::from_str(b).unwrap_or_default())
         } else {
-            (s, CookieParams::default())
+            (s, ObfsParams::default())
         };
         let derived_cookie = blake3::derive_key("cookie", cookie.as_bytes());
         Self {
@@ -62,12 +62,12 @@ impl Cookie {
     pub fn random() -> Self {
         Self {
             key: rand::random(),
-            params: CookieParams::default(),
+            params: ObfsParams::default(),
         }
     }
 
     /// Randomly create a cookie with the given parameters.
-    pub fn random_with_params(params: CookieParams) -> Self {
+    pub fn random_with_params(params: ObfsParams) -> Self {
         Self {
             key: rand::random(),
             params,

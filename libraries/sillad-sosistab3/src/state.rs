@@ -5,6 +5,8 @@ use blake3::derive_key;
 use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, Key, KeyInit};
 use smallvec::{SmallVec, ToSmallVec};
 
+use crate::ObfsParams;
+
 pub struct State {
     shared_secret: Vec<u8>,
     send_aead: ChaCha20Poly1305,
@@ -12,12 +14,14 @@ pub struct State {
     send_buf: Vec<u8>,
     recv_aead: ChaCha20Poly1305,
     recv_nonce: u64,
+
+    obfs_params: ObfsParams,
 }
 
 impl State {
     /// Derives a state from a given shared secret.
     #[tracing::instrument]
-    pub fn new(ss: &[u8], is_server: bool) -> Self {
+    pub fn new(ss: &[u8], is_server: bool, obfs_params: ObfsParams) -> Self {
         let (send_key_label, recv_key_label) = if is_server {
             ("dn", "up")
         } else {
@@ -44,6 +48,7 @@ impl State {
             send_buf: vec![],
             recv_aead,
             recv_nonce: 0,
+            obfs_params,
         }
     }
 
