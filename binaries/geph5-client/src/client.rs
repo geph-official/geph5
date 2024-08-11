@@ -5,6 +5,7 @@ use clone_macro::clone;
 use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList, UserInfo};
 use nanorpc::DynRpcTransport;
+use sillad::Pipe;
 use smol::future::FutureExt as _;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
@@ -14,7 +15,7 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 use crate::{
     auth::{auth_loop, get_auth_token},
     broker::{broker_client, BrokerSource},
-    client_inner::client_once,
+    client_inner::{client_once, open_conn},
     control_prot::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
     },
@@ -29,7 +30,7 @@ use crate::{
 pub struct Config {
     pub socks5_listen: Option<SocketAddr>,
     pub http_proxy_listen: Option<SocketAddr>,
-    pub stats_listen: Option<SocketAddr>,
+
     pub control_listen: Option<SocketAddr>,
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
@@ -56,7 +57,7 @@ impl Config {
         this.dry_run = true;
         this.socks5_listen = None;
         this.http_proxy_listen = None;
-        this.stats_listen = None;
+
         this.control_listen = None;
         this
     }
@@ -93,6 +94,11 @@ impl Client {
             task: task.shared(),
             ctx,
         }
+    }
+
+    /// Opens a connection through the tunnel.
+    pub async fn open_conn(&self, remote: &str) -> anyhow::Result<Box<dyn Pipe>> {
+        open_conn(&self.ctx, "tcp", remote).await
     }
 
     /// Wait until there's an error.

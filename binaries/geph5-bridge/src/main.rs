@@ -3,14 +3,14 @@ mod listen_forward;
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::listen_forward_loop;
 use sillad::tcp::{TcpDialer, TcpListener};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
-use smol::{future::FutureExt as _, process::Command};
+use smol::future::FutureExt as _;
 use tap::Tap;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 

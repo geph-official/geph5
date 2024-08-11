@@ -11,7 +11,7 @@ arrayref = "0.3.7"
 blake3 = "1.5.1"
 chacha20poly1305 = "0.10.1"
 rand = "0.8.5"
-x25519-dalek = { version = "2.0.1", features = ["serde"] }
+x25519-dalek = {version="2", default-features=false, features=["serde"]}
 sillad = { version = "0.1", path = "../sillad" }
 futures-util = { version = "0.3.30", features = ["io"] }
 pin-project = "1.1.5"

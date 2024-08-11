@@ -1992,7 +1992,6 @@ dependencies = [
  "rustc_version",
  "serde",
  "subtle",
- "zeroize",
 ]
 
 [[package]]
@@ -2310,7 +2309,6 @@ version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
- "pkcs8 0.10.2",
  "serde",
  "signature",
 ]
@@ -2326,7 +2324,6 @@ dependencies = [
  "serde",
  "sha2",
  "subtle",
- "zeroize",
 ]
 
 [[package]]
@@ -8598,7 +8595,6 @@ dependencies = [
  "curve25519-dalek",
  "rand_core",
  "serde",
- "zeroize",
 ]
 
 [[package]]
@@ -8751,20 +8747,6 @@ name = "zeroize"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
-dependencies = [
- "zeroize_derive",
-]
-
-[[package]]
-name = "zeroize_derive"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.72",
-]
 
 [[package]]
 name = "zvariant"

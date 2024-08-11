@@ -25,20 +25,18 @@ pub struct VpnCapture {
 
 impl VpnCapture {
     pub fn new(ctx: AnyCtx<Config>) -> Self {
-        {
-            let (send_captured, recv_captured) = smol::channel::unbounded();
-            let (send_injected, recv_injected) = smol::channel::unbounded();
-            smolscale::spawn(
-                packet_shuffle(ctx.clone(), send_captured, recv_injected)
-                    .inspect_err(|e| tracing::error!(err = debug(e), "packet shuffle stopped")),
-            )
-            .detach();
-            // TEST
-            std::env::set_var("GEPH_DNS", "1.1.1.1");
-            let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
+        let (send_captured, recv_captured) = smol::channel::unbounded();
+        let (send_injected, recv_injected) = smol::channel::unbounded();
+        smolscale::spawn(
+            packet_shuffle(ctx.clone(), send_captured, recv_injected)
+                .inspect_err(|e| tracing::error!(err = debug(e), "packet shuffle stopped")),
+        )
+        .detach();
+        // TEST
+        std::env::set_var("GEPH_DNS", "1.1.1.1");
+        let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
 
-            Self { ipstack }
-        }
+        Self { ipstack }
     }
 
     pub fn ipstack(&self) -> &IpStack {
@@ -47,12 +45,10 @@ impl VpnCapture {
 }
 
 pub fn vpn_whitelist(addr: IpAddr) {
-    {
-        WHITELIST.entry(addr).or_insert_with(|| {
-            tracing::warn!(addr = display(addr), "*** WHITELIST ***");
-            SingleWhitelister::new(addr)
-        });
-    }
+    WHITELIST.entry(addr).or_insert_with(|| {
+        tracing::warn!(addr = display(addr), "*** WHITELIST ***");
+        SingleWhitelister::new(addr)
+    });
 }
 
 fn setup_routing() -> anyhow::Result<()> {
