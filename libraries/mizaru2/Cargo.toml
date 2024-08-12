@@ -1,7 +1,10 @@
 [package]
 name = "mizaru2"
-version = "0.1.0"
 edition = "2021"
+description = "Mizaru2"
+version.workspace = true
+version.repository = true
+version.license = true
 
 [dependencies]
 blake3 = { version = "1.5.1", features = ["serde"] }
