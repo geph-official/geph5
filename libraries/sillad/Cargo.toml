@@ -2,7 +2,7 @@
 name = "sillad"
 edition = "2021"
 description = "A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
-version.workspace = true
+version = "0.1.0"
 repository.workspace = true
 license.workspace = true
 

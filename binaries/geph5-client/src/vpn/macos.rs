@@ -12,3 +12,5 @@ pub(super) async fn packet_shuffle(
 ) -> anyhow::Result<()> {
     todo!()
 }
+
+pub fn vpn_whitelist(addr: IpAddr) {}

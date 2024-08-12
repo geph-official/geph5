@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "arc-writer"
-version = "0.1.0"
+version = "0.2.0-alpha.0"
 
 [[package]]
 name = "argon2"
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.1.0"
+version = "0.2.0-alpha.0"
 dependencies = [
  "anyhow",
  "async-task",
@@ -6281,7 +6281,7 @@ dependencies = [
 
 [[package]]
 name = "sillad"
-version = "0.2.0-alpha.0"
+version = "0.1.0"
 dependencies = [
  "async-io 2.3.3",
  "async-trait",

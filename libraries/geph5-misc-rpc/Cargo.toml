@@ -1,7 +1,11 @@
 [package]
 name = "geph5-misc-rpc"
-version = "0.1.0"
 edition = "2021"
+description = "Geph5 misc RPC protocols"
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+
 
 [dependencies]
 serde = { version = "1.0.204", features = ["derive"] }
