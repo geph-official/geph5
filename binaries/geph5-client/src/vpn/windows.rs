@@ -6,39 +6,29 @@ use std::{net::IpAddr, time::Duration};
 use anyctx::AnyCtx;
 use anyhow::Context;
 
-use clone_macro::clone;
+use bytes::Bytes;
+
 use dashmap::DashSet;
-use ipstack_geph::{IpStack, IpStackConfig};
+
 use once_cell::sync::Lazy;
 use smol::channel::{Receiver, Sender};
 
 use crate::{client_inner::open_conn, Config};
 
-pub struct VpnCapture {
-    ipstack: IpStack,
-}
-
-impl VpnCapture {
-    #[cfg(not(feature = "windivert"))]
-    pub fn new(ctx: AnyCtx<Config>) -> Self {
-        todo!()
-    }
-
-    #[cfg(feature = "windivert")]
-    pub fn new(ctx: AnyCtx<Config>) -> Self {
-        let (send_captured, recv_captured) = smol::channel::unbounded();
-        let (send_injected, recv_injected) = smol::channel::unbounded();
-        std::thread::spawn(clone!([ctx], || up_shuffle(ctx, send_captured)
-            .inspect_err(|e| tracing::error!(err = debug(e), "up_shuffle stopped"))));
-        std::thread::spawn(clone!([ctx], || dn_shuffle(ctx, recv_injected)
-            .inspect_err(|e| tracing::error!(err = debug(e), "dn_shuffle stopped"))));
-        let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
-        Self { ipstack }
-    }
-
-    pub fn ipstack(&self) -> &IpStack {
-        &self.ipstack
-    }
+pub(super) async fn packet_shuffle(
+    ctx: AnyCtx<Config>,
+    send_captured: Sender<Bytes>,
+    recv_injected: Receiver<Bytes>,
+) -> anyhow::Result<()> {
+    std::thread::spawn({
+        let ctx = ctx.clone();
+        move || up_shuffle(ctx, send_captured)
+    });
+    std::thread::spawn({
+        let ctx = ctx.clone();
+        move || dn_shuffle(ctx, recv_injected)
+    });
+    smol::future::pending().await
 }
 
 #[cfg(feature = "windivert")]
