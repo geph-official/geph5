@@ -20,10 +20,12 @@ pub(super) async fn packet_shuffle(
     send_captured: Sender<Bytes>,
     recv_injected: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
+    #[cfg(feature = "windivert")]
     std::thread::spawn({
         let ctx = ctx.clone();
         move || up_shuffle(ctx, send_captured)
     });
+    #[cfg(feature = "windivert")]
     std::thread::spawn({
         let ctx = ctx.clone();
         move || dn_shuffle(ctx, recv_injected)
