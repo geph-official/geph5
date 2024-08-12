@@ -1,22 +1,16 @@
-use std::net::IpAddr;
-
 use anyctx::AnyCtx;
+use bytes::Bytes;
 use ipstack_geph::IpStack;
+use smol::channel::{Receiver, Sender};
+use std::net::IpAddr;
 
 use crate::Config;
 
-pub struct VpnCapture {
-    ipstack: IpStack,
-}
-
-impl VpnCapture {
-    pub fn new(_ctx: AnyCtx<Config>) -> Self {
-        todo!()
-    }
-
-    pub fn ipstack(&self) -> &IpStack {
-        &self.ipstack
-    }
+pub(super) async fn packet_shuffle(
+    ctx: AnyCtx<Config>,
+    send_captured: Sender<Bytes>,
+    recv_injected: Receiver<Bytes>,
+) -> anyhow::Result<()> {
 }
 
 pub fn vpn_whitelist(_addr: IpAddr) {
