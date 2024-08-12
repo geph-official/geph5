@@ -3,6 +3,12 @@
 members = ["libraries/*", "binaries/*"]
 resolver = "2"
 
+[workspace.package]
+version = "0.2.0-alpha.0"
+repository = "https://github.com/geph-official/geph5"
+license = "ISC"
+
+
 [profile.release]
 panic = "abort"
 

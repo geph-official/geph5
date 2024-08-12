@@ -35,7 +35,7 @@ tracing-subscriber = {version="0.3.18", features=["json"]}
 serde_json = "1.0.120"
 oneshot = "0.1.8"
 chrono = "0.4.38"
-http = "1.1.0"
+http = "1.1.0" 
 isocountry = "0.3.2"
 image = { version = "0.25.1", default-features = false, features = ["ico"] }
 itertools = "0.13.0"
