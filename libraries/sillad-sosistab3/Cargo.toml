@@ -3,8 +3,8 @@ name = "sillad-sosistab3"
 edition = "2021"
 description = "A scramblesuit-like obfuscation protocol within the sillad framework"
 version.workspace = true
-version.repository = true
-version.license = true
+repository.workspace = true
+license.version = true
 
 [dependencies]
 arrayref = "0.3.7"

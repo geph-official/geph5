@@ -3,8 +3,8 @@ name = "mizaru2"
 edition = "2021"
 description = "Mizaru2"
 version.workspace = true
-version.repository = true
-version.license = true
+repository.workspace = true
+license.version = true
 
 [dependencies]
 blake3 = { version = "1.5.1", features = ["serde"] }

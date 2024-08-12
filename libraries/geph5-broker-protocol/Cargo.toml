@@ -3,8 +3,8 @@ name = "geph5-broker-protocol"
 edition = "2021"
 description = "Broker protocol for Geph5"
 version.workspace = true
-version.repository = true
-version.license = true
+repository.workspace = true
+license.version = true
 
 [dependencies]
 anyhow = "1.0.86"

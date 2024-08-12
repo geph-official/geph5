@@ -3,8 +3,8 @@ name = "sillad"
 edition = "2021"
 description = "A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
 version.workspace = true
-version.repository = true
-version.license = true
+repository.workspace = true
+license.version = true
 
 [dependencies]
 async-io = "2.3.3"
