@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-sillad = { version = "0.1", path = "../sillad" }
+sillad = { version = "0.2", path = "../sillad" }
 async-trait = "0.1.80"
 nanorpc = "0.1.12"
 serde_json = "1.0.120"
