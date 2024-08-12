@@ -1,7 +1,7 @@
-use std::net::IpAddr;
-
 use anyctx::AnyCtx;
+use bytes::Bytes;
 use ipstack_geph::IpStack;
+use std::net::IpAddr;
 
 use crate::Config;
 
