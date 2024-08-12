@@ -19,31 +19,6 @@ use crate::{client_inner::open_conn, Config};
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
-pub struct VpnCapture {
-    ipstack: IpStack,
-}
-
-impl VpnCapture {
-    pub fn new(ctx: AnyCtx<Config>) -> Self {
-        let (send_captured, recv_captured) = smol::channel::unbounded();
-        let (send_injected, recv_injected) = smol::channel::unbounded();
-        smolscale::spawn(
-            packet_shuffle(ctx.clone(), send_captured, recv_injected)
-                .inspect_err(|e| tracing::error!(err = debug(e), "packet shuffle stopped")),
-        )
-        .detach();
-        // TEST
-        std::env::set_var("GEPH_DNS", "1.1.1.1");
-        let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
-
-        Self { ipstack }
-    }
-
-    pub fn ipstack(&self) -> &IpStack {
-        &self.ipstack
-    }
-}
-
 pub fn vpn_whitelist(addr: IpAddr) {
     WHITELIST.entry(addr).or_insert_with(|| {
         tracing::warn!(addr = display(addr), "*** WHITELIST ***");
@@ -75,11 +50,12 @@ extern "C" fn teardown_routing() {
     child.wait().expect("iptables was not set up properly");
 }
 
-async fn packet_shuffle(
+pub(super) async fn packet_shuffle(
     ctx: AnyCtx<Config>,
     send_captured: Sender<Bytes>,
     recv_injected: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
+    std::env::set_var("GEPH_DNS", "1.1.1.1");
     use std::os::fd::{AsRawFd, FromRawFd};
     let tun_device = configure_tun_device();
     let fd_num = tun_device.as_raw_fd();

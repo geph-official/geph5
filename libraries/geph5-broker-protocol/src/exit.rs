@@ -9,7 +9,7 @@ use isocountry::CountryCode;
 use language_tags::LanguageTag;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 /// This fully describes a particular exit.
 pub struct ExitDescriptor {
     /// The listening port for the client-to-exit protocol

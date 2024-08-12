@@ -1,6 +1,8 @@
 //! This module provides functionality for setting up a system-level VPN.
 #[cfg(target_os = "linux")]
 mod linux;
+use bytes::Bytes;
+use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
 pub use linux::*;
 
@@ -10,7 +12,7 @@ mod dummy;
 #[cfg(target_os = "android")]
 pub use dummy::*;
 
-use std::{net::Ipv4Addr, time::Duration};
+use std::{net::Ipv4Addr, sync::LazyLock, time::Duration};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -26,6 +28,7 @@ use moka::sync::Cache;
 use rand::Rng;
 use simple_dns::{Packet, QTYPE};
 use smol::{
+    channel::{Receiver, Sender},
     future::FutureExt,
     io::{BufReader, BufWriter},
 };
@@ -73,121 +76,138 @@ pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
         })
 }
 
+/// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
+pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
+    ctx.get(VPN_CAPTURE).0.send(bts).await.unwrap();
+}
+
+/// Receive a packet from VPN mode, regardless of whether VPN mode is on.
+pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
+    ctx.get(VPN_INJECT).1.recv().await.unwrap()
+}
+
+static VPN_CAPTURE: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
+
+static VPN_INJECT: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
+
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    if ctx.init().vpn {
-        let vpn = VpnCapture::new(ctx.clone());
-        loop {
-            let captured = vpn
-                .ipstack()
-                .accept()
-                .await
-                .context("could not accept from ipstack")?;
-            match captured {
-                ipstack_geph::stream::IpStackStream::Tcp(captured) => {
-                    let peer_addr = captured.peer_addr();
-                    tracing::trace!(
-                        local_addr = display(captured.local_addr()),
-                        peer_addr = display(peer_addr),
-                        "captured a TCP"
-                    );
-                    let ctx = ctx.clone();
+    let (send_captured, recv_captured) = ctx.get(VPN_CAPTURE).clone();
+    let (send_injected, recv_injected) = ctx.get(VPN_INJECT).clone();
+    let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
+    let _shuffle = if ctx.init().vpn {
+        Some(smolscale::spawn(packet_shuffle(
+            ctx.clone(),
+            send_captured,
+            recv_injected,
+        )))
+    } else {
+        None
+    };
+    loop {
+        let captured = ipstack
+            .accept()
+            .await
+            .context("could not accept from ipstack")?;
+        match captured {
+            ipstack_geph::stream::IpStackStream::Tcp(captured) => {
+                let peer_addr = captured.peer_addr();
+                tracing::trace!(
+                    local_addr = display(captured.local_addr()),
+                    peer_addr = display(peer_addr),
+                    "captured a TCP"
+                );
+                let ctx = ctx.clone();
 
-                    smolscale::spawn(async move {
-                        let tunneled = open_conn(&ctx, "tcp", &peer_addr.to_string()).await?;
-                        tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
-                        let (read_tunneled, write_tunneled) = tunneled.split();
-                        let (read_captured, write_captured) = captured.split();
-                        smol::io::copy(read_tunneled, write_captured)
-                            .race(smol::io::copy(read_captured, write_tunneled))
-                            .await?;
-                        anyhow::Ok(())
-                    })
-                    .detach();
-                }
-                ipstack_geph::stream::IpStackStream::Udp(captured) => {
-                    let peer_addr = captured.peer_addr();
-                    tracing::trace!(
-                        local_addr = display(captured.local_addr()),
-                        peer_addr = display(peer_addr),
-                        "captured a UDP"
-                    );
-                    let peer_addr = if captured.peer_addr().port() == 53 {
-                        "1.1.1.1:53".parse()?
-                    } else {
-                        peer_addr
-                    };
+                smolscale::spawn(async move {
+                    let tunneled = open_conn(&ctx, "tcp", &peer_addr.to_string()).await?;
+                    tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
+                    let (read_tunneled, write_tunneled) = tunneled.split();
+                    let (read_captured, write_captured) = captured.split();
+                    smol::io::copy(read_tunneled, write_captured)
+                        .race(smol::io::copy(read_captured, write_tunneled))
+                        .await?;
+                    anyhow::Ok(())
+                })
+                .detach();
+            }
+            ipstack_geph::stream::IpStackStream::Udp(captured) => {
+                let peer_addr = captured.peer_addr();
+                tracing::trace!(
+                    local_addr = display(captured.local_addr()),
+                    peer_addr = display(peer_addr),
+                    "captured a UDP"
+                );
+                let peer_addr = if captured.peer_addr().port() == 53 {
+                    "1.1.1.1:53".parse()?
+                } else {
+                    peer_addr
+                };
 
-                    let ctx = ctx.clone();
-                    smolscale::spawn::<anyhow::Result<()>>(async move {
-                        if peer_addr.port() == 53 && ctx.init().spoof_dns {
-                            // fakedns handling
-                            loop {
-                                let pkt = captured.recv().await?;
-                                let pkt = Packet::parse(&pkt)?;
-                                tracing::trace!(pkt = debug(&pkt), "got DNS packet");
-                                let mut answers = vec![];
-                                for question in pkt.questions.iter() {
-                                    if question.qtype == QTYPE::TYPE(simple_dns::TYPE::A) {
-                                        answers.push(simple_dns::ResourceRecord::new(
-                                            question.qname.clone(),
-                                            simple_dns::CLASS::IN,
-                                            1,
-                                            simple_dns::rdata::RData::A(
-                                                fake_dns_allocate(
-                                                    &ctx,
-                                                    &question.qname.to_string(),
-                                                )
+                let ctx = ctx.clone();
+                smolscale::spawn::<anyhow::Result<()>>(async move {
+                    if peer_addr.port() == 53 && ctx.init().spoof_dns {
+                        // fakedns handling
+                        loop {
+                            let pkt = captured.recv().await?;
+                            let pkt = Packet::parse(&pkt)?;
+                            tracing::trace!(pkt = debug(&pkt), "got DNS packet");
+                            let mut answers = vec![];
+                            for question in pkt.questions.iter() {
+                                if question.qtype == QTYPE::TYPE(simple_dns::TYPE::A) {
+                                    answers.push(simple_dns::ResourceRecord::new(
+                                        question.qname.clone(),
+                                        simple_dns::CLASS::IN,
+                                        1,
+                                        simple_dns::rdata::RData::A(
+                                            fake_dns_allocate(&ctx, &question.qname.to_string())
                                                 .into(),
-                                            ),
-                                        ));
-                                    }
+                                        ),
+                                    ));
                                 }
-                                let mut response = pkt.into_reply();
-                                response.answers = answers;
-
-                                captured
-                                    .send(&response.build_bytes_vec_compressed()?)
-                                    .await?;
                             }
-                        } else {
-                            let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;
-                            let (read_tunneled, write_tunneled) = tunneled.split();
-                            let up_loop = async {
-                                let mut write_tunneled = BufWriter::new(write_tunneled);
-                                loop {
-                                    let to_up = captured.recv().await?;
-                                    write_tunneled
-                                        .write_all(&(to_up.len() as u16).to_le_bytes())
-                                        .await?;
-                                    write_tunneled.write_all(&to_up).await?;
-                                    write_tunneled.flush().await?;
-                                }
-                            };
-                            let dn_loop = async {
-                                let mut read_tunneled = BufReader::new(read_tunneled);
-                                loop {
-                                    let mut len_buf = [0u8; 2];
-                                    read_tunneled.read_exact(&mut len_buf).await?;
-                                    let len = u16::from_le_bytes(len_buf) as usize;
-                                    let mut buf = vec![0u8; len];
-                                    read_tunneled.read_exact(&mut buf).await?;
-                                    captured.send(&buf).await?;
-                                }
-                            };
-                            up_loop.race(dn_loop).await
+                            let mut response = pkt.into_reply();
+                            response.answers = answers;
+
+                            captured
+                                .send(&response.build_bytes_vec_compressed()?)
+                                .await?;
                         }
-                    })
-                    .detach();
-                }
-                ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
-                    tracing::warn!("captured an UnknownTransport")
-                }
-                ipstack_geph::stream::IpStackStream::UnknownNetwork(_) => {
-                    tracing::warn!("captured an UnknownNetwork")
-                }
+                    } else {
+                        let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;
+                        let (read_tunneled, write_tunneled) = tunneled.split();
+                        let up_loop = async {
+                            let mut write_tunneled = BufWriter::new(write_tunneled);
+                            loop {
+                                let to_up = captured.recv().await?;
+                                write_tunneled
+                                    .write_all(&(to_up.len() as u16).to_le_bytes())
+                                    .await?;
+                                write_tunneled.write_all(&to_up).await?;
+                                write_tunneled.flush().await?;
+                            }
+                        };
+                        let dn_loop = async {
+                            let mut read_tunneled = BufReader::new(read_tunneled);
+                            loop {
+                                let mut len_buf = [0u8; 2];
+                                read_tunneled.read_exact(&mut len_buf).await?;
+                                let len = u16::from_le_bytes(len_buf) as usize;
+                                let mut buf = vec![0u8; len];
+                                read_tunneled.read_exact(&mut buf).await?;
+                                captured.send(&buf).await?;
+                            }
+                        };
+                        up_loop.race(dn_loop).await
+                    }
+                })
+                .detach();
+            }
+            ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
+                tracing::warn!("captured an UnknownTransport")
+            }
+            ipstack_geph::stream::IpStackStream::UnknownNetwork(_) => {
+                tracing::warn!("captured an UnknownNetwork")
             }
         }
-    } else {
-        smol::future::pending().await
     }
 }

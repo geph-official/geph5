@@ -1,6 +1,7 @@
 use anyctx::AnyCtx;
 
 use anyhow::Context;
+use bytes::Bytes;
 use clone_macro::clone;
 use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList, UserInfo};
@@ -23,7 +24,7 @@ use crate::{
     http_proxy::run_http_proxy,
     route::ExitConstraint,
     socks5::socks5_loop,
-    vpn::vpn_loop,
+    vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -137,6 +138,18 @@ impl Client {
             .await??
             .context("no such user")?;
         Ok(user_info)
+    }
+
+    /// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
+    pub async fn send_vpn_packet(&self, bts: Bytes) -> anyhow::Result<()> {
+        send_vpn_packet(&self.ctx, bts).await;
+        Ok(())
+    }
+
+    /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
+    pub async fn recv_vpn_packet(&self) -> anyhow::Result<Bytes> {
+        let packet = recv_vpn_packet(&self.ctx).await;
+        Ok(packet)
     }
 }
 
