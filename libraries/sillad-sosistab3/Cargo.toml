@@ -4,7 +4,7 @@ edition = "2021"
 description = "A scramblesuit-like obfuscation protocol within the sillad framework"
 version.workspace = true
 repository.workspace = true
-license.version = true
+license.workspace = true
 
 [dependencies]
 arrayref = "0.3.7"

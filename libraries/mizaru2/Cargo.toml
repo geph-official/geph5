@@ -4,7 +4,7 @@ edition = "2021"
 description = "Mizaru2"
 version.workspace = true
 repository.workspace = true
-license.version = true
+license.workspace = true
 
 [dependencies]
 blake3 = { version = "1.5.1", features = ["serde"] }
