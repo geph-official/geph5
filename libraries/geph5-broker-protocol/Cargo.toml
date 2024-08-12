@@ -1,7 +1,10 @@
 [package]
 name = "geph5-broker-protocol"
-version = "0.1.0"
 edition = "2021"
+description = "Broker protocol for Geph5"
+version.workspace = true
+version.repository = true
+version.license = true
 
 [dependencies]
 anyhow = "1.0.86"
