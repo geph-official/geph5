@@ -91,8 +91,8 @@ static VPN_CAPTURE: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::chann
 static VPN_INJECT: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    let (send_captured, recv_captured) = ctx.get(VPN_CAPTURE).clone();
-    let (send_injected, recv_injected) = ctx.get(VPN_INJECT).clone();
+    let (send_captured, recv_captured) = smol::channel::unbounded();
+    let (send_injected, recv_injected) = smol::channel::unbounded();
     let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
     let _shuffle = if ctx.init().vpn {
         Some(smolscale::spawn(packet_shuffle(
