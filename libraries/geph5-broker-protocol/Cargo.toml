@@ -20,5 +20,5 @@ blake3 = { version = "=1.5.1", features = ["serde"] }
 isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
 serde_with = { version = "3.8.3", features = ["hex"] }
-mizaru2 = {version = "0.2.0-alpha.10", path = "../mizaru2" }
+mizaru2 = {version = "0.2.0-alpha.11", path = "../mizaru2" }
 tracing = "0.1.40"
