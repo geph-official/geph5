@@ -359,6 +359,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-broadcast"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20cd0e2e25ea8e5f7e9df04578dc6cf5c83577fd09b1a46aaf5c85e1c33f2a7e"
+dependencies = [
+ "event-listener 5.3.1",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite 0.2.14",
+]
+
+[[package]]
 name = "async-channel"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3069,6 +3081,7 @@ dependencies = [
  "anyctx",
  "anyhow",
  "arc-writer",
+ "async-broadcast 0.7.1",
  "async-compat",
  "async-dup",
  "async-trait",
@@ -3082,6 +3095,7 @@ dependencies = [
  "chrono",
  "clap",
  "clone-macro",
+ "crossbeam-queue",
  "dashmap 6.0.1",
  "dirs",
  "ed25519-dalek",
@@ -8662,7 +8676,7 @@ version = "3.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "675d170b632a6ad49804c8cf2105d7c31eddd3312555cffd4b740e08e97c25e6"
 dependencies = [
- "async-broadcast",
+ "async-broadcast 0.5.1",
  "async-executor",
  "async-fs 1.6.0",
  "async-io 1.13.0",

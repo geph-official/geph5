@@ -67,23 +67,23 @@ pub(super) async fn packet_shuffle(
     setup_routing().unwrap();
     scopeguard::defer!(teardown_routing());
     let (mut read, mut write) = up_file.split();
-    let up = async {
+    let inject = async {
         loop {
             let injected = recv_injected.recv().await?;
-            tracing::debug!(n = injected.len(), "going to inject into the TUN");
+            tracing::trace!(n = injected.len(), "going to inject into the TUN");
             let _ = write.write(&injected).await?;
         }
     };
-    let dn = async {
+    let capture = async {
         let mut buf = vec![0u8; 8192];
         loop {
             let n = read.read(&mut buf).await?;
             let buf = &buf[..n];
-            tracing::debug!(n, "captured packet from TUN");
+            tracing::trace!(n, buf = hex::encode(buf), "captured packet from TUN");
             send_captured.send(Bytes::copy_from_slice(buf)).await?;
         }
     };
-    up.race(dn).await
+    inject.race(capture).await
 }
 
 #[cfg(target_os = "linux")]

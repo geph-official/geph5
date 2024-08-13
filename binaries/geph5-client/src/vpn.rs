@@ -2,6 +2,8 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
+use crossbeam_queue::SegQueue;
+use event_listener::Event;
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
 pub use linux::*;
@@ -12,7 +14,11 @@ mod dummy;
 #[cfg(target_os = "android")]
 pub use dummy::*;
 
-use std::{net::Ipv4Addr, sync::LazyLock, time::Duration};
+use std::{
+    net::Ipv4Addr,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -78,30 +84,66 @@ pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
 
 /// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
 pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
-    ctx.get(VPN_CAPTURE).0.send(bts).await.unwrap();
+    tracing::trace!(
+        len = bts.len(),
+        chan_len = ctx.get(VPN_CAPTURE).len(),
+        "vpn forcing up"
+    );
+    ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
+    ctx.get(VPN_EVENT).notify(usize::MAX);
 }
 
 /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
 pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
-    ctx.get(VPN_INJECT).1.recv().await.unwrap()
+    loop {
+        let evt = ctx.get(VPN_EVENT).listen();
+        if let Some(bts) = ctx.get(VPN_INJECT).pop() {
+            return bts;
+        }
+        evt.await;
+    }
 }
 
-static VPN_CAPTURE: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
+static VPN_EVENT: CtxField<Event> = |_| Event::new();
 
-static VPN_INJECT: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
+static VPN_CAPTURE: CtxField<SegQueue<(Bytes, Instant)>> = |_| SegQueue::new();
+
+static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::unbounded();
     let (send_injected, recv_injected) = smol::channel::unbounded();
     let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
     let _shuffle = if ctx.init().vpn {
-        Some(smolscale::spawn(packet_shuffle(
-            ctx.clone(),
-            send_captured,
-            recv_injected,
-        )))
+        smolscale::spawn(packet_shuffle(ctx.clone(), send_captured, recv_injected))
     } else {
-        None
+        let ctx = ctx.clone();
+        smolscale::spawn(async move {
+            let up_loop = async {
+                loop {
+                    let evt = ctx.get(VPN_EVENT).listen();
+                    if let Some((bts, time)) = ctx.get(VPN_CAPTURE).pop() {
+                        tracing::trace!(
+                            len = bts.len(),
+                            elapsed = debug(time.elapsed()),
+                            packet = display(hex::encode(&bts)),
+                            "vpn shuffling up"
+                        );
+                        send_captured.send(bts).await?;
+                    }
+                    evt.await;
+                }
+            };
+            let dn_loop = async {
+                loop {
+                    let bts = recv_injected.recv().await?;
+                    tracing::trace!(len = bts.len(), "vpn shuffling down");
+                    ctx.get(VPN_INJECT).push(bts);
+                    ctx.get(VPN_EVENT).notify(usize::MAX);
+                }
+            };
+            up_loop.race(dn_loop).await
+        })
     };
     loop {
         let captured = ipstack
