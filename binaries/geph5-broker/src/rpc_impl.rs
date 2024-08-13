@@ -96,13 +96,14 @@ impl BrokerImpl {
 }
 
 fn is_plus_exit(exit: &ExitDescriptor) -> bool {
-    match exit.country {
-        CountryCode::JPN => true,
-        CountryCode::SGP => true,
-        CountryCode::CZE => true,
-        CountryCode::CHE => true,
-        _ => false,
-    }
+    matches!(
+        exit.country,
+        CountryCode::JPN
+            | CountryCode::SGP
+            | CountryCode::CZE
+            | CountryCode::CHE
+            | CountryCode::TWN
+    )
 }
 
 #[async_trait]
