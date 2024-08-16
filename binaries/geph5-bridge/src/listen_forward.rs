@@ -76,8 +76,8 @@ async fn handle_one_listener(
                 .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
             let (client_read, client_write) = client_conn.split();
             let (exit_read, exit_write) = exit_conn.split();
-            smol::io::copy(exit_read, client_write)
-                .race(smol::io::copy(client_read, exit_write))
+            smol::io::copy(ByteCounter(exit_read), client_write)
+                .race(smol::io::copy(ByteCounter(client_read), exit_write))
                 .await?;
             anyhow::Ok(())
         })
