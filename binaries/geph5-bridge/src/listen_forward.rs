@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, SocketAddr},
-    sync::Arc,
+    pin::Pin,
+    sync::{atomic::AtomicU64, Arc},
     time::Duration,
 };
 
@@ -8,7 +9,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use deadpool::managed::{Metrics, Pool, RecycleResult};
-use futures_util::AsyncReadExt as _;
+use futures_util::{AsyncRead, AsyncReadExt as _};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
@@ -81,6 +82,24 @@ async fn handle_one_listener(
             anyhow::Ok(())
         })
         .detach();
+    }
+}
+
+pub static BYTE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+struct ByteCounter<R>(R);
+
+impl<R: AsyncRead + Unpin> AsyncRead for ByteCounter<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let poll = unsafe { Pin::map_unchecked_mut(self, |this| &mut this.0) }.poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(n)) = &poll {
+            BYTE_COUNT.fetch_add(*n as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        poll
     }
 }
 

@@ -3,6 +3,7 @@
 mod linux;
 use bytes::Bytes;
 use crossbeam_queue::SegQueue;
+use dashmap::DashMap;
 use event_listener::Event;
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
@@ -14,11 +15,7 @@ mod dummy;
 #[cfg(target_os = "android")]
 pub use dummy::*;
 
-use std::{
-    net::Ipv4Addr,
-    sync::LazyLock,
-    time::{Duration, Instant},
-};
+use std::{net::Ipv4Addr, time::Instant};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -29,12 +26,9 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::*;
 
-use moka::sync::Cache;
-
 use rand::Rng;
 use simple_dns::{Packet, QTYPE};
 use smol::{
-    channel::{Receiver, Sender},
     future::FutureExt,
     io::{BufReader, BufWriter},
 };
@@ -46,26 +40,21 @@ pub use macos::*;
 
 use crate::{client::CtxField, client_inner::open_conn, Config};
 
-static FAKE_DNS_FORWARD: CtxField<Cache<String, Ipv4Addr>> = |_| {
-    Cache::builder()
-        .time_to_live(Duration::from_secs(86400))
-        .build()
-};
+static FAKE_DNS_FORWARD: CtxField<DashMap<String, Ipv4Addr>> = |_| DashMap::new();
 
-static FAKE_DNS_BACKWARD: CtxField<Cache<Ipv4Addr, String>> = |_| {
-    Cache::builder()
-        .time_to_live(Duration::from_secs(86400))
-        .build()
-};
+static FAKE_DNS_BACKWARD: CtxField<DashMap<Ipv4Addr, String>> = |_| DashMap::new();
 
 pub fn fake_dns_backtranslate(ctx: &AnyCtx<Config>, fake: Ipv4Addr) -> Option<String> {
     tracing::trace!(fake = debug(fake), "attempting to backtranslate");
-    ctx.get(FAKE_DNS_BACKWARD).get(&fake)
+    ctx.get(FAKE_DNS_BACKWARD)
+        .get(&fake)
+        .map(|entry| entry.clone())
 }
 
 pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
-    ctx.get(FAKE_DNS_FORWARD)
-        .get_with(dns_name.to_string(), || {
+    *ctx.get(FAKE_DNS_FORWARD)
+        .entry(dns_name.to_string())
+        .or_insert_with(|| {
             let base = u32::from_be_bytes([240, 0, 0, 0]);
             let mask = u32::from_be_bytes([240, 0, 0, 0]);
             let offset = rand::thread_rng().gen_range(0..=!mask);

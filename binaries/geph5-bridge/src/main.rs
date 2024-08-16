@@ -3,11 +3,11 @@ mod listen_forward;
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
-use listen_forward::listen_forward_loop;
+use listen_forward::{listen_forward_loop, BYTE_COUNT};
 use sillad::tcp::{TcpDialer, TcpListener};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use smol::future::FutureExt as _;
@@ -61,82 +61,24 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         "starting upload loop"
     );
 
-    let ip_api_info: serde_json::Value = reqwest::get("http://ip-api.com/json/")
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-
-    let bridge_key = format!(
-        "bridges.{}-{}--{}",
-        ip_api_info["countryCode"].as_str().unwrap(),
-        ip_api_info["as"]
-            .as_str()
-            .unwrap()
-            .split_ascii_whitespace()
-            .next()
-            .unwrap(),
-        control_listen.ip().to_string().replace('.', "-")
-    );
+    let bridge_key = format!("bridges.{pool}");
 
     let broker_rpc =
         geph5_broker_protocol::BrokerClient(nanorpc_sillad::DialerTransport(TcpDialer {
             dest_addr: broker_addr,
         }));
-    let mut consec = 0;
+
     loop {
-        // for _ in 0..10 {
-        //     let steal_time: f64 = {
-        //         async fn get_steal() -> u64 {
-        //             let output = Command::new("bash")
-        //                 .arg("-c")
-        //                 .arg("cat /proc/stat | grep '^cpu ' | awk '{print $9}'")
-        //                 .output()
-        //                 .await
-        //                 .unwrap()
-        //                 .stdout;
-        //             String::from_utf8_lossy(&output).trim().parse().unwrap()
-        //         }
-
-        //         let s1 = get_steal().await;
-        //         smol::Timer::after(Duration::from_secs(1)).await;
-        //         let s2 = get_steal().await;
-        //         (s2 as f64 - s1 as f64) / 100.0
-        //     };
-        //     if steal_time > 0.4 {
-        //         consec += 1;
-        //         // if consec > 3 {
-        //         //     Command::new("systemctl")
-        //         //         .arg("stop")
-        //         //         .arg("geph4-bridge")
-        //         //         .status()
-        //         //         .await
-        //         //         .unwrap();
-        //         // }
-        //         broker_rpc
-        //             .set_stat(format!("{bridge_key}.overload_steal_time"), steal_time)
-        //             .await
-        //             .unwrap();
-        //     }
-        //     if steal_time < 0.1 && consec > 0 {
-        //         consec = 0;
-        //         Command::new("systemctl")
-        //             .arg("start")
-        //             .arg("geph4-bridge")
-        //             .status()
-        //             .await
-        //             .unwrap();
-        //     }
-
-        //     async_io::Timer::after(Duration::from_secs(1)).await;
-        // }
-
         tracing::info!(
             auth_token,
             broker_addr = display(broker_addr),
             "uploading..."
         );
+        let byte_count = BYTE_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
+        broker_rpc
+            .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
+            .await
+            .unwrap();
         broker_rpc
             .insert_bridge(Mac::new(
                 BridgeDescriptor {
@@ -154,5 +96,6 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             .await
             .unwrap()
             .unwrap();
+        smol::Timer::after(Duration::from_secs(10)).await;
     }
 }
