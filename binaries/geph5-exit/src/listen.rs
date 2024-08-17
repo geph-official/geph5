@@ -136,7 +136,13 @@ async fn broker_loop() -> anyhow::Result<()> {
 async fn c2e_loop() -> anyhow::Result<()> {
     let mut listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
     loop {
-        let c2e_raw = listener.accept().await?;
+        let c2e_raw = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                tracing::error!(err = debug(err), "error accepting");
+                continue;
+            }
+        };
         smolscale::spawn(
             handle_client(c2e_raw).map_err(|e| tracing::warn!("client died suddenly with {e}")),
         )
@@ -150,7 +156,13 @@ async fn b2e_loop() -> anyhow::Result<()> {
         .time_to_idle(Duration::from_secs(86400))
         .build();
     loop {
-        let b2e_raw = listener.accept().await?;
+        let b2e_raw = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                tracing::error!(err = debug(err), "error accepting");
+                continue;
+            }
+        };
         let (read, write) = b2e_raw.split();
         let mut b2e_mux = PicoMux::new(read, write);
         b2e_mux.set_liveness(LivenessConfig {

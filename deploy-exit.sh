@@ -6,6 +6,19 @@ else
   auth_token="$AUTH_TOKEN"
 fi
 
+echo -e "\033[1mSetting up sysctl\033[0m"
+tee /etc/sysctl.conf << EOF
+net.core.rmem_default=262144
+net.core.wmem_default=262144
+net.core.rmem_max=262144000
+net.core.wmem_max=262144000
+net.ipv4.tcp_congestion_control=bbr
+net.core.default_qdisc = fq
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_syncookies=1
+EOF
+sysctl -p
+
 echo -e "\033[1mUpdating package lists and installing dependencies\033[0m"
 apt-get update
 apt-get install -y curl jq
@@ -51,6 +64,7 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/geph5-exit --config /etc/geph5-exit/config.yaml
 Restart=always
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
