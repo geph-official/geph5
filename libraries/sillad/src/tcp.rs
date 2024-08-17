@@ -5,7 +5,7 @@ use std::{
 
 use async_io::Async;
 use async_trait::async_trait;
-use futures_concurrency::future::FutureGroup;
+
 use futures_lite::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 

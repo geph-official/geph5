@@ -2,8 +2,8 @@ use anyctx::AnyCtx;
 use anyhow::Context;
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt};
-use ipstack_geph::{IpStack, IpStackConfig};
+use futures_util::{AsyncReadExt, AsyncWriteExt};
+
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use smol::{

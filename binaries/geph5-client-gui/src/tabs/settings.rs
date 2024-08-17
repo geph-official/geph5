@@ -1,6 +1,6 @@
 use std::{sync::LazyLock, time::Duration};
 
-use egui::{mutex::Mutex, Id};
+use egui::mutex::Mutex;
 use geph5_broker_protocol::{BrokerClient, ExitList, UserInfo};
 use geph5_client::{BridgeMode, Client};
 use itertools::Itertools as _;

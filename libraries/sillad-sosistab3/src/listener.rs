@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     io::ErrorKind,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
