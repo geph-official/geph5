@@ -16,9 +16,6 @@ mod listen;
 mod proxy;
 mod ratelimit;
 
-#[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
-
 use crate::ratelimit::update_load_loop;
 
 #[cfg(not(target_env = "msvc"))]
