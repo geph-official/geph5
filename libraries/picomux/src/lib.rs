@@ -74,7 +74,7 @@ impl PicoMux {
         write: impl AsyncWrite + Send + Unpin + 'static,
     ) -> Self {
         let (send_open_req, recv_open_req) = tachyonix::channel(1);
-        let (send_accepted, recv_accepted) = async_channel::bounded(10000);
+        let (send_accepted, recv_accepted) = async_channel::bounded(100);
         let (send_liveness, recv_liveness) = tachyonix::channel(1000);
         let liveness = LivenessConfig::default();
         send_liveness.try_send(liveness).unwrap();
@@ -405,101 +405,107 @@ async fn picomux_inner(
         .race(ping_loop)
         .race(async {
             loop {
-                let inner = async {
-                    let frame = Frame::read(&mut inner_read).await?;
-                    let stream_id = frame.header.stream_id;
-                    tracing::trace!(
-                        command = frame.header.command,
-                        stream_id,
-                        body_len = frame.header.body_len,
-                        "got incoming frame"
-                    );
-                    match frame.header.command {
-                        CMD_SYN => {
-                            if buffer_table.contains_key(&stream_id) {
-                                return Err(std::io::Error::new(
-                                    ErrorKind::InvalidData,
-                                    "duplicate SYN",
-                                ));
-                            }
-                            let (stream, send_incoming, send_more) =
-                                create_stream(stream_id, frame.body.clone());
-                            if let Err(err) = send_accepted.try_send(stream) {
-                                tracing::warn!(err = debug(err), "oh dead");
-                                return Err(std::io::Error::new(ErrorKind::NotConnected, "dead"));
-                            }
-                            buffer_table.insert(frame.header.stream_id, (send_incoming, send_more));
-                        }
-                        CMD_MORE => {
-                            let window_increase = u16::from_le_bytes(
-                                (&frame.body[..]).try_into().ok().ok_or_else(|| {
-                                    std::io::Error::new(
-                                        ErrorKind::InvalidData,
-                                        "corrupt window increase message",
-                                    )
-                                })?,
-                            );
-                            let back = buffer_table.get(&stream_id);
-                            if let Some(back) = back {
-                                back.1.release(window_increase as _);
-                            } else {
-                                tracing::warn!(
-                                    stream_id = frame.header.stream_id,
-                                    "MORE to a stream that is no longer here"
-                                );
-                            }
-                        }
-                        CMD_PSH => {
-                            let back = buffer_table.get(&stream_id);
-                            if let Some(back) = back {
-                                if let Err(TrySendError::Full(_)) =
-                                    back.0.try_send((frame.clone(), Instant::now()))
-                                {
-                                    tracing::error!(
-                                        stream_id,
-                                        "receive queue full --- this should NEVER happen"
-                                    )
-                                }
-                            } else {
-                                tracing::warn!(
-                                    stream_id = frame.header.stream_id,
-                                    "PSH to a stream that is no longer here"
-                                );
-                            }
-                        }
-                        CMD_FIN => {
-                            buffer_table.remove(&frame.header.stream_id);
-                        }
-
-                        CMD_NOP => {}
-                        CMD_PING => {
-                            let ping_info: PingInfo =
-                                serde_json::from_slice(&frame.body).map_err(|e| {
-                                    std::io::Error::new(
-                                        ErrorKind::InvalidData,
-                                        format!("invalid PING data {e}"),
-                                    )
-                                })?;
-                            tracing::debug!(
-                                next_ping_in_ms = ping_info.next_ping_in_ms,
-                                "responding to a PING"
-                            );
-
-                            let _ = send_outgoing.send(Frame::new_empty(0, CMD_PONG)).await;
-                        }
-                        CMD_PONG => {
-                            let _ = send_pong.send(()).await;
-                        }
-                        other => {
+                let frame = Frame::read(&mut inner_read).await?;
+                let stream_id = frame.header.stream_id;
+                tracing::trace!(
+                    command = frame.header.command,
+                    stream_id,
+                    body_len = frame.header.body_len,
+                    "got incoming frame"
+                );
+                match frame.header.command {
+                    CMD_SYN => {
+                        if buffer_table.contains_key(&stream_id) {
                             return Err(std::io::Error::new(
                                 ErrorKind::InvalidData,
-                                format!("invalid command {other}"),
+                                "duplicate SYN",
                             ));
                         }
+                        let (stream, send_incoming, send_more) =
+                            create_stream(stream_id, frame.body.clone());
+                        if let Err(err) = send_accepted.try_send(stream) {
+                            match err {
+                                async_channel::TrySendError::Full(_) => {
+                                    tracing::warn!("receive queue is empty, ignoring SYN");
+                                }
+                                async_channel::TrySendError::Closed(_) => {
+                                    return Err(std::io::Error::new(
+                                        ErrorKind::NotConnected,
+                                        "dead",
+                                    ))
+                                }
+                            }
+                        } else {
+                            buffer_table.insert(frame.header.stream_id, (send_incoming, send_more));
+                        }
                     }
-                    Ok(())
-                };
-                inner.await?;
+                    CMD_MORE => {
+                        let window_increase = u16::from_le_bytes(
+                            (&frame.body[..]).try_into().ok().ok_or_else(|| {
+                                std::io::Error::new(
+                                    ErrorKind::InvalidData,
+                                    "corrupt window increase message",
+                                )
+                            })?,
+                        );
+                        let back = buffer_table.get(&stream_id);
+                        if let Some(back) = back {
+                            back.1.release(window_increase as _);
+                        } else {
+                            tracing::warn!(
+                                stream_id = frame.header.stream_id,
+                                "MORE to a stream that is no longer here"
+                            );
+                        }
+                    }
+                    CMD_PSH => {
+                        let back = buffer_table.get(&stream_id);
+                        if let Some(back) = back {
+                            if let Err(TrySendError::Full(_)) =
+                                back.0.try_send((frame.clone(), Instant::now()))
+                            {
+                                tracing::error!(
+                                    stream_id,
+                                    "receive queue full --- this should NEVER happen"
+                                )
+                            }
+                        } else {
+                            tracing::warn!(
+                                stream_id = frame.header.stream_id,
+                                "PSH to a stream that is no longer here"
+                            );
+                        }
+                    }
+                    CMD_FIN => {
+                        buffer_table.remove(&frame.header.stream_id);
+                    }
+
+                    CMD_NOP => {}
+                    CMD_PING => {
+                        let ping_info: PingInfo =
+                            serde_json::from_slice(&frame.body).map_err(|e| {
+                                std::io::Error::new(
+                                    ErrorKind::InvalidData,
+                                    format!("invalid PING data {e}"),
+                                )
+                            })?;
+                        tracing::debug!(
+                            next_ping_in_ms = ping_info.next_ping_in_ms,
+                            "responding to a PING"
+                        );
+
+                        let _ = send_outgoing.send(Frame::new_empty(0, CMD_PONG)).await;
+                    }
+                    CMD_PONG => {
+                        let _ = send_pong.send(()).await;
+                    }
+                    other => {
+                        return Err(std::io::Error::new(
+                            ErrorKind::InvalidData,
+                            format!("invalid command {other}"),
+                        ));
+                    }
+                }
             }
         })
         .await
