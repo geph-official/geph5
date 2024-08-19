@@ -82,7 +82,7 @@ jobs:
 
       - name: Install cargo-bundle
         if: matrix.os == 'macos-latest'
-        run: cargo install cargo-bundle
+        run: cargo install cargo-bundle --locked --version "=0.6.0"
 
       - name: Create macOS .app bundle
         if: matrix.os == 'macos-latest'
