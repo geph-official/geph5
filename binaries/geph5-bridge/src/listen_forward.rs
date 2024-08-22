@@ -110,7 +110,7 @@ async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<pi
         .entry(rand::random())
         .or_insert_with(|| {
             Cache::builder()
-                .time_to_idle(Duration::from_secs(86400))
+                .time_to_idle(Duration::from_secs(600))
                 .build()
         })
         .try_get_with(b2e_dest, async {
@@ -123,12 +123,15 @@ async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<pi
             .build()
         })
         .await
-        .context("cannot get pool")?;
-    let mux = pool.get().await.context("cannot get from pool")?;
+        .context(format!("cannot get pool, b2e_dest={b2e_dest}"))?;
+    let mux = pool
+        .get()
+        .await
+        .context(format!("cannot get from pool, b2e_dest={b2e_dest}"))?;
     let stream = mux
         .open(metadata)
         .await
-        .context("cannot open through mux")?;
+        .context(format!("cannot open through mux, b2e_dest={b2e_dest}"))?;
     Ok(stream)
 }
 
