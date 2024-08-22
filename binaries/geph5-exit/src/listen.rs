@@ -82,7 +82,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                     let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
                     let diff = byte_count - last_byte_count;
                     last_byte_count = byte_count;
-                    tracing::debug!(diff, "uploaded a diff");
+                    tracing::debug!(diff, last_byte_count, "uploaded a diff");
                     client
                         .incr_stat(format!("{server_name}.throughput"), diff as _)
                         .await?;
