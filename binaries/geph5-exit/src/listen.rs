@@ -82,6 +82,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                     let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
                     let diff = byte_count - last_byte_count;
                     last_byte_count = byte_count;
+                    tracing::debug!(diff, "uploaded a diff");
                     client
                         .incr_stat(format!("{server_name}.throughput"), diff as _)
                         .await?;
@@ -121,9 +122,7 @@ async fn broker_loop() -> anyhow::Result<()> {
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
                 }
-
-                let sleep_dur = rand::thread_rng().gen_range(1.0..5.0);
-                smol::Timer::after(Duration::from_secs_f64(sleep_dur)).await;
+                smol::Timer::after(Duration::from_secs_f64(1.0)).await;
             }
         }
         None => {
