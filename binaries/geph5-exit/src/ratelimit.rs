@@ -126,6 +126,7 @@ impl RateLimiter {
 
     /// Waits until the given number of bytes can be let through.
     pub async fn wait(&self, bytes: usize) {
+        TOTAL_BYTE_COUNT.fetch_add(bytes as _, Ordering::Relaxed);
         if bytes == 0 {
             return;
         }
@@ -159,7 +160,6 @@ impl RateLimiter {
             }
 
             self.wait(bytes_read).await;
-            TOTAL_BYTE_COUNT.fetch_add(bytes_read as _, Ordering::Relaxed);
 
             write_stream.write_all(&buf[..bytes_read]).await?;
             total_bytes += bytes_read as u64;

@@ -59,6 +59,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
                     read_stream.read_exact(&mut len_buf).await?;
                     let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
                     read_stream.read_exact(&mut packet_buf).await?;
+                    ratelimit.wait(packet_buf.len()).await;
                     udp_socket.send(&packet_buf).await?;
                 }
             };
@@ -67,6 +68,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
                 loop {
                     // Receive data into the buffer starting from the third byte
                     let len = udp_socket.recv(&mut buf[2..]).await?;
+                    ratelimit.wait(len).await;
 
                     // Store the length of the data in the first two bytes
                     let len_bytes = (len as u16).to_le_bytes();
