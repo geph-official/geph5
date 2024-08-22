@@ -108,5 +108,5 @@ fn main() -> anyhow::Result<()> {
 
     CONFIG_FILE.set(config).ok().unwrap();
 
-    smolscale::block_on(listen_main())
+    smol::future::block_on(smolscale::spawn(listen_main()))
 }

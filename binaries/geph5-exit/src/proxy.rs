@@ -1,7 +1,12 @@
-use std::{net::SocketAddr, time::Instant};
+use std::{
+    net::SocketAddr,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use anyhow::Context;
 use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
+use moka::future::Cache;
 use rand::seq::SliceRandom;
 use sillad::{dialer::Dialer, tcp::TcpDialer};
 use smol::{future::FutureExt as _, net::UdpSocket};
@@ -81,12 +86,25 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
 }
 
 async fn dns_resolve(name: &str) -> anyhow::Result<SocketAddr> {
-    let choices = smol::net::resolve(name)
-        .await?
-        .into_iter()
-        .filter(|a| a.is_ipv4())
-        .collect::<Vec<_>>();
-    Ok(*choices
-        .choose(&mut rand::thread_rng())
-        .context("no IP addresses corresponding to DNS name")?)
+    static CACHE: LazyLock<Cache<String, SocketAddr>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(240))
+            .build()
+    });
+    let addr = CACHE
+        .try_get_with(name.to_string(), async {
+            let choices = smol::net::resolve(name)
+                .await?
+                .into_iter()
+                .filter(|a| a.is_ipv4())
+                .collect::<Vec<_>>();
+            anyhow::Ok(
+                *choices
+                    .choose(&mut rand::thread_rng())
+                    .context("no IP addresses corresponding to DNS name")?,
+            )
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    Ok(addr)
 }
