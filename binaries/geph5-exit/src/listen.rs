@@ -76,13 +76,14 @@ async fn broker_loop() -> anyhow::Result<()> {
         Some(broker) => {
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
-
+            let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
             loop {
                 let upload = async {
-                    let byte_count = TOTAL_BYTE_COUNT.swap(0, Ordering::Relaxed);
-
+                    let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+                    let diff = byte_count - last_byte_count;
+                    last_byte_count = byte_count;
                     client
-                        .incr_stat(format!("{server_name}.throughput"), byte_count as _)
+                        .incr_stat(format!("{server_name}.throughput"), diff as _)
                         .await?;
                     let load = get_load();
                     client
