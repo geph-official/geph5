@@ -251,7 +251,12 @@ impl BrokerProtocol for BrokerImpl {
 
         let raw_descriptors = query_bridges(&format!("{:?}", token)).await?;
 
-        let plus_pools = ["ls_ap_northeast_1", "ls_ap_northeast_2"];
+        let plus_pools = [
+            "ls_ap_northeast_1",
+            "ls_ap_northeast_2",
+            "NEW_ls_ap_northeast_1",
+            "NEW_ls_ap_northeast_2",
+        ];
         let raw_descriptors = if account_level == AccountLevel::Free {
             raw_descriptors
                 .into_iter()
