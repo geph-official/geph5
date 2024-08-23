@@ -31,3 +31,21 @@ impl<L: Listener, R: Listener> Listener for JoinListener<L, R> {
         .await
     }
 }
+
+/// EitherListener is a listener that can switch between two different listeners dynamically.
+pub enum EitherListener<L: Listener, R: Listener> {
+    Left(L),
+    Right(R),
+}
+
+#[async_trait]
+impl<L: Listener, R: Listener> Listener for EitherListener<L, R> {
+    type P = EitherPipe<L::P, R::P>;
+
+    async fn accept(&mut self) -> std::io::Result<Self::P> {
+        match self {
+            EitherListener::Left(listener) => listener.accept().await.map(EitherPipe::Left),
+            EitherListener::Right(listener) => listener.accept().await.map(EitherPipe::Right),
+        }
+    }
+}
