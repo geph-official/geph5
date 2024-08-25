@@ -52,12 +52,8 @@ pub fn update_load_loop() {
     loop {
         for _ in 0..100 {
             sys.refresh_all();
-            let cpu_usage: f32 = sys
-                .cpus()
-                .iter()
-                .map(|cpu| cpu.cpu_usage())
-                .max_by_key(|s| (s * 1000.0) as u32 / 1000)
-                .unwrap_or(0.0)
+            let cpu_usage: f32 = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>()
+                / sys.cpus().len() as f32
                 / 100.0;
             cpu_accum = cpu_accum * 0.99 + cpu_usage * 0.01;
 
@@ -130,9 +126,9 @@ impl RateLimiter {
         if bytes == 0 {
             return;
         }
-        let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
+        // let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
 
-        let bytes = bytes as f32 * (multiplier.max(1.0));
+        // let bytes = bytes as f32 * (multiplier.max(1.0));
         if let Some(inner) = &self.inner {
             while inner
                 .check_n((bytes as u32).try_into().unwrap())
