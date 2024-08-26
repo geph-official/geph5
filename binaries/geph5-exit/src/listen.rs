@@ -80,7 +80,7 @@ async fn broker_loop() -> anyhow::Result<()> {
             loop {
                 let upload = async {
                     let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                    let diff = byte_count - last_byte_count;
+                    let diff = byte_count.saturating_sub(last_byte_count);
                     last_byte_count = byte_count;
                     tracing::debug!(diff, last_byte_count, "uploaded a diff");
                     client

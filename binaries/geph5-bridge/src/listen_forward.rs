@@ -107,7 +107,7 @@ async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<pi
     static POOLS: Lazy<DashMap<u8, Cache<SocketAddr, Pool<MuxManager>>>> =
         Lazy::new(Default::default);
     let pool = POOLS
-        .entry(rand::random())
+        .entry(rand::random::<u8>() % 10)
         .or_insert_with(|| {
             Cache::builder()
                 .time_to_idle(Duration::from_secs(600))
