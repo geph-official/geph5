@@ -3012,6 +3012,7 @@ dependencies = [
  "picomux",
  "rand",
  "reqwest",
+ "scopeguard",
  "serde_json",
  "sillad",
  "sillad-sosistab3",

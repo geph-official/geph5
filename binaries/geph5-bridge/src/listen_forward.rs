@@ -1,7 +1,10 @@
 use std::{
     net::{IpAddr, SocketAddr},
     pin::Pin,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -67,10 +70,17 @@ async fn handle_one_listener(
     b2e_dest: SocketAddr,
     metadata: B2eMetadata,
 ) -> anyhow::Result<()> {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+
     loop {
         let client_conn = listener.accept().await?;
+        let count = COUNT.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(count, "handled a connection");
         let metadata = metadata.clone();
         smolscale::spawn(async move {
+            scopeguard::defer!({
+                COUNT.fetch_sub(1, Ordering::Relaxed);
+            });
             let exit_conn = dial_pooled(b2e_dest, &metadata.stdcode())
                 .await
                 .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
