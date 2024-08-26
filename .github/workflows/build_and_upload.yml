@@ -59,14 +59,14 @@ jobs:
       - name: Build bridge and exit
         if: matrix.os == 'ubuntu-20.04'
         run: |
-          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
+          cargo build --locked --profile release-dbg --release --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
           cargo build --locked --profile release-dbg --target ${{ matrix.target }} --manifest-path binaries/geph5-exit/Cargo.toml
 
       - name: Move bridge and exit binaries to artifacts directory
         if: matrix.os == 'ubuntu-20.04'
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
-          mv target/${{ matrix.target }}/release/geph5-bridge artifacts/${{ matrix.dir }}/
+          mv target/${{ matrix.target }}/release-dbg/geph5-bridge artifacts/${{ matrix.dir }}/
           mv target/${{ matrix.target }}/release-dbg/geph5-exit artifacts/${{ matrix.dir }}/
 
       - name: Build client GUI (non-Windows)
