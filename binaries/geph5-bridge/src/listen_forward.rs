@@ -3,7 +3,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc,
+        Arc, LazyLock,
     },
     time::Duration,
 };
@@ -26,30 +26,30 @@ use smol::future::FutureExt as _;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
 
-pub async fn listen_forward_loop(my_ip: IpAddr, mut listener: impl Listener) {
-    let state = State {
-        my_ip,
-        mapping: Cache::builder()
-            .time_to_idle(Duration::from_secs(86400))
-            .build(),
-    };
-    let mut service = BridgeControlService(state);
-    loop {
-        let _ = nanorpc_sillad::rpc_serve(&mut listener, &mut service).await;
-    }
+pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) -> anyhow::Result<()> {
+    let state = State { my_ip };
+    nanorpc_sillad::rpc_serve(listener, BridgeControlService(state)).await?;
+    Ok(())
 }
 
 #[allow(clippy::type_complexity)]
 struct State {
     // b2e_dest => (metadata, task)
     my_ip: IpAddr,
-    mapping: Cache<(SocketAddr, B2eMetadata), (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>)>,
 }
 
 #[async_trait]
 impl BridgeControlProtocol for State {
     async fn tcp_forward(&self, b2e_dest: SocketAddr, metadata: B2eMetadata) -> SocketAddr {
-        self.mapping
+        static MAPPING: LazyLock<
+            Cache<(SocketAddr, B2eMetadata), (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>)>,
+        > = LazyLock::new(|| {
+            Cache::builder()
+                .time_to_idle(Duration::from_secs(3600))
+                .build()
+        });
+
+        MAPPING
             .get_with((b2e_dest, metadata.clone()), async {
                 let listener = TcpListener::bind("0.0.0.0:0".parse().unwrap())
                     .await

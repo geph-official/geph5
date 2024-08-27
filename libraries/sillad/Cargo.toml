@@ -7,6 +7,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow = "1.0.86"
 async-io = "2.3.3"
 async-trait = "0.1.80"
 futures-concurrency = "7.6.1"
@@ -14,4 +15,6 @@ futures-lite = "2.3.0"
 futures-util = { version = "0.3.30", features = ["io"] }
 libc = "0.2.155"
 pin-project = "1.1.5"
+rand = "0.8.5"
 smol-timeout = "0.6.0"
+tracing = "0.1.40"

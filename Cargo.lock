@@ -6338,6 +6338,7 @@ dependencies = [
 name = "sillad"
 version = "0.2.2"
 dependencies = [
+ "anyhow",
  "async-io 2.3.4",
  "async-trait",
  "futures-concurrency",
@@ -6345,7 +6346,9 @@ dependencies = [
  "futures-util",
  "libc",
  "pin-project",
+ "rand",
  "smol-timeout",
+ "tracing",
 ]
 
 [[package]]

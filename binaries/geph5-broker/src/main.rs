@@ -116,8 +116,8 @@ async fn main() -> anyhow::Result<()> {
     let _self_stat_loop = Immortal::respawn(RespawnStrategy::Immediate, self_stat_loop);
     let _tcp_loop = Immortal::respawn(RespawnStrategy::Immediate, || async {
         nanorpc_sillad::rpc_serve(
-            &mut sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
-            &mut WrappedBrokerService::new(),
+            sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
+            WrappedBrokerService::new(),
         )
         .await?;
         anyhow::Ok(())

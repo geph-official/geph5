@@ -8,6 +8,7 @@ use std::{
 
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
+use rand::Rng;
 use sillad::tcp::{TcpDialer, TcpListener};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use smol::future::FutureExt as _;
@@ -24,9 +25,6 @@ fn main() {
         )
         .init();
     smolscale::block_on(async {
-        let listener = TcpListener::bind("0.0.0.0:0".parse().unwrap())
-            .await
-            .unwrap();
         let my_ip = IpAddr::from_str(
             String::from_utf8_lossy(
                 &reqwest::get("https://checkip.amazonaws.com/")
@@ -39,14 +37,26 @@ fn main() {
             .trim(),
         )
         .unwrap();
-        let control_listen = listener
-            .local_addr()
-            .await
-            .tap_mut(|addr| addr.set_ip(my_ip));
+
+        let port = rand::thread_rng().gen_range(1024..10000);
+        let control_listen = SocketAddr::new(my_ip, port);
         let control_cookie = format!("bridge-cookie-{}", rand::random::<u128>());
-        let control_listener = SosistabListener::new(listener, Cookie::new(&control_cookie));
-        let upload_loop = broker_upload_loop(control_listen, control_cookie);
-        let listen_loop = listen_forward_loop(my_ip, control_listener);
+
+        let upload_loop = broker_upload_loop(control_listen, control_cookie.clone());
+        let listen_loop = async {
+            loop {
+                let listener = TcpListener::bind(format!("0.0.0.0:{port}").parse().unwrap())
+                    .await
+                    .unwrap();
+
+                let control_listener =
+                    SosistabListener::new(listener, Cookie::new(&control_cookie));
+                if let Err(err) = listen_forward_loop(my_ip, control_listener).await {
+                    tracing::error!(err = %err, "error in listen_forward_loop");
+                }
+                smol::Timer::after(Duration::from_secs(1)).await;
+            }
+        };
         upload_loop.race(listen_loop).await
     })
 }

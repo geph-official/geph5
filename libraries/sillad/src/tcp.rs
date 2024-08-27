@@ -8,6 +8,7 @@ use async_trait::async_trait;
 
 use futures_lite::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
+use rand::Rng as _;
 
 use crate::{
     dialer::{Dialer, DialerExt},
@@ -37,10 +38,35 @@ impl TcpListener {
 impl Listener for TcpListener {
     type P = TcpPipe;
     async fn accept(&mut self) -> std::io::Result<Self::P> {
-        let (conn, _) = self.inner.accept().await?;
-        set_tcp_options(&conn)?;
-        let addr = conn.as_ref().peer_addr()?.to_string();
-        Ok(TcpPipe(conn, addr))
+        let mut delay_secs = 10.0f64;
+        loop {
+            let fallible = async {
+                let (conn, _) = self
+                    .inner
+                    .accept()
+                    .await
+                    .inspect_err(|e| tracing::error!(err = debug(e), "failed to accept"))?;
+                set_tcp_options(&conn).inspect_err(|e| {
+                    tracing::error!(err = debug(e), "failed to set TCP options")
+                })?;
+                let addr = conn.as_ref().peer_addr()?.to_string();
+                anyhow::Ok(TcpPipe(conn, addr))
+            };
+            match fallible.await {
+                Ok(pipe) => {
+                    return Ok(pipe);
+                }
+                Err(e) => {
+                    tracing::error!(
+                        err = debug(e),
+                        delay_secs,
+                        "backing off and retrying accept"
+                    );
+                    delay_secs = rand::thread_rng().gen_range(delay_secs..delay_secs * 2.0);
+                    async_io::Timer::after(Duration::from_secs_f64(delay_secs)).await;
+                }
+            }
+        }
     }
 }
 
