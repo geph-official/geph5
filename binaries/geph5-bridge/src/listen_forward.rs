@@ -26,16 +26,17 @@ use smol::future::FutureExt as _;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
 
-pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) {
+pub async fn listen_forward_loop(my_ip: IpAddr, mut listener: impl Listener) {
     let state = State {
         my_ip,
         mapping: Cache::builder()
             .time_to_idle(Duration::from_secs(86400))
             .build(),
     };
-    nanorpc_sillad::rpc_serve(listener, BridgeControlService(state))
-        .await
-        .unwrap()
+    let mut service = BridgeControlService(state);
+    loop {
+        let _ = nanorpc_sillad::rpc_serve(&mut listener, &mut service).await;
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -75,7 +76,7 @@ async fn handle_one_listener(
     loop {
         let client_conn = listener.accept().await?;
         let count = COUNT.fetch_add(1, Ordering::Relaxed);
-        tracing::debug!(count, "handled a connection");
+        tracing::debug!(count, b2e_dest = debug(b2e_dest), "handled a connection");
         let metadata = metadata.clone();
         smolscale::spawn(async move {
             scopeguard::defer!({
