@@ -25,7 +25,7 @@ impl<D: Dialer> RpcTransport for DialerTransport<D> {
 
 /// Runs a given nanorpc service using the given sillad listener
 pub async fn rpc_serve(
-    mut listener: &mut impl Listener,
+    listener: &mut impl Listener,
     service: &mut impl RpcService,
 ) -> std::io::Result<()> {
     let lexec = Executor::new();

@@ -197,8 +197,8 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         let rpc_serve = async {
             if let Some(control_listen) = ctx.init().control_listen {
                 nanorpc_sillad::rpc_serve(
-                    sillad::tcp::TcpListener::bind(control_listen).await?,
-                    ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
+                    &mut sillad::tcp::TcpListener::bind(control_listen).await?,
+                    &mut ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
                 )
                 .await?;
                 anyhow::Ok(())
