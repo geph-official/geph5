@@ -123,11 +123,16 @@ pub async fn get_dialer(
             };
             country_pass && city_pass && hostname_pass
         })
-        .min_by_key(|e| (e.1.load * 1000.0) as u64) {
-            min
-        } else {
-            exits.all_exits.iter().min_by_key(|e| (e.1.load * 1000.0) as u64)        .context("no exits that fit the criterion")?
-        };
+        .min_by_key(|e| (e.1.load * 1000.0) as u64)
+    {
+        min
+    } else {
+        exits
+            .all_exits
+            .iter()
+            .min_by_key(|e| (e.1.load * 1000.0) as u64)
+            .context("no exits that fit the criterion")?
+    };
 
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
     vpn_whitelist(exit.c2e_listen.ip());
@@ -161,7 +166,7 @@ pub async fn get_dialer(
         crate::BridgeMode::ForceDirect => direct_dialer.dynamic(),
     };
 
-    Ok((pubkey, exit, final_dialer))
+    Ok((*pubkey, exit.clone(), final_dialer))
 }
 
 fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
