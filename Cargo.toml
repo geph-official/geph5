@@ -9,6 +9,10 @@ repository = "https://github.com/geph-official/geph5"
 license = "ISC"
 
 
+[patch.crates-io]
+#smolscale = { path = "../smolscale" }
+
+
 [profile.release]
 panic = "abort"
 

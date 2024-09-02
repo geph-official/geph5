@@ -37,7 +37,7 @@ nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 sillad = { path = "../../libraries/sillad" }
 mizaru2 = { path = "../../libraries/mizaru2" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
-smol-timeout = "0.6.0"
+smol-timeout2 = "0.6.0"
 stdcode = "0.1.14"
 bytes = { version = "1.6.0", features = ["serde"] }
 argon2 = "0.5.3"

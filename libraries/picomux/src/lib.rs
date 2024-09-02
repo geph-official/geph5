@@ -33,7 +33,7 @@ use async_io::Timer;
 use parking_lot::Mutex;
 use pin_project::pin_project;
 use rand::Rng;
-use smol_timeout::TimeoutExt;
+use smol_timeout2::TimeoutExt;
 use tachyonix::{Receiver, Sender, TrySendError};
 use tap::Tap;
 

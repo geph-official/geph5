@@ -16,5 +16,5 @@ futures-util = { version = "0.3.30", features = ["io"] }
 libc = "0.2.155"
 pin-project = "1.1.5"
 rand = "0.8.5"
-smol-timeout = "0.6.0"
+smol-timeout2 = "0.6.0"
 tracing = "0.1.40"

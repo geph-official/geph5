@@ -66,11 +66,11 @@ sillad-sosistab3 = { version = "0.2.0-alpha.12", path = "../../libraries/sillad-
 arc-writer = { version = "0.2.0-alpha.12", path = "../../libraries/arc-writer" }
 simple-dns = "0.7.0"
 smol = "2.0.0"
-smol-timeout = "0.6.0"
+smol-timeout2 = "0.6.0"
 smol_str = { version = "0.2.2", features = ["serde"] }
 smolscale = "0.4.7"
 socksv5 = "0.3.1"
-sqlx = { version = "0.7.4", features = ["sqlite", "runtime-async-std"] }
+sqlx = { version = "0.7.4", features = ["sqlite", "runtime-tokio"] }
 stdcode = "0.1.14"
 tachyonix = "0.3.0"
 tap = "1.0.1"

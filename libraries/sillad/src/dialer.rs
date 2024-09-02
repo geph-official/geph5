@@ -3,7 +3,7 @@ use std::{pin::Pin, sync::Arc};
 use crate::{EitherPipe, Pipe};
 use async_trait::async_trait;
 use futures_lite::{Future, FutureExt};
-use smol_timeout::TimeoutExt;
+use smol_timeout2::TimeoutExt;
 
 #[async_trait]
 /// Dialers create pipes by initiating a connection to some sort of "other side". Failures are indicated by the standard I/O error type.

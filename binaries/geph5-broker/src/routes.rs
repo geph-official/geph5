@@ -6,7 +6,7 @@ use nanorpc_sillad::DialerTransport;
 use once_cell::sync::Lazy;
 use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
-use smol_timeout::TimeoutExt;
+use smol_timeout2::TimeoutExt;
 use std::{
     net::SocketAddr,
     time::{Duration, SystemTime},

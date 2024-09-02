@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use egui_plot::{Line, Plot, PlotPoints};
 use geph5_client::ConnInfo;
 use once_cell::sync::Lazy;
-use smol_timeout::TimeoutExt;
+use smol_timeout2::TimeoutExt;
 
 use crate::{
     daemon::{DAEMON_HANDLE, TOTAL_BYTES_TIMESERIES},

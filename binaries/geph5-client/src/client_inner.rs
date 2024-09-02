@@ -17,7 +17,7 @@ use sillad::{
     EitherPipe, Pipe,
 };
 use smol::future::FutureExt as _;
-use smol_timeout::TimeoutExt;
+use smol_timeout2::TimeoutExt;
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -121,14 +121,17 @@ type ChanElem = (String, oneshot::Sender<picomux::Stream>);
 
 static CONN_REQ_CHAN: CtxField<(
     smol::channel::Sender<ChanElem>,
-    smol::channel::Receiver<ChanElem>,
-)> = |_| smol::channel::unbounded();
+    smol::lock::Mutex<smol::channel::Receiver<ChanElem>>,
+)> = |_| {
+    let (a, b) = smol::channel::unbounded();
+    (a, b.into())
+};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 static CONCURRENCY: usize = 6;
 
-#[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed)))]
+#[tracing::instrument(skip_all)]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
@@ -217,7 +220,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all, fields(server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
+#[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed), server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
 async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
@@ -232,8 +235,8 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
             loop {
                 let mux = mux.clone();
                 let ctx = ctx.clone();
-                let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
-                smol::future::yield_now().await;
+                let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.lock().await.recv().await?;
+
                 spawn!(async move {
                     tracing::debug!(remote_addr = display(&remote_addr), "opening tunnel");
                     let stream = mux.open(remote_addr.as_bytes()).await;
