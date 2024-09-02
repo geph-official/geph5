@@ -49,15 +49,15 @@ struct ConfigFile {
 }
 
 fn default_free_ratelimit() -> u32 {
-    500
+    300
 }
 
 fn default_plus_ratelimit() -> u32 {
-    100000
+    25000
 }
 
 fn default_total_ratelimit() -> u32 {
-    100000
+    125000
 }
 
 #[derive(Deserialize)]

@@ -126,16 +126,18 @@ impl RateLimiter {
         if bytes == 0 {
             return;
         }
-        // let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
+        let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
 
-        // let bytes = bytes as f32 * (multiplier.max(1.0));
+        let bytes = bytes as f32 * (multiplier.max(1.0));
         if let Some(inner) = &self.inner {
+            let mut delay: f32 = 0.05;
             while inner
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
                 .is_err()
             {
-                smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() * 0.05)).await;
+                smol::Timer::after(Duration::from_secs_f32(delay)).await;
+                delay += rand::random::<f32>() * 0.05;
             }
         }
     }
