@@ -102,9 +102,9 @@ pub async fn get_dialer(
         .verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)
         .context("could not verify")?;
     // filter for things that fit
-    let (pubkey, exit) = exits
+    let (pubkey, exit) = if let Some(min) = exits
         .all_exits
-        .into_iter()
+        .iter()
         .filter(|(_, exit)| {
             let country_pass = if let Some(country) = &country_constraint {
                 exit.country == *country
@@ -123,8 +123,12 @@ pub async fn get_dialer(
             };
             country_pass && city_pass && hostname_pass
         })
-        .min_by_key(|e| (e.1.load * 1000.0) as u64)
-        .context("no exits that fit the criterion")?;
+        .min_by_key(|e| (e.1.load * 1000.0) as u64) {
+            min
+        } else {
+            exits.all_exits.iter().min_by_key(|e| (e.1.load * 1000.0) as u64)        .context("no exits that fit the criterion")?
+        };
+
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
     vpn_whitelist(exit.c2e_listen.ip());
     let direct_dialer = TcpDialer {
