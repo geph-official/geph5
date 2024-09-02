@@ -34,6 +34,7 @@ pub fn deprioritize_route(addr: SocketAddr) {
 pub enum ExitConstraint {
     Auto,
     Direct(String),
+    Hostname(String),
     Country(CountryCode),
     CountryCity(CountryCode, String),
 }
@@ -44,6 +45,7 @@ pub async fn get_dialer(
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
     let mut country_constraint = None;
     let mut city_constraint = None;
+    let mut hostname_constraint = None;
     match &ctx.init().exit_constraint {
         ExitConstraint::Direct(dir) => {
             let (dir, pubkey) = dir
@@ -79,6 +81,9 @@ pub async fn get_dialer(
             country_constraint = Some(*country);
             city_constraint = Some(city.clone())
         }
+        ExitConstraint::Hostname(hostname) => {
+            hostname_constraint = Some(hostname.clone());
+        }
         ExitConstraint::Auto => {}
     }
     tracing::debug!(
@@ -111,7 +116,12 @@ pub async fn get_dialer(
             } else {
                 true
             };
-            country_pass && city_pass
+            let hostname_pass = if let Some(hostname) = &hostname_constraint {
+                &exit.b2e_listen.ip().to_string() == hostname
+            } else {
+                true
+            };
+            country_pass && city_pass && hostname_pass
         })
         .min_by_key(|e| (e.1.load * 1000.0) as u64)
         .context("no exits that fit the criterion")?;
