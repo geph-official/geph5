@@ -11,6 +11,7 @@ use std::{
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
+mod allow;
 mod broker;
 mod listen;
 mod proxy;

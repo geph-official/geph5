@@ -7,11 +7,11 @@ use std::{
 use anyhow::Context;
 use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
 use moka::future::Cache;
-use rand::seq::SliceRandom;
-use sillad::{dialer::Dialer, tcp::TcpDialer};
+
+use sillad::{dialer::Dialer, tcp::HappyEyeballsTcpDialer};
 use smol::{future::FutureExt as _, net::UdpSocket};
 
-use crate::ratelimit::RateLimiter;
+use crate::{allow::proxy_allowed, ratelimit::RateLimiter};
 
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> anyhow::Result<()> {
@@ -21,21 +21,17 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
     } else {
         ("tcp", &dest_host)
     };
-    let dest_addr = dns_resolve(dest_host).await?;
-    tracing::debug!(
-        protocol,
-        dest_host = display(&dest_host),
-        dest_addr = display(dest_addr),
-        "DNS resolved"
-    );
+    let dest_addrs = dns_resolve(dest_host).await?;
+    if !dest_addrs.iter().all(|addr| proxy_allowed(*addr)) {
+        anyhow::bail!("Proxying to {} is not allowed", dest_host);
+    }
     match protocol {
         "tcp" => {
             let start = Instant::now();
-            let dest_tcp = TcpDialer { dest_addr }.dial().await?;
+            let dest_tcp = HappyEyeballsTcpDialer(dest_addrs).dial().await?;
             tracing::debug!(
                 protocol,
                 dest_host = display(dest_host),
-                dest_addr = display(dest_addr),
                 latency = debug(start.elapsed()),
                 "TCP established resolved"
             );
@@ -49,8 +45,15 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
             Ok(())
         }
         "udp" => {
-            let udp_socket = UdpSocket::bind("0.0.0.0:0").await?;
-            udp_socket.connect(dest_host).await?;
+            let udp_socket: UdpSocket = UdpSocket::bind("0.0.0.0:0").await?;
+            let addr = *dest_addrs
+                .iter()
+                .find(|s| s.is_ipv4())
+                .context("UDP only supports ipv4 for now")?;
+            if addr.port() == 443 {
+                anyhow::bail!("special-case banning QUIC to improve traffic management")
+            }
+            udp_socket.connect(addr).await?;
             let (read_stream, mut write_stream) = stream.split();
             let up_loop = async {
                 let mut read_stream = BufReader::new(read_stream);
@@ -87,24 +90,16 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
     }
 }
 
-async fn dns_resolve(name: &str) -> anyhow::Result<SocketAddr> {
-    static CACHE: LazyLock<Cache<String, SocketAddr>> = LazyLock::new(|| {
+async fn dns_resolve(name: &str) -> anyhow::Result<Vec<SocketAddr>> {
+    static CACHE: LazyLock<Cache<String, Vec<SocketAddr>>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(240))
             .build()
     });
     let addr = CACHE
         .try_get_with(name.to_string(), async {
-            let choices = smol::net::resolve(name)
-                .await?
-                .into_iter()
-                .filter(|a| a.is_ipv4())
-                .collect::<Vec<_>>();
-            anyhow::Ok(
-                *choices
-                    .choose(&mut rand::thread_rng())
-                    .context("no IP addresses corresponding to DNS name")?,
-            )
+            let choices = smol::net::resolve(name).await?;
+            anyhow::Ok(choices)
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
