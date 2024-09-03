@@ -41,6 +41,8 @@ pub struct Config {
 
     #[serde(default)]
     pub vpn: bool,
+    #[serde(default = "true_bool")]
+    pub disable_ipv6: bool,
     #[serde(default)]
     pub spoof_dns: bool,
     #[serde(default)]
@@ -49,6 +51,12 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,
+}
+
+// FIXME: Used to set serde bool fields to a true default.
+// There might be a cleaner way to do this.
+fn true_bool() -> bool {
+    true
 }
 
 impl Config {
@@ -185,6 +193,11 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             })
             .await
     } else {
+        // Disable IPv6 if needed
+        if ctx.init().disable_ipv6 {
+            crate::ipv6::disable_ipv6()?;
+        }
+
         let vpn_loop = vpn_loop(&ctx);
 
         let _client_loop = Immortal::respawn(
@@ -207,7 +220,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             }
         };
 
-        socks5_loop(&ctx)
+        let result = socks5_loop(&ctx)
             .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))
             .race(vpn_loop.inspect_err(|e| tracing::error!(err = debug(e), "vpn loop stopped")))
             .race(
@@ -219,6 +232,14 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                     .inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
             )
             .race(rpc_serve)
-            .await
+            .await;
+
+        // FIXME: Doesn't work
+        // Enable IPv6 again if it was disabled at the start
+        if ctx.init().disable_ipv6 {
+            crate::ipv6::enable_ipv6()?;
+        }
+
+        result
     }
 }
