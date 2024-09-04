@@ -160,9 +160,20 @@ pub struct UnblindedSignature {
 
 /// A Mizaru public key. This is actually just the merkle-tree-root of a huge bunch of RSA public keys!
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(transparent)]
 pub struct PublicKey(blake3::Hash);
 
 impl PublicKey {
+    /// Creates a new public key from bytes.
+    pub fn from_bytes(bts: [u8; 32]) -> Self {
+        PublicKey(blake3::Hash::from(bts))
+    }
+
+    /// Gets the bytes out.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        *self.0.as_bytes()
+    }
+
     /// Verifies an unblinded signature.
     pub fn blind_verify(
         &self,
@@ -245,7 +256,8 @@ mod tests {
     fn test_blind_sign() {
         let secret_key = SecretKey::generate("test_blind_sign");
         let token = ClientToken::random();
-        let (blinded_digest, _secret) = token.blind(&secret_key.get_subkey(0).public_key().unwrap());
+        let (blinded_digest, _secret) =
+            token.blind(&secret_key.get_subkey(0).public_key().unwrap());
         let blinded_signature = secret_key.blind_sign(0, &blinded_digest);
 
         assert_eq!(blinded_signature.epoch, 0);

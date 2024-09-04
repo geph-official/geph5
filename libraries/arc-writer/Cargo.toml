@@ -2,7 +2,7 @@
 name = "arc-writer"
 edition = "2021"
 description = "Arc writer"
-version.workspace = true
+version = "0.2.0"
 repository.workspace = true
 license.workspace = true
 

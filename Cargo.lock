@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "arc-writer"
-version = "0.2.0-alpha.15"
+version = "0.2.0"
 
 [[package]]
 name = "argon2"
@@ -3015,6 +3015,7 @@ dependencies = [
  "futures-util",
  "geph5-broker-protocol",
  "geph5-misc-rpc",
+ "hex",
  "isocountry",
  "mizaru2",
  "moka",

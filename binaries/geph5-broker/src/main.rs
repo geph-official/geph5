@@ -25,20 +25,33 @@ static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 
 /// The master secret.
 static MASTER_SECRET: Lazy<SigningKey> = Lazy::new(|| {
-    SigningKey::from_bytes(
+    let sk = SigningKey::from_bytes(
         std::fs::read(&CONFIG_FILE.wait().master_secret)
             .unwrap()
             .as_slice()
             .try_into()
             .unwrap(),
-    )
+    );
+    let pk = sk.verifying_key();
+    tracing::info!("*** master PK = {} ***", hex::encode(pk.as_bytes()));
+    sk
 });
 
 /// The Plus mizaru SK.
-static PLUS_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| load_mizaru_sk("plus.bin"));
+static PLUS_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| {
+    let mizaru = load_mizaru_sk("plus.bin");
+    let pk = mizaru.to_public_key().to_bytes();
+    tracing::info!("*** Plus Mizaru PK = {} ***", hex::encode(pk));
+    mizaru
+});
 
 /// The Free mizaru SK.
-static FREE_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| load_mizaru_sk("free.bin"));
+static FREE_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| {
+    let mizaru = load_mizaru_sk("free.bin");
+    let pk = mizaru.to_public_key().to_bytes();
+    tracing::info!("*** Free Mizaru PK = {} ***", hex::encode(pk));
+    mizaru
+});
 
 fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
     let mizaru_keys_dir = &CONFIG_FILE.wait().mizaru_keys;
