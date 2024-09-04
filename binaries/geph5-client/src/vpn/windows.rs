@@ -43,7 +43,6 @@ fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<bytes::Bytes>) -> anyho
             let ip_pkt = pnet_packet::ipv4::Ipv4Packet::new(&raw_pkt)
                 .context("cannot parse packet as IPv4")?;
             if WHITELIST.contains(&IpAddr::V4(ip_pkt.get_destination())) {
-                tracing::debug!(ip = debug(ip_pkt.get_destination()), "windivert whitelist");
                 handle.inject(&raw_pkt, true)?;
                 anyhow::Ok(None)
             } else {
