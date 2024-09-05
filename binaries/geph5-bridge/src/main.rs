@@ -89,23 +89,28 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
             .await
             .unwrap();
-        broker_rpc
-            .insert_bridge(Mac::new(
-                BridgeDescriptor {
-                    control_listen,
-                    control_cookie: control_cookie.clone(),
-                    pool: pool.clone(),
-                    expiry: SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        + 120,
-                },
-                blake3::hash(auth_token.as_bytes()).as_bytes(),
-            ))
-            .await
-            .unwrap()
-            .unwrap();
+        let res = async {
+            broker_rpc
+                .insert_bridge(Mac::new(
+                    BridgeDescriptor {
+                        control_listen,
+                        control_cookie: control_cookie.clone(),
+                        pool: pool.clone(),
+                        expiry: SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + 120,
+                    },
+                    blake3::hash(auth_token.as_bytes()).as_bytes(),
+                ))
+                .await?
+                .map_err(|e| anyhow::anyhow!(e))?;
+            anyhow::Ok(())
+        };
+        if let Err(err) = res.await {
+            tracing::error!(err = %err, "error in upload_loop");
+        }
         smol::Timer::after(Duration::from_secs(10)).await;
     }
 }
