@@ -89,6 +89,3 @@ crossbeam-queue = "0.3.11"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }
 
-
-[target.'cfg(unix)'.dependencies]
-isahc = { version = "1.7.2", features = ["static-ssl"] }
