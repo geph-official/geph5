@@ -15,7 +15,10 @@ mod dummy;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use dummy::*;
 
-use std::{net::Ipv4Addr, time::Instant};
+use std::{
+    net::Ipv4Addr,
+    time::{Duration, Instant},
+};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -102,7 +105,15 @@ static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::unbounded();
     let (send_injected, recv_injected) = smol::channel::unbounded();
-    let ipstack = IpStack::new(IpStackConfig::default(), recv_captured, send_injected);
+    let ipstack = IpStack::new(
+        IpStackConfig {
+            mtu: 1200,
+            tcp_timeout: Duration::from_secs(3600),
+            udp_timeout: Duration::from_secs(600),
+        },
+        recv_captured,
+        send_injected,
+    );
     let _shuffle = if ctx.init().vpn {
         smolscale::spawn(packet_shuffle(ctx.clone(), send_captured, recv_injected))
     } else {
