@@ -13,6 +13,8 @@ use smol::{future::FutureExt as _, net::UdpSocket};
 
 use crate::{allow::proxy_allowed, ratelimit::RateLimiter};
 
+use smol_timeout2::TimeoutExt;
+
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> anyhow::Result<()> {
     let dest_host = String::from_utf8_lossy(stream.metadata());
@@ -21,14 +23,19 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
     } else {
         ("tcp", &dest_host)
     };
-    let dest_addrs = dns_resolve(dest_host).await?;
+    let dest_addrs = dns_resolve(dest_host)
+        .await
+        .context("failed to resolve DNS")?;
     if !dest_addrs.iter().all(|addr| proxy_allowed(*addr)) {
         anyhow::bail!("Proxying to {} is not allowed", dest_host);
     }
     match protocol {
         "tcp" => {
             let start = Instant::now();
-            let dest_tcp = HappyEyeballsTcpDialer(dest_addrs).dial().await?;
+            let dest_tcp = HappyEyeballsTcpDialer(dest_addrs)
+                .dial()
+                .await
+                .context("failed to dial")?;
             tracing::debug!(
                 protocol,
                 dest_host = display(dest_host),
@@ -45,7 +52,9 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
             Ok(())
         }
         "udp" => {
-            let udp_socket: UdpSocket = UdpSocket::bind("0.0.0.0:0").await?;
+            let udp_socket: UdpSocket = UdpSocket::bind("0.0.0.0:0")
+                .await
+                .context("UDP bind failed")?;
             let addr = *dest_addrs
                 .iter()
                 .find(|s| s.is_ipv4())
@@ -59,9 +68,17 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
                 let mut read_stream = BufReader::new(read_stream);
                 let mut len_buf = [0; 2];
                 loop {
-                    read_stream.read_exact(&mut len_buf).await?;
+                    read_stream
+                        .read_exact(&mut len_buf)
+                        .timeout(Duration::from_secs(60))
+                        .await
+                        .context("timeout")??;
                     let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
-                    read_stream.read_exact(&mut packet_buf).await?;
+                    read_stream
+                        .read_exact(&mut packet_buf)
+                        .timeout(Duration::from_secs(60))
+                        .await
+                        .context("timeout")??;
                     ratelimit.wait(packet_buf.len()).await;
                     udp_socket.send(&packet_buf).await?;
                 }
@@ -70,7 +87,11 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
                 let mut buf = [0u8; 8192];
                 loop {
                     // Receive data into the buffer starting from the third byte
-                    let len = udp_socket.recv(&mut buf[2..]).await?;
+                    let len = udp_socket
+                        .recv(&mut buf[2..])
+                        .timeout(Duration::from_secs(60))
+                        .await
+                        .context("timeout")??;
                     ratelimit.wait(len).await;
 
                     // Store the length of the data in the first two bytes
