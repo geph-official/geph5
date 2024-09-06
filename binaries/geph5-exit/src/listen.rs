@@ -247,9 +247,10 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     let mux = PicoMux::new(client_read, client_write);
     loop {
         let stream = mux.accept().await?;
+        let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
         smolscale::spawn(
             proxy_stream(ratelimit.clone(), stream)
-                .map_err(|e| tracing::debug!("stream died with {e}")),
+                .map_err(|e| tracing::debug!(metadata = display(metadata), "stream died with {e}")),
         )
         .detach();
     }

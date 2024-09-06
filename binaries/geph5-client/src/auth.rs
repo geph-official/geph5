@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use blind_rsa_signatures as brs;
 use geph5_broker_protocol::{AccountLevel, AuthError};
 use mizaru2::{ClientToken, UnblindedSignature};
-use sqlx::any;
+use rand::Rng;
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
@@ -45,8 +45,11 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     loop {
         if let Err(err) = refresh_conn_token(ctx, &auth_token).await {
             tracing::warn!(err = debug(err), "failed to refresh conn token");
+            smol::Timer::after(Duration::from_secs(10)).await;
+        } else {
+            let sleep_secs = rand::thread_rng().gen_range(3600..86400);
+            smol::Timer::after(Duration::from_secs(sleep_secs)).await;
         }
-        smol::Timer::after(Duration::from_secs(10)).await;
     }
 }
 
