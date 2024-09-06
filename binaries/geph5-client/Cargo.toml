@@ -31,8 +31,8 @@ ed25519-dalek = {version="2", default-features=false, features=["serde"]}
 elevated-command = "1.1.2"
 event-listener = "5.3.1"
 futures-util = "0.3.30"
-geph5-broker-protocol = { version = "0.2.1", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.2.1", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.2.2", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.2.2", path = "../../libraries/geph5-misc-rpc" }
 hex = "0.4.3"
 http = "1.1.0"
 http-body-util = "0.1.2"
@@ -44,7 +44,7 @@ ipstack-geph = "0.2.0"
 isocountry = "0.3.2"
 itertools = "0.13.0"
 libc = "0.2.155"
-mizaru2 = { version= "0.2.1", path = "../../libraries/mizaru2" }
+mizaru2 = { version= "0.2.2", path = "../../libraries/mizaru2" }
 moka = { version = "0.12.7", features = ["future", "sync"] }
 nanorpc = "0.1.12"
 nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }
@@ -62,7 +62,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.120"
 serde_yaml = "0.9.34"
 sillad = { version= "0.2.3", path = "../../libraries/sillad" }
-sillad-sosistab3 = { version = "0.2.1", path = "../../libraries/sillad-sosistab3" }
+sillad-sosistab3 = { version = "0.2.2", path = "../../libraries/sillad-sosistab3" }
 arc-writer = { version = "0.2.1-alpha.1", path = "../../libraries/arc-writer" }
 simple-dns = "0.7.0"
 smol = "2.0.0"
