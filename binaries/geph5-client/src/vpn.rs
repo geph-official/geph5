@@ -105,12 +105,16 @@ static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::unbounded();
     let (send_injected, recv_injected) = smol::channel::unbounded();
+
     let ipstack = IpStack::new(
+        #[cfg(target_os = "ios")]
         IpStackConfig {
-            mtu: 1200,
+            mtu: 1450,
             tcp_timeout: Duration::from_secs(3600),
             udp_timeout: Duration::from_secs(600),
         },
+        #[cfg(not(target_os = "ios"))]
+        IpStackConfig::default(),
         recv_captured,
         send_injected,
     );
