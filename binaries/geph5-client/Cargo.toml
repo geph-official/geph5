@@ -31,8 +31,8 @@ ed25519-dalek = {version="2", default-features=false, features=["serde"]}
 elevated-command = "1.1.2"
 event-listener = "5.3.1"
 futures-util = "0.3.30"
-geph5-broker-protocol = { version = "0.2.2", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.2.2", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.2", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.2", path = "../../libraries/geph5-misc-rpc" }
 hex = "0.4.3"
 http = "1.1.0"
 http-body-util = "0.1.2"
@@ -63,7 +63,7 @@ serde_json = "1.0.120"
 serde_yaml = "0.9.34"
 sillad = { version= "0.2.3", path = "../../libraries/sillad" }
 sillad-sosistab3 = { version = "0.2.2", path = "../../libraries/sillad-sosistab3" }
-arc-writer = { version = "0.2.1-alpha.1", path = "../../libraries/arc-writer" }
+arc-writer = { version = "0.2.1", path = "../../libraries/arc-writer" }
 simple-dns = "0.7.0"
 smol = "2.0.0"
 smol-timeout2 = "0.6.0"
