@@ -5,6 +5,7 @@ use anyhow::Context as _;
 use blind_rsa_signatures as brs;
 use geph5_broker_protocol::{AccountLevel, AuthError};
 use mizaru2::{ClientToken, UnblindedSignature};
+use sqlx::any;
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
@@ -66,6 +67,7 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
                     .await
                     .context("cannot get subkey")?;
                 tracing::debug!(epoch, subkey_len = subkey.len(), "got subkey");
+
                 let subkey: brs::PublicKey =
                     brs::PublicKey::from_der(&subkey).context("cannot decode subkey")?;
                 let (blind_token, secret) = token.blind(&subkey);
@@ -73,8 +75,27 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
                     .get_connect_token(auth_token.to_string(), level, epoch, blind_token)
                     .await
                     .context("cannot get connect token")?;
+
                 match conn_token {
                     Ok(res) => {
+                        if res.epoch != epoch {
+                            anyhow::bail!("wrong epoch in response");
+                        }
+
+                        if let Some(keys) = &ctx.init().broker_keys {
+                            let mizaru_hex = if level == AccountLevel::Plus {
+                                &keys.mizaru_plus
+                            } else {
+                                &keys.mizaru_free
+                            };
+                            let bts =
+                                hex::decode(mizaru_hex).context("cannot decode mizaru hex")?;
+                            let mizaru_key = mizaru2::PublicKey::from_bytes(
+                                bts.try_into().ok().context("cannot convert")?,
+                            );
+                            mizaru_key.verify_member(epoch, &res.used_key, &res.merkle_branch)?;
+                        }
+
                         let u_sig = res
                             .unblind(&secret, token)
                             .context("cannot unblind response")?;

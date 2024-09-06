@@ -97,9 +97,15 @@ pub async fn get_dialer(
         .get_exits()
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
-    // TODO we need to ACTUALLY verify the response!!!
+
     let exits = exits
-        .verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)
+        .verify(DOMAIN_EXIT_DESCRIPTOR, |their_pk| {
+            if let Some(broker_pk) = &ctx.init().broker_keys {
+                hex::encode(their_pk.as_bytes()) == broker_pk.master
+            } else {
+                true
+            }
+        })
         .context("could not verify")?;
     // filter for things that fit
     let (pubkey, exit) = if let Some(min) = exits

@@ -37,7 +37,9 @@ pub struct Config {
     #[serde(default)]
     pub bridge_mode: BridgeMode,
     pub cache: Option<PathBuf>,
+
     pub broker: Option<BrokerSource>,
+    pub broker_keys: Option<BrokerKeys>,
 
     #[serde(default)]
     pub vpn: bool,
@@ -49,6 +51,14 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+/// Broker keys, in hexadecimal format.
+pub struct BrokerKeys {
+    pub master: String,
+    pub mizaru_free: String,
+    pub mizaru_plus: String,
 }
 
 impl Config {
