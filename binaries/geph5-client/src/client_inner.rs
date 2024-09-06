@@ -158,7 +158,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 }
                 Err(e) => tracing::warn!(err = debug(e), "failed to refresh dialer"),
             }
-            let secs = rand::thread_rng().gen_range(300..600);
+            let secs = rand::thread_rng().gen_range(300..2000);
             tracing::info!(secs, "waiting until refresh");
             smol::Timer::after(Duration::from_secs(secs)).await;
         }
