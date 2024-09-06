@@ -164,7 +164,7 @@ pub async fn get_dialer(
 
     let bridge_dialer = route_to_dialer(&bridge_routes);
 
-    let final_dialer = match dbg!(ctx.init().bridge_mode) {
+    let final_dialer = match ctx.init().bridge_mode {
         crate::BridgeMode::Auto => direct_dialer
             .race(bridge_dialer.delay(Duration::from_millis(500)))
             .dynamic(),

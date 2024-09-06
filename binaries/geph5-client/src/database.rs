@@ -82,3 +82,12 @@ pub async fn db_read_or_wait(ctx: &AnyCtx<Config>, key: &str) -> Result<Vec<u8>,
         }
     }
 }
+
+pub async fn db_remove(ctx: &AnyCtx<Config>, key: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM misc WHERE key = ?")
+        .bind(key)
+        .execute(ctx.get(DATABASE))
+        .await?;
+    ctx.get(EVENT).notify(usize::MAX);
+    Ok(())
+}

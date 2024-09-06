@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
@@ -11,12 +14,18 @@ use stdcode::StdcodeSerializeExt;
 use crate::{
     broker::broker_client,
     client::Config,
-    database::{db_read, db_read_or_wait, db_write},
+    database::{db_read, db_read_or_wait, db_remove, db_write},
 };
+
+static CONN_TOKEN_READY: AtomicBool = AtomicBool::new(false);
 
 pub async fn get_connect_token(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
+    while !CONN_TOKEN_READY.load(Ordering::SeqCst) {
+        tracing::debug!("waiting for connection token");
+        smol::Timer::after(Duration::from_secs(1)).await;
+    }
     let epoch = mizaru2::current_epoch();
     Ok(stdcode::deserialize(
         &db_read_or_wait(ctx, &format!("conn_token_{epoch}")).await?,
@@ -57,6 +66,26 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::Result<()> {
     let epoch = mizaru2::current_epoch();
     let broker_client = broker_client(ctx)?;
+
+    let last_plus_expiry: u64 = db_read(ctx, "plus_expiry")
+        .await?
+        .and_then(|b| stdcode::deserialize(&b).ok())
+        .unwrap_or_default();
+    let plus_expiry = broker_client
+        .get_user_info(auth_token.to_string())
+        .await??
+        .context("no such user")?
+        .plus_expires_unix
+        .unwrap_or_default();
+
+    if plus_expiry > 0 && last_plus_expiry == 0 {
+        tracing::debug!("we gained a plus! gonna clean up the conn token cache here");
+        db_remove(ctx, &format!("conn_token_{}", epoch)).await?;
+        db_remove(ctx, &format!("conn_token_{}", epoch + 1)).await?;
+    }
+
+    CONN_TOKEN_READY.store(true, Ordering::SeqCst);
+
     for epoch in [epoch, epoch + 1] {
         if db_read(ctx, &format!("conn_token_{epoch}"))
             .await?
