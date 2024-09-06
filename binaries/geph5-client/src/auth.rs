@@ -82,6 +82,7 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
         tracing::debug!("we gained a plus! gonna clean up the conn token cache here");
         db_remove(ctx, &format!("conn_token_{}", epoch)).await?;
         db_remove(ctx, &format!("conn_token_{}", epoch + 1)).await?;
+        db_write(ctx, "plus_expiry", &plus_expiry.stdcode()).await?;
     }
 
     CONN_TOKEN_READY.store(true, Ordering::SeqCst);
