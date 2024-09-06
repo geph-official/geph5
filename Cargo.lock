@@ -2998,7 +2998,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3019,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-task",
@@ -4320,7 +4320,7 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -6187,7 +6187,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "arrayref",
