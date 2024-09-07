@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
+
 use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
 use moka::future::Cache;
 
@@ -36,7 +37,7 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
                 .dial()
                 .await
                 .context("failed to dial")?;
-            tracing::debug!(
+            tracing::trace!(
                 protocol,
                 dest_host = display(dest_host),
                 latency = debug(start.elapsed()),

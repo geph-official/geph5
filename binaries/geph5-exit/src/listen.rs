@@ -1,5 +1,6 @@
 use anyhow::Context;
 use ed25519_dalek::{Signer, VerifyingKey};
+use flate2::read::GzDecoder;
 use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR,
@@ -16,9 +17,11 @@ use picomux::{LivenessConfig, PicoMux};
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use std::{
-    net::IpAddr,
+    collections::BTreeMap,
+    io::BufRead,
+    net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::atomic::Ordering,
+    sync::{atomic::Ordering, Arc, LazyLock},
     time::{Duration, SystemTime},
 };
 use stdcode::StdcodeSerializeExt;
@@ -134,6 +137,8 @@ async fn broker_loop() -> anyhow::Result<()> {
 
 async fn c2e_loop() -> anyhow::Result<()> {
     let mut listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
+    let ip_to_asn = get_ip_to_asn_map().await?;
+    tracing::info!(len = ip_to_asn.len(), "loaded ASN mapping");
     loop {
         let c2e_raw = match listener.accept().await {
             Ok(conn) => conn,
@@ -142,6 +147,24 @@ async fn c2e_loop() -> anyhow::Result<()> {
                 continue;
             }
         };
+
+        let test_addr = async {
+            let remote_addr: SocketAddr = c2e_raw.remote_addr().unwrap().parse()?;
+            if let SocketAddr::V4(remote_addr) = remote_addr {
+                let (_, (asn, country)) = ip_to_asn
+                    .range(remote_addr.ip().to_bits()..)
+                    .next()
+                    .context("ASN lookup failed")?;
+                tracing::debug!(asn, country, remote_addr = display(remote_addr), "got ASN");
+                if CONFIG_FILE.wait().country_blacklist.contains(country) {
+                    anyhow::bail!("rejected connection from blacklisted country")
+                }
+            }
+            anyhow::Ok(())
+        };
+        if let Err(err) = test_addr.await {
+            tracing::warn!(err = debug(err), "addr testing failed");
+        }
         smolscale::spawn(
             handle_client(c2e_raw).map_err(|e| tracing::warn!("client died suddenly with {e}")),
         )
@@ -199,8 +222,6 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     // execute the authentication
     let client_hello: ClientHello = stdcode::deserialize(&read_prepend_length(&mut client).await?)?;
 
-    tracing::debug!("client_hello received");
-
     let keys: Option<([u8; 32], [u8; 32])>;
     let exit_hello_inner: ExitHelloInner = match client_hello.crypt_hello {
         ClientCryptHello::SharedSecretChallenge(key) => {
@@ -250,8 +271,34 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
         smolscale::spawn(
             proxy_stream(ratelimit.clone(), stream)
-                .map_err(|e| tracing::debug!(metadata = display(metadata), "stream died with {e}")),
+                .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
         )
         .detach();
     }
+}
+
+async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
+    let url = "https://iptoasn.com/data/ip2asn-v4-u32.tsv.gz";
+    let response = reqwest::get(url).await?;
+    let bytes = response.bytes().await?;
+
+    let decoder = GzDecoder::new(&bytes[..]);
+    let reader = std::io::BufReader::new(decoder);
+
+    let mut map = BTreeMap::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let fields: Vec<&str> = line.split('\t').collect();
+
+        if fields.len() >= 4 {
+            let range_end: u32 = fields[1].parse()?;
+            let as_number: u32 = fields[2].parse()?;
+            let country_code = fields[3].to_string();
+
+            map.insert(range_end, (as_number, country_code));
+        }
+    }
+
+    Ok(map)
 }

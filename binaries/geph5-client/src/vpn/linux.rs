@@ -79,7 +79,7 @@ pub(super) async fn packet_shuffle(
         loop {
             let n = read.read(&mut buf).await?;
             let buf = &buf[..n];
-            tracing::trace!(n, buf = hex::encode(buf), "captured packet from TUN");
+            tracing::trace!(n, "captured packet from TUN");
             send_captured.send(Bytes::copy_from_slice(buf)).await?;
         }
     };

@@ -3180,6 +3180,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "fastrand 2.1.1",
+ "flate2",
  "futures-util",
  "geph5-broker-protocol",
  "geph5-misc-rpc",

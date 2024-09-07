@@ -39,6 +39,9 @@ struct ConfigFile {
     country: CountryCode,
     city: String,
 
+    #[serde(default = "default_country_blacklist")]
+    country_blacklist: Vec<String>,
+
     #[serde(default = "default_free_ratelimit")]
     free_ratelimit: u32,
 
@@ -59,6 +62,10 @@ fn default_plus_ratelimit() -> u32 {
 
 fn default_total_ratelimit() -> u32 {
     125000
+}
+
+fn default_country_blacklist() -> Vec<String> {
+    vec!["CN".to_string(), "IR".to_string()]
 }
 
 #[derive(Deserialize)]

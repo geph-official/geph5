@@ -15,10 +15,7 @@ mod dummy;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use dummy::*;
 
-use std::{
-    net::Ipv4Addr,
-    time::{Duration, Instant},
-};
+use std::{net::Ipv4Addr, time::Instant};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
