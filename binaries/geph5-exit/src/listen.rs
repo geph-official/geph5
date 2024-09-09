@@ -21,7 +21,7 @@ use std::{
     io::BufRead,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{atomic::Ordering, Arc, LazyLock},
+    sync::atomic::Ordering,
     time::{Duration, SystemTime},
 };
 use stdcode::StdcodeSerializeExt;

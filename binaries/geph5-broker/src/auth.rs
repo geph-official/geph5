@@ -4,6 +4,7 @@ use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
 use geph5_broker_protocol::{AccountLevel, AuthError};
 
 use rand::Rng as _;
+use sqlx::types::chrono::Utc;
 
 use crate::{database::POSTGRES, log_error};
 
@@ -59,6 +60,7 @@ pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<AccountLevel
 
     if let Some((user_id, is_plus)) = user_id {
         tracing::debug!(user_id, is_plus, "valid auth token");
+        record_auth(user_id).await?;
         if is_plus == 0 {
             Ok(Some(AccountLevel::Free))
         } else {
@@ -67,4 +69,21 @@ pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<AccountLevel
     } else {
         Ok(None)
     }
+}
+
+pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
+    let now = Utc::now().naive_utc();
+
+    sqlx::query(
+        r#"
+        INSERT INTO auth_logs (id, last_login)
+        VALUES ($1, $2)
+        "#,
+    )
+    .bind(user_id)
+    .bind(now)
+    .execute(POSTGRES.deref())
+    .await?;
+
+    Ok(())
 }
