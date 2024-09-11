@@ -2,7 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
-use crossbeam_queue::SegQueue;
+use crossbeam_queue::{ArrayQueue, SegQueue};
 use dashmap::DashMap;
 use event_listener::Event;
 use ipstack_geph::{IpStack, IpStackConfig};
@@ -28,10 +28,7 @@ pub use windows::*;
 
 use rand::Rng;
 use simple_dns::{Packet, QTYPE};
-use smol::{
-    future::FutureExt,
-    io::{BufReader, BufWriter},
-};
+use smol::future::FutureExt;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -78,7 +75,7 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
         chan_len = ctx.get(VPN_CAPTURE).len(),
         "vpn forcing up"
     );
-    ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
+    let _ = ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
     ctx.get(VPN_EVENT).notify(usize::MAX);
 }
 
@@ -95,9 +92,9 @@ pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
 
 static VPN_EVENT: CtxField<Event> = |_| Event::new();
 
-static VPN_CAPTURE: CtxField<SegQueue<(Bytes, Instant)>> = |_| SegQueue::new();
+static VPN_CAPTURE: CtxField<ArrayQueue<(Bytes, Instant)>> = |_| ArrayQueue::new(100);
 
-static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
+static VPN_INJECT: CtxField<ArrayQueue<Bytes>> = |_| ArrayQueue::new(100);
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::unbounded();
