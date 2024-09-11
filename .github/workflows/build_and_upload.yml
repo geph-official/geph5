@@ -98,7 +98,7 @@ jobs:
           mv "geph5-client-gui.app.zip" ../../../../../artifacts/${{ matrix.dir }}/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.dir }}-latest
           path: artifacts/${{ matrix.dir }}
@@ -148,7 +148,7 @@ jobs:
           cp target/i686-pc-windows-msvc/release/geph5-client-gui artifacts/windows-gui/
 
       - name: Upload Windows GUI artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: windows-gui-latest
           path: artifacts/windows-gui
@@ -168,7 +168,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: artifacts
 
