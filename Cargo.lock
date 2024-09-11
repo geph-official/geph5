@@ -3897,9 +3897,9 @@ checksum = "8f518f335dce6725a761382244631d86cf0ccb2863413590b31338feb467f9c3"
 
 [[package]]
 name = "ipstack-geph"
-version = "0.2.4"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "195c1535c7465e387c13f84b03ac1552ce30fedccc25c908d8dacac14b7dfdbd"
+checksum = "f7597f21068dc875715aaacd59be062898a6851236d9d7d108ef78d65a291a3f"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3910,6 +3910,7 @@ dependencies = [
  "etherparse",
  "futures-lite 2.3.0",
  "log",
+ "moka",
  "parking_lot",
  "pollster 0.3.0",
  "rand",

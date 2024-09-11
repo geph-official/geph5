@@ -217,9 +217,8 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         }
                     } else {
                         let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;
-                        let (read_tunneled, write_tunneled) = tunneled.split();
+                        let (mut read_tunneled, mut write_tunneled) = tunneled.split();
                         let up_loop = async {
-                            let mut write_tunneled = BufWriter::new(write_tunneled);
                             loop {
                                 let to_up = captured.recv().await?;
                                 write_tunneled
@@ -230,7 +229,6 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                             }
                         };
                         let dn_loop = async {
-                            let mut read_tunneled = BufReader::new(read_tunneled);
                             loop {
                                 let mut len_buf = [0u8; 2];
                                 read_tunneled.read_exact(&mut len_buf).await?;
