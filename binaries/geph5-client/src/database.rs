@@ -32,7 +32,7 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
     smol::future::block_on(async move {
         let pool = PoolOptions::new()
             .min_connections(1)
-            .max_connections(10)
+            .max_connections(2)
             .max_lifetime(None)
             .idle_timeout(None)
             .connect_lazy_with(options);
