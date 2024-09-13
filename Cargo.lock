@@ -1196,15 +1196,15 @@ dependencies = [
 
 [[package]]
 name = "bipe"
-version = "0.2.5"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfd3194cd5c5273cc178eff2b4e63b9a7c5254c0c7f28a2725d21305edf0c104"
+checksum = "d82b477ec343d3f07970a4cccdf47b2d62f2e648254f1fdc424f8764f0f3945e"
 dependencies = [
  "concurrent-queue 1.2.4",
- "crossbeam-queue",
  "event-listener 2.5.3",
  "futures-core",
  "futures-lite 1.13.0",
+ "rtrb",
 ]
 
 [[package]]
@@ -5707,6 +5707,15 @@ dependencies = [
  "spki 0.7.3",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rtrb"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99e704dd104faf2326a320140f70f0b736d607c1caa1b1748a6c568a79819109"
+dependencies = [
+ "cache-padded",
 ]
 
 [[package]]

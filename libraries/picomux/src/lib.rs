@@ -223,11 +223,11 @@ async fn picomux_inner(
             let send_outgoing = send_outgoing.clone();
 
             async move {
-                let count = COUNT.fetch_add(1, Ordering::Relaxed);
-                eprintln!("opened {count} picomux streams");
-                scopeguard::defer!({
-                    COUNT.fetch_sub(1, Ordering::Relaxed);
-                });
+                // let count = COUNT.fetch_add(1, Ordering::Relaxed);
+                // eprintln!("opened {count} picomux streams");
+                // scopeguard::defer!({
+                //     COUNT.fetch_sub(1, Ordering::Relaxed);
+                // });
                 let mut remote_window = INIT_WINDOW;
                 let mut target_remote_window = MAX_WINDOW;
                 let mut last_window_adjust = Instant::now();

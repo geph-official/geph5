@@ -12,7 +12,7 @@ anyhow = "1.0.86"
 async-dup = "1.2.4"
 async-task = "4.7.1"
 async_io_stream = "0.3.3"
-bipe = "0.2.2"
+bipe = "=0.2.2"
 bytemuck = { version = "1.16.1", features = ["derive", "min_const_generics"] }
 bytes = "1.6.0"
 dashmap = "6.0.1"
