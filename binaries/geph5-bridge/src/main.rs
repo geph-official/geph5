@@ -12,7 +12,7 @@ use rand::Rng;
 use sillad::tcp::{TcpDialer, TcpListener};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use smol::future::FutureExt as _;
-use tap::Tap;
+
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 fn main() {

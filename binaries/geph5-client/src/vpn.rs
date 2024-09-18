@@ -2,7 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
-use crossbeam_queue::{ArrayQueue, SegQueue};
+use crossbeam_queue::ArrayQueue;
 use dashmap::DashMap;
 use event_listener::Event;
 use ipstack_geph::{IpStack, IpStackConfig};
@@ -136,7 +136,9 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 loop {
                     let bts = recv_injected.recv().await?;
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
-                    ctx.get(VPN_INJECT).push(bts);
+                    if ctx.get(VPN_INJECT).push(bts).is_err() {
+                        tracing::warn!("inject queue full");
+                    }
                     ctx.get(VPN_EVENT).notify(usize::MAX);
                 }
             };

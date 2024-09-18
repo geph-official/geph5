@@ -65,6 +65,8 @@ pub struct PicoMux {
     recv_accepted: async_channel::Receiver<Stream>,
     send_liveness: Sender<LivenessConfig>,
     liveness: LivenessConfig,
+
+    last_ping: Arc<Mutex<Option<Duration>>>,
 }
 
 impl PicoMux {
@@ -78,8 +80,17 @@ impl PicoMux {
         let (send_liveness, recv_liveness) = tachyonix::channel(1000);
         let liveness = LivenessConfig::default();
         send_liveness.try_send(liveness).unwrap();
+        let last_ping = Arc::new(Mutex::new(None));
         let task = smolscale::spawn(
-            picomux_inner(read, write, send_accepted, recv_open_req, recv_liveness).map(Arc::new),
+            picomux_inner(
+                read,
+                write,
+                send_accepted,
+                recv_open_req,
+                recv_liveness,
+                last_ping.clone(),
+            )
+            .map(Arc::new),
         )
         .shared();
         Self {
@@ -89,6 +100,8 @@ impl PicoMux {
             last_forced_ping: Mutex::new(Instant::now()),
             send_liveness,
             liveness,
+
+            last_ping,
         }
     }
 
@@ -120,6 +133,11 @@ impl PicoMux {
         }
         .race(err)
         .await
+    }
+
+    /// Reads the latency from the last successful ping.
+    pub fn last_latency(&self) -> Option<Duration> {
+        *self.last_ping.lock()
     }
 
     /// Opens a new stream to the peer, putting the given metadata in the stream.
@@ -170,6 +188,7 @@ async fn picomux_inner(
     send_accepted: async_channel::Sender<Stream>,
     mut recv_open_req: Receiver<(Bytes, oneshot::Sender<Stream>)>,
     mut recv_liveness: Receiver<LivenessConfig>,
+    last_ping: Arc<Mutex<Option<Duration>>>,
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(100_000, read);
 
@@ -290,9 +309,9 @@ async fn picomux_inner(
             let send_more = send_more.clone();
             let send_outgoing = send_outgoing.clone();
             async move {
-                scopeguard::defer!({
+                let closer = {
                     let send_outgoing = send_outgoing.clone();
-                    smolscale::spawn(async move {
+                    async move {
                         send_outgoing
                             .send(Frame {
                                 header: Header {
@@ -304,8 +323,10 @@ async fn picomux_inner(
                                 body: Bytes::new(),
                             })
                             .await
-                    })
-                    .detach();
+                    }
+                };
+                scopeguard::defer!({
+                    smolscale::spawn(closer).detach();
                 });
                 let mut buf = [0u8; MSS];
                 loop {
@@ -402,6 +423,7 @@ async fn picomux_inner(
                     ));
                 }
                 tracing::debug!(latency = debug(start.elapsed()), "PONG received");
+                last_ping.lock().replace(start.elapsed());
             } else {
                 return futures_util::future::pending().await;
             }
