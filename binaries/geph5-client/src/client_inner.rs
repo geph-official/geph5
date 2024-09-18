@@ -36,7 +36,7 @@ use crate::{
     client::CtxField,
     control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
     route::{deprioritize_route, get_dialer},
-    stats::stat_incr_num,
+    stats::{stat_incr_num, stat_set_num},
     vpn::{fake_dns_backtranslate, vpn_whitelist},
     ConnInfo,
 };
@@ -236,7 +236,9 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
                 let mux = mux.clone();
                 let ctx = ctx.clone();
                 let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.lock().await.recv().await?;
-
+                if let Some(latency) = mux.last_latency() {
+                    stat_set_num(&ctx, "ping", latency.as_secs_f64());
+                }
                 spawn!(async move {
                     tracing::debug!(remote_addr = display(&remote_addr), "opening tunnel");
                     let stream = mux.open(remote_addr.as_bytes()).await;

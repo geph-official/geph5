@@ -12,12 +12,12 @@ use crate::{client::CtxField, Config};
 
 static NUM_STATS: CtxField<DashMap<SmolStr, AtomicF64>> = |_| DashMap::new();
 
-// pub fn stat_set_num(ctx: &AnyCtx<Config>, stat: &str, num: f64) {
-//     ctx.get(NUM_STATS)
-//         .entry(stat.into())
-//         .or_default()
-//         .store(num, Ordering::Relaxed);
-// }
+pub fn stat_set_num(ctx: &AnyCtx<Config>, stat: &str, num: f64) {
+    ctx.get(NUM_STATS)
+        .entry(stat.into())
+        .or_default()
+        .store(num, Ordering::Relaxed);
+}
 
 pub fn stat_incr_num(ctx: &AnyCtx<Config>, stat: &str, num: f64) {
     ctx.get(NUM_STATS)
