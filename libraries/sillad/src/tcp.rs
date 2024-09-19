@@ -126,8 +126,11 @@ pub struct TcpDialer {
 impl Dialer for TcpDialer {
     type P = TcpPipe;
     async fn dial(&self) -> std::io::Result<Self::P> {
-        let inner = Async::<TcpStream>::connect(self.dest_addr).await?;
-        set_tcp_options(&inner)?;
+        let inner = Async::<TcpStream>::connect(self.dest_addr)
+            .await
+            .inspect_err(|e| tracing::warn!("inner dial failed: {:?}", e))?;
+        let _ =
+            set_tcp_options(&inner).inspect_err(|e| tracing::warn!("tcp option set fail: {:?}", e));
         Ok(TcpPipe(inner, self.dest_addr.to_string()))
     }
 }
