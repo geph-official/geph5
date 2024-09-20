@@ -13,6 +13,9 @@ jobs:
           - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
             dir: gnu
+          - os: ubuntu-20.04
+            target: aarch64-unknown-linux-musl
+            dir: musl-aarch64
           - os: windows-latest
             target: i686-pc-windows-msvc
             dir: windows
@@ -61,6 +64,12 @@ jobs:
         run: |
           cargo build --locked --profile release-dbg  --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
           cargo build --locked --profile release-dbg --target ${{ matrix.target }} --manifest-path binaries/geph5-exit/Cargo.toml
+
+
+      - name: Build broker
+        if: matrix.os == 'ubuntu-20.04'
+        run: |
+          cargo build --locked --profile release-dbg  --target ${{ matrix.target }} --manifest-path binaries/geph5-broker/Cargo.toml
 
       - name: Move bridge and exit binaries to artifacts directory
         if: matrix.os == 'ubuntu-20.04'
