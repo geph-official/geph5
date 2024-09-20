@@ -34,9 +34,10 @@ impl RpcTransport for FrontedHttpTransport {
             .context("cannot send request to front")?;
 
         let resp_bytes = response.bytes().await?;
-        tracing::trace!(
+        tracing::debug!(
             method = req.method,
             resp_len = resp_bytes.len(),
+            resp = debug(String::from_utf8_lossy(&resp_bytes)),
             elapsed = debug(start.elapsed()),
             "response received"
         );
