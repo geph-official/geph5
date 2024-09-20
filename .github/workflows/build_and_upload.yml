@@ -41,6 +41,13 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
+
+      - name: Install cross-compilation tools (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Set default host
         shell: bash
         run: rustup set default-host ${{ matrix.target }}
