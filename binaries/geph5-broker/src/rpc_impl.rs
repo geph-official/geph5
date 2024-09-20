@@ -191,41 +191,52 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError> {
-        match valid_auth_token(&auth_token).await {
-            Ok(Some(level)) => {
-                let user_id = sqlx::query_scalar::<_, i32>(
-                    "SELECT user_id FROM auth_tokens WHERE token = $1",
-                )
-                .bind(&auth_token)
-                .fetch_one(POSTGRES.deref())
-                .await
-                .map_err(|_| AuthError::Forbidden)?;
+        static USER_INFO_CACHE: Lazy<Cache<String, Option<UserInfo>>> = Lazy::new(|| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(60))
+                .build()
+        });
 
-                let plus_expires_unix = match level {
-                    AccountLevel::Plus => {
-                        let expires: Option<i64> = sqlx::query_scalar(
-                            "SELECT EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp 
-                             FROM subscriptions 
-                             WHERE id = $1",
+        USER_INFO_CACHE
+            .try_get_with(auth_token.clone(), async {
+                match valid_auth_token(&auth_token).await {
+                    Ok(Some(level)) => {
+                        let user_id = sqlx::query_scalar::<_, i32>(
+                            "SELECT user_id FROM auth_tokens WHERE token = $1",
                         )
-                        .bind(user_id)
-                        .fetch_optional(POSTGRES.deref())
+                        .bind(&auth_token)
+                        .fetch_one(POSTGRES.deref())
                         .await
-                        .map_err(|_| AuthError::RateLimited)?;
+                        .map_err(|_| AuthError::Forbidden)?;
 
-                        expires.map(|ts| ts as u64)
+                        let plus_expires_unix = match level {
+                            AccountLevel::Plus => {
+                                let expires: Option<i64> = sqlx::query_scalar(
+                                    "SELECT EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp 
+                                 FROM subscriptions 
+                                 WHERE id = $1",
+                                )
+                                .bind(user_id)
+                                .fetch_optional(POSTGRES.deref())
+                                .await
+                                .map_err(|_| AuthError::RateLimited)?;
+
+                                expires.map(|ts| ts as u64)
+                            }
+                            AccountLevel::Free => None,
+                        };
+
+                        Ok(Some(UserInfo {
+                            user_id: user_id as _,
+                            plus_expires_unix,
+                        }))
                     }
-                    AccountLevel::Free => None,
-                };
-
-                Ok(Some(UserInfo {
-                    user_id: user_id as _,
-                    plus_expires_unix,
-                }))
-            }
-            Ok(None) => Ok(None),
-            Err(_) => Err(AuthError::RateLimited),
-        }
+                    Ok(None) => Ok(None),
+                    Err(_) => Err(AuthError::RateLimited),
+                }
+            })
+            .await
+            .map_err(|e| e.deref().clone())
     }
 
     async fn get_routes(
