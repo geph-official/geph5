@@ -1,8 +1,14 @@
-use std::ops::Deref as _;
+use std::{
+    collections::BTreeMap,
+    ops::Deref as _,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
 use geph5_broker_protocol::{AccountLevel, AuthError};
 
+use moka::future::Cache;
 use rand::Rng as _;
 use sqlx::types::chrono::Utc;
 
@@ -52,23 +58,48 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<AccountLevel>> {
-    let user_id: Option<(i32, i64)> = sqlx::query_as("SELECT user_id, (select count(*) from subscriptions where id = user_id) FROM auth_tokens WHERE token = $1")
-        .bind(token)
-        .fetch_optional(POSTGRES.deref())
-        .await?;
+pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<(i32, AccountLevel)>> {
+    let user_id: Option<(i32,)> =
+        sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
+            .bind(token)
+            .fetch_optional(POSTGRES.deref())
+            .await?;
 
-    if let Some((user_id, is_plus)) = user_id {
-        tracing::debug!(user_id, is_plus, "valid auth token");
+    if let Some((user_id,)) = user_id {
+        let expiry = get_subscription_expiry(user_id).await?;
+        tracing::debug!(user_id, expiry = debug(expiry), "valid auth token");
         record_auth(user_id).await?;
-        if is_plus == 0 {
-            Ok(Some(AccountLevel::Free))
+        if expiry.is_none() {
+            Ok(Some((user_id, AccountLevel::Free)))
         } else {
-            Ok(Some(AccountLevel::Plus))
+            Ok(Some((user_id, AccountLevel::Plus)))
         }
     } else {
         Ok(None)
     }
+}
+
+pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>> {
+    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<(), Arc<BTreeMap<i32, i64>>>> =
+        LazyLock::new(|| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(30))
+                .build()
+        });
+
+    let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
+        .try_get_with((), async {
+            let all_subscriptions: Vec<(i32, i64)> = sqlx::query_as(
+            "SELECT id,EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp FROM subscriptions",
+        )
+        .fetch_all(POSTGRES.deref())
+        .await?;
+            anyhow::Ok(Arc::new(all_subscriptions.into_iter().collect()))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    Ok(all_subscriptions.get(&user_id).cloned())
 }
 
 pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {

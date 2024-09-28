@@ -21,7 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::log_error;
+use crate::{auth::get_subscription_expiry, log_error};
 use crate::{
     auth::{new_auth_token, valid_auth_token, validate_username_pwd},
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
@@ -144,7 +144,7 @@ impl BrokerProtocol for BrokerImpl {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError> {
-        let user_level = match valid_auth_token(&auth_token).await {
+        let (_, user_level) = match valid_auth_token(&auth_token).await {
             Ok(auth) => {
                 if let Some(level) = auth {
                     level
@@ -200,31 +200,11 @@ impl BrokerProtocol for BrokerImpl {
         USER_INFO_CACHE
             .try_get_with(auth_token.clone(), async {
                 match valid_auth_token(&auth_token).await {
-                    Ok(Some(level)) => {
-                        let user_id = sqlx::query_scalar::<_, i32>(
-                            "SELECT user_id FROM auth_tokens WHERE token = $1",
-                        )
-                        .bind(&auth_token)
-                        .fetch_one(POSTGRES.deref())
-                        .await
-                        .map_err(|_| AuthError::Forbidden)?;
-
-                        let plus_expires_unix = match level {
-                            AccountLevel::Plus => {
-                                let expires: Option<i64> = sqlx::query_scalar(
-                                    "SELECT EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp 
-                                 FROM subscriptions 
-                                 WHERE id = $1",
-                                )
-                                .bind(user_id)
-                                .fetch_optional(POSTGRES.deref())
-                                .await
-                                .map_err(|_| AuthError::RateLimited)?;
-
-                                expires.map(|ts| ts as u64)
-                            }
-                            AccountLevel::Free => None,
-                        };
+                    Ok(Some((user_id, _))) => {
+                        let plus_expires_unix = get_subscription_expiry(user_id)
+                            .await
+                            .map_err(|_| AuthError::RateLimited)?
+                            .map(|u| u as u64);
 
                         Ok(Some(UserInfo {
                             user_id: user_id as _,
