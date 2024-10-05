@@ -1,0 +1,8 @@
+[package]
+name = "sillad-tls"
+edition = "2021"
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
