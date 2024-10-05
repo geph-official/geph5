@@ -215,5 +215,6 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
         } => route_to_dialer(lower)
             .delay(Duration::from_millis((*milliseconds).into()))
             .dynamic(),
+        RouteDescriptor::Other(_) => FailingDialer.dynamic(),
     }
 }

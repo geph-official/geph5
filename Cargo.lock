@@ -6217,6 +6217,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sillad-tls"
+version = "0.2.8"
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
