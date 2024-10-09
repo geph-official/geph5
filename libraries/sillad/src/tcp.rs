@@ -38,8 +38,9 @@ impl TcpListener {
 impl Listener for TcpListener {
     type P = TcpPipe;
     async fn accept(&mut self) -> std::io::Result<Self::P> {
-        let mut delay_secs = 10.0f64;
-        loop {
+        let mut delay_secs = 1.0f64;
+        let mut err = None;
+        for _ in 0..4 {
             let fallible = async {
                 let (conn, _) = self
                     .inner
@@ -50,7 +51,7 @@ impl Listener for TcpListener {
                     tracing::error!(err = debug(e), "failed to set TCP options")
                 })?;
                 let addr = conn.as_ref().peer_addr()?.to_string();
-                anyhow::Ok(TcpPipe(conn, addr))
+                Ok(TcpPipe(conn, addr))
             };
             match fallible.await {
                 Ok(pipe) => {
@@ -58,15 +59,17 @@ impl Listener for TcpListener {
                 }
                 Err(e) => {
                     tracing::error!(
-                        err = debug(e),
+                        err = debug(&e),
                         delay_secs,
                         "backing off and retrying accept"
                     );
                     delay_secs = rand::thread_rng().gen_range(delay_secs..delay_secs * 2.0);
+                    err = Some(e);
                     async_io::Timer::after(Duration::from_secs_f64(delay_secs)).await;
                 }
             }
         }
+        Err(err.unwrap())
     }
 }
 
