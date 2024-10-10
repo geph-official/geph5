@@ -190,9 +190,9 @@ async fn picomux_inner(
     mut recv_liveness: Receiver<LivenessConfig>,
     last_ping: Arc<Mutex<Option<Duration>>>,
 ) -> Result<Infallible, std::io::Error> {
-    let mut inner_read = BufReader::with_capacity(100_000, read);
+    let mut inner_read = BufReader::with_capacity(MSS * 4, read);
 
-    let (send_outgoing, mut recv_outgoing) = tachyonix::channel(1);
+    let (send_outgoing, recv_outgoing) = async_channel::unbounded();
     let (send_pong, mut recv_pong) = tachyonix::channel(1);
     let buffer_table: DashMap<u32, _, BuildHasherDefault<AHasher>> = DashMap::default();
     // writes outgoing frames
@@ -593,17 +593,17 @@ impl AsyncWrite for Stream {
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
         tracing::trace!(buf_len = buf.len(), "about to poll write");
-        if fastrand::f32() < 0.1 {
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            let this = self.project();
-            let r = this.write_outgoing.poll_write(cx, buf);
-            if r.is_ready() {
-                (this.on_write)(buf.len());
-            }
-            r
+        // if fastrand::f32() < 0.1 {
+        //     cx.waker().wake_by_ref();
+        //     Poll::Pending
+        // } else {
+        let this = self.project();
+        let r = this.write_outgoing.poll_write(cx, buf);
+        if r.is_ready() {
+            (this.on_write)(buf.len());
         }
+        r
+        // }
     }
 
     fn poll_flush(
