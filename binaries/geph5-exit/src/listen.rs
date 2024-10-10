@@ -34,6 +34,7 @@ use crate::{
     broker::BrokerRpcTransport,
     proxy::proxy_stream,
     ratelimit::{get_load, get_ratelimiter, RateLimiter, TOTAL_BYTE_COUNT},
+    schedlag::SCHEDULER_LAG_SECS,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -92,6 +93,12 @@ async fn broker_loop() -> anyhow::Result<()> {
                     let load = get_load();
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
+                        .await?;
+                    client
+                        .set_stat(
+                            format!("{server_name}.schedlag"),
+                            SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
+                        )
                         .await?;
 
                     let descriptor = ExitDescriptor {

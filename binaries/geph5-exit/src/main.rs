@@ -16,6 +16,7 @@ mod broker;
 mod listen;
 mod proxy;
 mod ratelimit;
+mod schedlag;
 
 use crate::ratelimit::update_load_loop;
 
