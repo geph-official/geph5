@@ -131,7 +131,7 @@ impl RateLimiter {
 
         let bytes = bytes as f32 * (multiplier.max(1.0));
         if let Some(inner) = &self.inner {
-            let mut delay: f32 = 0.05;
+            let mut delay: f32 = 0.005;
             while inner
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
