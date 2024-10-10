@@ -192,7 +192,7 @@ async fn picomux_inner(
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(MSS * 4, read);
 
-    let (send_outgoing, recv_outgoing) = async_channel::unbounded();
+    let (send_outgoing, mut recv_outgoing) = tachyonix::channel(1);
     let (send_pong, mut recv_pong) = tachyonix::channel(1);
     let buffer_table: DashMap<u32, _, BuildHasherDefault<AHasher>> = DashMap::default();
     // writes outgoing frames
