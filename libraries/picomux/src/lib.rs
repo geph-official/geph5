@@ -193,6 +193,8 @@ async fn picomux_inner(
     let mut inner_read = BufReader::with_capacity(MSS * 4, read);
 
     let (send_outgoing, mut recv_outgoing) = tachyonix::channel(1);
+    // add a mutex *purely* for fairness's sake!
+    let send_outgoing = Arc::new(async_lock::Mutex::new(send_outgoing));
     let (send_pong, mut recv_pong) = tachyonix::channel(1);
     let buffer_table: DashMap<u32, _, BuildHasherDefault<AHasher>> = DashMap::default();
     // writes outgoing frames
@@ -277,6 +279,8 @@ async fn picomux_inner(
                     if remote_window + min_quantum <= target_remote_window {
                         let quantum = target_remote_window - remote_window;
                         send_outgoing
+                            .lock()
+                            .await
                             .send(Frame::new(
                                 stream_id,
                                 CMD_MORE,
@@ -306,6 +310,8 @@ async fn picomux_inner(
                     let send_outgoing = send_outgoing.clone();
                     async move {
                         send_outgoing
+                            .lock()
+                            .await
                             .send(Frame {
                                 header: Header {
                                     version: 1,
@@ -339,6 +345,8 @@ async fn picomux_inner(
                     };
                     tracing::trace!(stream_id, n, "sending outgoing data into channel");
                     send_outgoing
+                        .lock()
+                        .await
                         .send(frame)
                         .await
                         .ok()
@@ -363,6 +371,8 @@ async fn picomux_inner(
                     .unwrap()
             };
             let _ = send_outgoing
+                .lock()
+                .await
                 .send(Frame::new_empty(stream_id, CMD_SYN).tap_mut(|f| {
                     f.body = metadata.clone();
                     f.header.body_len = metadata.len() as _;
@@ -398,6 +408,8 @@ async fn picomux_inner(
                 })
                 .unwrap();
                 let _ = send_outgoing
+                    .lock()
+                    .await
                     .send(Frame {
                         header: Header {
                             version: 1,
@@ -517,10 +529,22 @@ async fn picomux_inner(
                             "responding to a PING"
                         );
 
-                        let _ = send_outgoing.send(Frame::new_empty(0, CMD_PONG)).await;
+                        let send_outgoing = send_outgoing.clone();
+                        smolscale::spawn(async move {
+                            send_outgoing
+                                .lock()
+                                .await
+                                .send(Frame::new_empty(0, CMD_PONG))
+                                .await
+                        })
+                        .detach();
                     }
                     CMD_PONG => {
-                        let _ = send_pong.send(()).await;
+                        let send_pong = send_pong.clone();
+                        smolscale::spawn(async move {
+                            let _ = send_pong.send(()).await;
+                        })
+                        .detach();
                     }
                     other => {
                         return Err(std::io::Error::new(
