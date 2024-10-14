@@ -225,7 +225,7 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
-        ping_interval: Duration::from_secs(120),
+        ping_interval: Duration::from_secs(1),
         timeout: Duration::from_secs(10),
     });
     let mux = Arc::new(mux);

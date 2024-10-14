@@ -58,10 +58,12 @@ impl BufferTable {
 
     /// Waits until the send window for the given stream is at least 1, then decrement it by 1.
     pub async fn wait_send_window(&self, stream_id: u32) {
-        if let Some(inner) = self.inner.get(&stream_id) {
-            let semaph = inner.1.clone();
-            semaph.acquire(1).await.disarm();
-        }
+        let semaph = if let Some(inner) = self.inner.get(&stream_id) {
+            inner.1.clone()
+        } else {
+            futures_util::future::pending().await
+        };
+        semaph.acquire(1).await;
     }
 
     /// Increases the send window for the given stream.

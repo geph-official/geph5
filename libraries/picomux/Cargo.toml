@@ -39,6 +39,7 @@ pin-project = "1.1.5"
 tachyonix = "0.3.0"
 async-event = "0.2.1"
 async-lock = "3.4.0"
+crossbeam-queue = "0.3.11"
 
 [dev-dependencies]
 smol = "2"

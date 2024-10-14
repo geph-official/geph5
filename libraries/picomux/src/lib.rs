@@ -213,7 +213,7 @@ async fn picomux_inner(
         };
 
         // jelly bean movers
-        let outgoing_task = smolscale::spawn::<anyhow::Result<()>>({
+        let outgoing_task = {
             let outgoing = outgoing.clone();
 
             async move {
@@ -224,8 +224,7 @@ async fn picomux_inner(
                     let min_quantum = (target_remote_window / 10).clamp(3, 50);
                     let frame = buffer_recv.recv().await;
                     if frame.header.command == CMD_FIN {
-                        tracing::debug!(stream_id, "terminating on remote FIN");
-                        return Ok(());
+                        anyhow::bail!("received remote FIN");
                     }
                     let queue_delay = buffer_recv.queue_delay().unwrap();
                     tracing::trace!(
@@ -235,7 +234,10 @@ async fn picomux_inner(
                         target_remote_window,
                         "queue delay measured"
                     );
-                    write_incoming.write_all(&frame.body).await?;
+                    write_incoming
+                        .write_all(&frame.body)
+                        .await
+                        .context("could not write to incoming")?;
                     remote_window -= 1;
 
                     // adjust the target remote window once per window
@@ -276,29 +278,20 @@ async fn picomux_inner(
                     }
                 }
             }
-        });
+        };
 
-        smolscale::spawn::<anyhow::Result<()>>({
+        let incoming_task = {
             let buffer_table = buffer_table.clone();
             let outgoing = outgoing.clone();
             async move {
-                let _outgoing_task = outgoing_task;
-                scopeguard::defer!({
-                    outgoing.enqueue(Frame {
-                        header: Header {
-                            version: 1,
-                            command: CMD_FIN,
-                            body_len: 0,
-                            stream_id,
-                        },
-                        body: Bytes::new(),
-                    });
-                });
                 let mut buf = [0u8; MSS];
                 loop {
-                    let n = read_outgoing.read(&mut buf).await?;
+                    let n = read_outgoing
+                        .read(&mut buf)
+                        .await
+                        .context("could not read_outgoing")?;
                     if n == 0 {
-                        return Ok(());
+                        anyhow::bail!("EOF on read_outgoing")
                     }
                     let frame = Frame {
                         header: Header {
@@ -315,8 +308,33 @@ async fn picomux_inner(
                     outgoing.send(frame).await?;
                 }
             }
-        })
-        .detach();
+        };
+
+        {
+            let outgoing = outgoing.clone();
+            smolscale::spawn(async move {
+                scopeguard::defer!({
+                    tracing::debug!(stream_id, "enqueuing FIN to the other side");
+                    outgoing.enqueue(Frame {
+                        header: Header {
+                            version: 1,
+                            command: CMD_FIN,
+                            body_len: 0,
+                            stream_id,
+                        },
+                        body: Bytes::new(),
+                    });
+                });
+                let _: anyhow::Result<()> =
+                    incoming_task.race(outgoing_task).await.inspect_err(|e| {
+                        tracing::debug!(
+                            e = debug(e),
+                            "incoming/outgoing task for individual stream stopped"
+                        )
+                    });
+            })
+            .detach();
+        }
         stream
     };
 
@@ -332,12 +350,10 @@ async fn picomux_inner(
                     .find(|key| !buffer_table.contains_id(*key))
                     .unwrap()
             };
-            let _ = outgoing
-                .send(Frame::new_empty(stream_id, CMD_SYN).tap_mut(|f| {
-                    f.body = metadata.clone();
-                    f.header.body_len = metadata.len() as _;
-                }))
-                .await;
+            outgoing.enqueue(Frame::new_empty(stream_id, CMD_SYN).tap_mut(|f| {
+                f.body = metadata.clone();
+                f.header.body_len = metadata.len() as _;
+            }));
             let stream = create_stream(stream_id, metadata);
 
             let _ = request.send(stream);
@@ -435,6 +451,9 @@ async fn picomux_inner(
                         buffer_table.incr_send_window(stream_id, window_increase);
                     }
                     CMD_PSH | CMD_FIN => {
+                        if frame.header.command == CMD_FIN {
+                            tracing::debug!(stream_id, "FIN received");
+                        }
                         buffer_table.send_to(stream_id, frame);
                     }
 
