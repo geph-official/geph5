@@ -129,7 +129,7 @@ static CONN_REQ_CHAN: CtxField<(
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-static CONCURRENCY: usize = 1;
+static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
@@ -225,7 +225,7 @@ async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Re
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
-        ping_interval: Duration::from_secs(1),
+        ping_interval: Duration::from_secs(300),
         timeout: Duration::from_secs(10),
     });
     let mux = Arc::new(mux);

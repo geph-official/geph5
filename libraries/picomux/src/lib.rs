@@ -65,7 +65,7 @@ impl Default for LivenessConfig {
 pub struct PicoMux {
     task: Shared<Task<Arc<std::io::Result<Infallible>>>>,
     send_open_req: Sender<(Bytes, oneshot::Sender<Stream>)>,
-    last_forced_ping: Mutex<Instant>,
+
     recv_accepted: async_channel::Receiver<Stream>,
     send_liveness: Sender<LivenessConfig>,
     liveness: LivenessConfig,
@@ -101,7 +101,7 @@ impl PicoMux {
             task,
             recv_accepted,
             send_open_req,
-            last_forced_ping: Mutex::new(Instant::now()),
+
             send_liveness,
             liveness,
 
@@ -147,13 +147,8 @@ impl PicoMux {
     /// Opens a new stream to the peer, putting the given metadata in the stream.
     pub async fn open(&self, metadata: &[u8]) -> std::io::Result<Stream> {
         {
-            let mut last_forced_ping = self.last_forced_ping.lock();
-            let now = Instant::now();
-            if now.saturating_duration_since(*last_forced_ping) > self.liveness.timeout {
-                tracing::debug!("forcing a ping based on debounced open");
-                let _ = self.send_liveness.try_send(self.liveness);
-                *last_forced_ping = now;
-            }
+            tracing::debug!("forcing a ping based on open");
+            let _ = self.send_liveness.try_send(self.liveness);
         }
         let (send, recv) = oneshot::channel();
         let _ = self
