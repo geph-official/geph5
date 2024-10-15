@@ -75,22 +75,22 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
         chan_len = ctx.get(VPN_CAPTURE).len(),
         "vpn forcing up"
     );
-    let _ = ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
-    ctx.get(VPN_EVENT).notify(usize::MAX);
+    if let Err(_) = ctx.get(VPN_CAPTURE).push((bts, Instant::now())) {
+        tracing::warn!("DROPPING forced upstream VPN packet")
+    } else {
+        ctx.get(VPN_EVENT).notify_all();
+    }
+    smol::future::yield_now().await;
 }
 
 /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
 pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
-    loop {
-        let evt = ctx.get(VPN_EVENT).listen();
-        if let Some(bts) = ctx.get(VPN_INJECT).pop() {
-            return bts;
-        }
-        evt.await;
-    }
+    ctx.get(VPN_EVENT)
+        .wait_until(|| ctx.get(VPN_INJECT).pop())
+        .await
 }
 
-static VPN_EVENT: CtxField<Event> = |_| Event::new();
+static VPN_EVENT: CtxField<async_event::Event> = |_| async_event::Event::new();
 
 static VPN_CAPTURE: CtxField<ArrayQueue<(Bytes, Instant)>> = |_| ArrayQueue::new(100);
 
@@ -119,17 +119,18 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         smolscale::spawn(async move {
             let up_loop = async {
                 loop {
-                    let evt = ctx.get(VPN_EVENT).listen();
-                    if let Some((bts, time)) = ctx.get(VPN_CAPTURE).pop() {
-                        tracing::trace!(
-                            len = bts.len(),
-                            elapsed = debug(time.elapsed()),
-                            packet = display(hex::encode(&bts)),
-                            "vpn shuffling up"
-                        );
-                        send_captured.send(bts).await?;
-                    }
-                    evt.await;
+                    let (bts, time) = ctx
+                        .get(VPN_EVENT)
+                        .wait_until(|| ctx.get(VPN_CAPTURE).pop())
+                        .await;
+
+                    tracing::trace!(
+                        len = bts.len(),
+                        elapsed = debug(time.elapsed()),
+                        packet = display(hex::encode(&bts)),
+                        "vpn shuffling up"
+                    );
+                    send_captured.send(bts).await?;
                 }
             };
             let dn_loop = async {
@@ -138,8 +139,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
                     if ctx.get(VPN_INJECT).push(bts).is_err() {
                         tracing::warn!("inject queue full");
+                    } else {
+                        ctx.get(VPN_EVENT).notify_all();
                     }
-                    ctx.get(VPN_EVENT).notify(usize::MAX);
+                    smol::future::yield_now().await;
                 }
             };
             up_loop.race(dn_loop).await

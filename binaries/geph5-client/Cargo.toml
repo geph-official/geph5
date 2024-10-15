@@ -85,6 +85,7 @@ futures-concurrency = "7.6.1"
 psl = "2.1.55"
 async-broadcast = "0.7.1"
 crossbeam-queue = "0.3.11"
+async-event = "0.2.1"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }

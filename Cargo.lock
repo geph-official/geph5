@@ -3028,6 +3028,7 @@ dependencies = [
  "async-broadcast 0.7.1",
  "async-compat",
  "async-dup",
+ "async-event",
  "async-trait",
  "atomic_float",
  "aws-config",
