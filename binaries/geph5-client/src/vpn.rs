@@ -4,7 +4,7 @@ mod linux;
 use bytes::Bytes;
 use crossbeam_queue::ArrayQueue;
 use dashmap::DashMap;
-use event_listener::Event;
+
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
 pub use linux::*;
