@@ -48,5 +48,3 @@ clap = { version = "4.5.8", features = ["derive"] }
 smol-timeout2 = "0.6.1"
 flate2 = "1.0.33"
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.5"
