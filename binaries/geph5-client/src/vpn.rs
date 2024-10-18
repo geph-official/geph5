@@ -75,7 +75,7 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
         chan_len = ctx.get(VPN_CAPTURE).len(),
         "vpn forcing up"
     );
-    if let Err(_) = ctx.get(VPN_CAPTURE).push((bts, Instant::now())) {
+    if ctx.get(VPN_CAPTURE).push((bts, Instant::now())).is_err() {
         tracing::warn!("DROPPING forced upstream VPN packet")
     } else {
         ctx.get(VPN_EVENT).notify_all();

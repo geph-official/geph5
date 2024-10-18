@@ -6,13 +6,16 @@ use futures_util::{AsyncReadExt, AsyncWriteExt};
 
 use itertools::Itertools;
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use smol::{
     channel::{Receiver, Sender},
     future::FutureExt as _,
+    net::UdpSocket,
 };
 use std::{
     net::{IpAddr, Ipv4Addr},
     process::Command,
+    sync::LazyLock,
 };
 
 use crate::{client_inner::open_conn, Config};
@@ -26,6 +29,7 @@ pub fn vpn_whitelist(addr: IpAddr) {
     });
 }
 
+#[allow(clippy::redundant_closure)]
 fn setup_routing() -> anyhow::Result<()> {
     let cmd = include_str!("linux_routing_setup.sh");
     let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
@@ -34,20 +38,26 @@ fn setup_routing() -> anyhow::Result<()> {
     unsafe {
         libc::atexit(teardown_routing);
     }
+    ctrlc::set_handler(|| teardown_routing())?;
 
-    // scopeguard::defer!(teardown_routing());
     anyhow::Ok(())
 }
 
+static GEPH_DNS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+
 extern "C" fn teardown_routing() {
-    tracing::debug!("teardown_routing starting!");
+    tracing::debug!(
+        "!!!!!!!!!!!!!!!!!!!!!!! teardown_routing starting !!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    );
     WHITELIST.clear();
+    std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
     let cmd = include_str!("linux_routing_setup.sh")
         .lines()
         .filter(|l| l.contains("-D") || l.contains("del") || l.contains("flush"))
         .join("\n");
     let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
     child.wait().expect("iptables was not set up properly");
+    std::process::exit(0);
 }
 
 pub(super) async fn packet_shuffle(
@@ -55,7 +65,38 @@ pub(super) async fn packet_shuffle(
     send_captured: Sender<Bytes>,
     recv_injected: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
-    std::env::set_var("GEPH_DNS", "1.1.1.1");
+    let dns_proxy = UdpSocket::bind("127.0.0.1:0").await?;
+    *GEPH_DNS.lock() = dns_proxy.local_addr()?.to_string();
+    std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
+
+    tracing::info!(
+        addr = display(dns_proxy.local_addr().unwrap()),
+        "start DNS proxy"
+    );
+    let dns_proxy_loop = async {
+        loop {
+            let mut buf = [0u8; 8192];
+            let (n, src) = dns_proxy.recv_from(&mut buf).await?;
+            tracing::trace!(n, src = display(src), "received DNS packet");
+            let dns_proxy = dns_proxy.clone();
+            let ctx = ctx.clone();
+            smolscale::spawn(async move {
+                let buf = &buf[..n];
+                let mut conn = open_conn(&ctx, "udp", "1.1.1.1:53").await?;
+                conn.write_all(&(buf.len() as u16).to_le_bytes()).await?;
+                conn.write_all(buf).await?;
+                let mut len_buf = [0u8; 2];
+                conn.read_exact(&mut len_buf).await?;
+                let len = u16::from_le_bytes(len_buf) as usize;
+                let mut buf = vec![0u8; len];
+                conn.read_exact(&mut buf).await?;
+                dns_proxy.send_to(&buf, src).await?;
+                anyhow::Ok(())
+            })
+            .detach();
+        }
+    };
+
     use std::os::fd::{AsRawFd, FromRawFd};
     let tun_device = configure_tun_device();
     let fd_num = tun_device.as_raw_fd();
@@ -75,7 +116,7 @@ pub(super) async fn packet_shuffle(
         }
     };
     let capture = async {
-        let mut buf = vec![0u8; 8192];
+        let mut buf = vec![0u8; 65536];
         loop {
             let n = read.read(&mut buf).await?;
             let buf = &buf[..n];
@@ -83,7 +124,7 @@ pub(super) async fn packet_shuffle(
             send_captured.send(Bytes::copy_from_slice(buf)).await?;
         }
     };
-    inject.race(capture).await
+    inject.race(capture).race(dns_proxy_loop).await
 }
 
 #[cfg(target_os = "linux")]
