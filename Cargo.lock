@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -3235,7 +3235,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "async-task",
@@ -4340,7 +4340,7 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "blake3",
@@ -6221,7 +6221,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "arrayref",
@@ -6249,7 +6249,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-tls"
-version = "0.2.9"
+version = "0.2.10"
 
 [[package]]
 name = "simd-adler32"
