@@ -1,6 +1,7 @@
 use std::io::ErrorKind;
 
 use async_trait::async_trait;
+use futures_util::TryFutureExt;
 use geph5_misc_rpc::bridge::{B2eMetadata, ObfsProtocol};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use tachyonix::Receiver;
@@ -22,7 +23,11 @@ pub async fn b2e_process(
 async fn b2e_inner(mut listener: impl sillad::listener::Listener) -> anyhow::Result<()> {
     loop {
         let client = listener.accept().await?;
-        smolscale::spawn(handle_client(client)).detach();
+        smolscale::spawn(
+            handle_client(client)
+                .map_err(|e| tracing::warn!(err = debug(e), "client stopped through b2e")),
+        )
+        .detach();
     }
 }
 
