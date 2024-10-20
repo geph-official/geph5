@@ -252,6 +252,9 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let (level, token, _sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
                 .context("cannot deserialize credentials")?;
+        if level == AccountLevel::Free && CONFIG_FILE.wait().free_ratelimit == 0 {
+            anyhow::bail!("free users rejected here")
+        }
         get_ratelimiter(level, token).await
     } else {
         RateLimiter::unlimited()
