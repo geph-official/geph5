@@ -31,6 +31,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
 
 use crate::{
+    auth::verify_user,
     broker::BrokerRpcTransport,
     proxy::proxy_stream,
     ratelimit::{get_load, get_ratelimiter, RateLimiter, TOTAL_BYTE_COUNT},
@@ -249,18 +250,19 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     };
 
     let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
-        let (level, token, _sig): (AccountLevel, ClientToken, UnblindedSignature) =
+        let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
                 .context("cannot deserialize credentials")?;
         if level == AccountLevel::Free && CONFIG_FILE.wait().free_ratelimit == 0 {
             anyhow::bail!("free users rejected here")
         }
+        verify_user(level, token, sig)
+            .await
+            .map_err(|e| tracing::warn!(err = debug(e), "**** BAD BAD bad token received ***"))?;
         get_ratelimiter(level, token).await
     } else {
         RateLimiter::unlimited()
     };
-
-    // TODO authenticate against broker's public key
 
     let exit_hello = ExitHello {
         inner: exit_hello_inner.clone(),
