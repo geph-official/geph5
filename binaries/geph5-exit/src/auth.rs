@@ -6,8 +6,9 @@ pub async fn verify_user(
     token: ClientToken,
     sig: UnblindedSignature,
 ) -> anyhow::Result<()> {
-    // TODO we first check the epoch is correct
-
+    if sig.epoch.abs_diff(mizaru2::current_epoch()) > 2 {
+        anyhow::bail!("signature from wrong epoch")
+    }
     // TODO make this configurable, once we get to all the servers
     let key = match level {
         AccountLevel::Free => mizaru2::PublicKey::from_bytes(
