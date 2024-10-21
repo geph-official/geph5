@@ -256,9 +256,9 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         if level == AccountLevel::Free && CONFIG_FILE.wait().free_ratelimit == 0 {
             anyhow::bail!("free users rejected here")
         }
-        verify_user(level, token, sig)
-            .await
-            .map_err(|e| tracing::warn!(err = debug(e), "**** BAD BAD bad token received ***"))?;
+        verify_user(level, token, sig).await.inspect_err(|e| {
+            tracing::warn!(err = debug(e), "**** BAD BAD bad token received ***")
+        })?;
         get_ratelimiter(level, token).await
     } else {
         RateLimiter::unlimited()
