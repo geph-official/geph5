@@ -4,7 +4,9 @@ use anyctx::AnyCtx;
 use anyhow::Context;
 
 use ed25519_dalek::VerifyingKey;
-use geph5_broker_protocol::{ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{
+    AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
+};
 use isocountry::CountryCode;
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
@@ -43,6 +45,11 @@ pub enum ExitConstraint {
 pub async fn get_dialer(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
+    // First get the conn token
+    let (level, conn_token, sig) = get_connect_token(ctx)
+        .await
+        .context("could not get connect token")?;
+
     let mut country_constraint = None;
     let mut city_constraint = None;
     let mut hostname_constraint = None;
@@ -93,10 +100,11 @@ pub async fn get_dialer(
     );
 
     let broker = broker_client(ctx).context("could not get broker client")?;
-    let exits = broker
-        .get_exits()
-        .await?
-        .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
+    let exits = match level {
+        AccountLevel::Plus => broker.get_exits().await,
+        AccountLevel::Free => broker.get_free_exits().await,
+    }?
+    .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
 
     let exits = exits
         .verify(DOMAIN_EXIT_DESCRIPTOR, |their_pk| {
@@ -149,10 +157,7 @@ pub async fn get_dialer(
         ROUTE_SHITLIST.get(&exit.c2e_listen).unwrap_or_default() as _,
     ));
 
-    // Also obtain the bridges
-    let (_, conn_token, sig) = get_connect_token(ctx)
-        .await
-        .context("could not get connect token")?;
+    // also get bridges
     let bridge_routes = broker
         .get_routes(conn_token, sig, exit.b2e_listen)
         .await?
