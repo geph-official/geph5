@@ -45,11 +45,6 @@ pub enum ExitConstraint {
 pub async fn get_dialer(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
-    // First get the conn token
-    let (level, conn_token, sig) = get_connect_token(ctx)
-        .await
-        .context("could not get connect token")?;
-
     let mut country_constraint = None;
     let mut city_constraint = None;
     let mut hostname_constraint = None;
@@ -98,6 +93,11 @@ pub async fn get_dialer(
         city_constraint = debug(&city_constraint),
         "created dialer"
     );
+
+    // First get the conn token
+    let (level, conn_token, sig) = get_connect_token(ctx)
+        .await
+        .context("could not get connect token")?;
 
     let broker = broker_client(ctx).context("could not get broker client")?;
     let exits = match level {
