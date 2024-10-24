@@ -23,7 +23,7 @@ mod b2e_process;
 
 use crate::{
     auth::verify_user,
-    broker::broker_loop,
+    broker::{broker_loop, ACCEPT_FREE},
     proxy::proxy_stream,
     ratelimit::{get_ratelimiter, RateLimiter},
     CONFIG_FILE, SIGNING_SECRET,
@@ -146,7 +146,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
                 .context("cannot deserialize credentials")?;
-        if level == AccountLevel::Free && CONFIG_FILE.wait().free_ratelimit == 0 {
+        if level == AccountLevel::Free && !ACCEPT_FREE.load(std::sync::atomic::Ordering::Relaxed) {
             anyhow::bail!("free users rejected here")
         }
         verify_user(level, token, sig).await.inspect_err(|e| {
