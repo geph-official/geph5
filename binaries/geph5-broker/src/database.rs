@@ -1,6 +1,4 @@
-use std::{
-    ops::Deref, str::FromStr, sync::LazyLock, thread::available_parallelism, time::Duration,
-};
+use std::{ops::Deref, str::FromStr, sync::LazyLock, time::Duration};
 
 use async_io::Timer;
 use geph5_broker_protocol::BridgeDescriptor;

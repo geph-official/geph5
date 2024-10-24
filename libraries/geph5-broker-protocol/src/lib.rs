@@ -40,10 +40,12 @@ pub trait BrokerProtocol {
         sig: UnblindedSignature,
         exit_b2e: SocketAddr,
     ) -> Result<RouteDescriptor, GenericError>;
+
     async fn insert_exit(
         &self,
         descriptor: Mac<Signed<ExitDescriptor>>,
     ) -> Result<(), GenericError>;
+
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
 
     async fn incr_stat(&self, stat: String, value: i32);

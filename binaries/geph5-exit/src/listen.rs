@@ -1,10 +1,8 @@
 use anyhow::Context;
-use ed25519_dalek::{Signer, VerifyingKey};
+use ed25519_dalek::Signer;
 use flate2::read::GzDecoder;
 use futures_util::{AsyncReadExt, TryFutureExt};
-use geph5_broker_protocol::{
-    AccountLevel, BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR,
-};
+use geph5_broker_protocol::AccountLevel;
 use geph5_misc_rpc::{
     bridge::B2eMetadata,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
@@ -16,26 +14,18 @@ use picomux::{LivenessConfig, PicoMux};
 
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
-use std::{
-    collections::BTreeMap,
-    io::BufRead,
-    net::{IpAddr, SocketAddr},
-    str::FromStr,
-    sync::atomic::Ordering,
-    time::{Duration, SystemTime},
-};
+use std::{collections::BTreeMap, io::BufRead, net::SocketAddr, time::Duration};
 use stdcode::StdcodeSerializeExt;
 use tachyonix::Sender;
-use tap::Tap;
+
 use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
 
 use crate::{
     auth::verify_user,
-    broker::BrokerRpcTransport,
+    broker::broker_loop,
     proxy::proxy_stream,
-    ratelimit::{get_load, get_ratelimiter, RateLimiter, TOTAL_BYTE_COUNT},
-    schedlag::SCHEDULER_LAG_SECS,
+    ratelimit::{get_ratelimiter, RateLimiter},
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -44,103 +34,6 @@ pub async fn listen_main() -> anyhow::Result<()> {
     let b2e = b2e_loop();
     let broker = broker_loop();
     c2e.race(broker).race(b2e).await
-}
-
-#[tracing::instrument]
-async fn broker_loop() -> anyhow::Result<()> {
-    let my_ip = if let Some(ip_addr) = &CONFIG_FILE.wait().ip_addr {
-        *ip_addr
-    } else {
-        IpAddr::from_str(
-            String::from_utf8_lossy(
-                &reqwest::get("https://checkip.amazonaws.com/")
-                    .await?
-                    .bytes()
-                    .await?,
-            )
-            .trim(),
-        )?
-    };
-    let my_pubkey: VerifyingKey = (&*SIGNING_SECRET).into();
-    tracing::info!(
-        c2e_direct = format!(
-            "{}:{}/{}",
-            my_ip,
-            CONFIG_FILE.wait().c2e_listen.port(),
-            hex::encode(my_pubkey.as_bytes())
-        ),
-        "listen information gotten"
-    );
-
-    let server_name = format!(
-        "{}-{}",
-        CONFIG_FILE.wait().country.alpha2().to_lowercase(),
-        my_ip.to_string().replace('.', "-")
-    );
-    match &CONFIG_FILE.wait().broker {
-        Some(broker) => {
-            let transport = BrokerRpcTransport::new(&broker.url);
-            let client = BrokerClient(transport);
-            let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-            loop {
-                let upload = async {
-                    let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                    let diff = byte_count.saturating_sub(last_byte_count);
-                    last_byte_count = byte_count;
-                    tracing::debug!(diff, last_byte_count, "uploaded a diff");
-                    client
-                        .incr_stat(format!("{server_name}.throughput"), diff as _)
-                        .await?;
-                    let load = get_load();
-                    client
-                        .set_stat(format!("{server_name}.load"), load as _)
-                        .await?;
-                    client
-                        .set_stat(
-                            format!("{server_name}.schedlag"),
-                            SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
-                        )
-                        .await?;
-
-                    let descriptor = ExitDescriptor {
-                        c2e_listen: CONFIG_FILE
-                            .wait()
-                            .c2e_listen
-                            .tap_mut(|addr| addr.set_ip(my_ip)),
-                        b2e_listen: CONFIG_FILE
-                            .wait()
-                            .b2e_listen
-                            .tap_mut(|addr| addr.set_ip(my_ip)),
-                        country: CONFIG_FILE.wait().country,
-                        city: CONFIG_FILE.wait().city.clone(),
-                        load,
-                        expiry: SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs()
-                            + 60,
-                    };
-                    let to_upload = Mac::new(
-                        Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
-                        blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
-                    );
-                    client
-                        .insert_exit(to_upload)
-                        .await?
-                        .map_err(|e| anyhow::anyhow!(e.0))?;
-                    anyhow::Ok(())
-                };
-                if let Err(err) = upload.await {
-                    tracing::warn!(err = debug(err), "failed to upload descriptor")
-                }
-                smol::Timer::after(Duration::from_secs_f64(fastrand::f64() * 5.0)).await;
-            }
-        }
-        None => {
-            tracing::info!("not starting broker loop since there's no binder URL");
-            smol::future::pending().await
-        }
-    }
 }
 
 async fn c2e_loop() -> anyhow::Result<()> {
