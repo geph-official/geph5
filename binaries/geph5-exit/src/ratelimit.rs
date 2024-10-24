@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use async_io_bufpool::pooled_read;
 use atomic_float::AtomicF32;
 use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use geph5_broker_protocol::AccountLevel;
@@ -150,18 +151,17 @@ impl RateLimiter {
         mut write_stream: impl AsyncWrite + Unpin,
     ) -> std::io::Result<u64> {
         let mut total_bytes = 0;
-        let mut buf = [0u8; 8192];
 
         loop {
-            let bytes_read = read_stream.read(&mut buf).await?;
-            if bytes_read == 0 {
+            let bts = pooled_read(&mut read_stream).await?;
+            if bts.is_empty() {
                 break;
             }
 
-            self.wait(bytes_read).await;
+            self.wait(bts.len()).await;
 
-            write_stream.write_all(&buf[..bytes_read]).await?;
-            total_bytes += bytes_read as u64;
+            write_stream.write_all(&bts).await?;
+            total_bytes += bts.len() as u64;
         }
 
         Ok(total_bytes)
