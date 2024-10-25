@@ -19,6 +19,9 @@ mod proxy;
 mod ratelimit;
 mod schedlag;
 
+#[cfg(not(debug_assertions))]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use crate::ratelimit::update_load_loop;
 
 /// The global config file.

@@ -49,3 +49,4 @@ smol-timeout2 = "0.6.1"
 flate2 = "1.0.33"
 async-io-bufpool = "0.1.0"
 
+tikv-jemallocator = "0.6"
