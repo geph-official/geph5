@@ -43,8 +43,23 @@ echo -e "\033[1mGenerating signing secret\033[0m"
 dd if=/dev/random of=/etc/geph5-exit/signing.secret bs=1 count=32 2>/dev/null
 chmod 600 /etc/geph5-exit/signing.secret
 
-echo -e "\033[1mCreating configuration file\033[0m"
-cat > /etc/geph5-exit/config.yaml <<EOL
+# Check if the configuration file already exists
+if [ ! -f /etc/geph5-exit/config.yaml ]; then
+  echo -e "\033[1mGenerating random port numbers\033[0m"
+  c2e_port=$((10000 + RANDOM % 55535))
+  b2e_port=$((10000 + RANDOM % 55535))
+
+  echo -e "\033[1mGetting country and city using ip-api.com\033[0m"
+  location_data=$(curl -s 'http://ip-api.com/json/')
+  country=$(echo "$location_data" | jq -r '.countryCode')
+  city=$(echo "$location_data" | jq -r '.city')
+
+  echo -e "\033[1mGenerating signing secret\033[0m"
+  dd if=/dev/random of=/etc/geph5-exit/signing.secret bs=1 count=32 2>/dev/null
+  chmod 600 /etc/geph5-exit/signing.secret
+
+  echo -e "\033[1mCreating configuration file\033[0m"
+  cat > /etc/geph5-exit/config.yaml <<EOL
 broker:
   url: https://broker.geph.io/
   auth_token: $auth_token
@@ -54,16 +69,23 @@ country: $country
 city: $city
 signing_secret: /etc/geph5-exit/signing.secret
 EOL
+else
+  echo -e "\033[1mConfiguration file already exists. Skipping creation.\033[0m"
+fi
+
 
 echo -e "\033[1mCreating systemd service file\033[0m"
 cat > /etc/systemd/system/geph5-exit.service <<EOL
 [Unit]
 Description=Geph5 Exit
 After=network.target
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 ExecStart=/usr/local/bin/geph5-exit --config /etc/geph5-exit/config.yaml
 Restart=always
+RestartSec=5
 LimitNOFILE=1048576
 
 [Install]
