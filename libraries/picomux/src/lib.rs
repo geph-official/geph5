@@ -5,7 +5,6 @@ mod outgoing;
 use std::{
     convert::Infallible,
     fmt::Debug,
-    hash::BuildHasherDefault,
     io::ErrorKind,
     ops::Deref,
     pin::Pin,
@@ -17,16 +16,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ahash::AHasher;
 use anyhow::Context;
 
 use async_task::Task;
 
 use buffer_table::BufferTable;
 use bytes::Bytes;
-use dashmap::DashMap;
 use frame::{Frame, CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
-use futures_intrusive::sync::SharedSemaphore;
 use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
     future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
@@ -38,7 +34,7 @@ use parking_lot::Mutex;
 use pin_project::pin_project;
 use rand::Rng;
 use smol_timeout2::TimeoutExt;
-use tachyonix::{Receiver, Sender, TrySendError};
+use tachyonix::{Receiver, Sender};
 use tap::Tap;
 
 use crate::frame::{Header, PingInfo};

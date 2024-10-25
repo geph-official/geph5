@@ -9,7 +9,7 @@ use std::{
 
 use async_io_bufpool::pooled_read;
 use atomic_float::AtomicF32;
-use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use geph5_broker_protocol::AccountLevel;
 use governor::{DefaultDirectRateLimiter, Quota};
 use mizaru2::ClientToken;
