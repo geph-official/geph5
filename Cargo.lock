@@ -518,9 +518,9 @@ dependencies = [
 
 [[package]]
 name = "async-io-bufpool"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9af8c570bd66f44bc1f6c6cd009e69bebd69a745060ac31f319d2a619c8a6d4e"
+checksum = "9fb99affd84dd315d0f240048fb960db6d09bc8ccbe4721f9d771b89836a6f5b"
 dependencies = [
  "bytes",
  "crossbeam-queue",
