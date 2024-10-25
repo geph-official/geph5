@@ -42,10 +42,10 @@ jobs:
         shell: bash
         run: rustup set default-host ${{ matrix.target }}
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
+      # - name: Cache cargo build
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     key: ${{ matrix.target }}
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
@@ -121,10 +121,10 @@ jobs:
         shell: bash
         run: rustup set default-host i686-pc-windows-msvc
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: i686-pc-windows-msvc-gui
+      # - name: Cache cargo build
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     key: i686-pc-windows-msvc-gui
 
       - name: Build Windows GUI client
         run: |
