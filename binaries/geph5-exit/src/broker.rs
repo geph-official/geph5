@@ -137,7 +137,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs()
-                            + 60,
+                            + 1800,
                     };
                     let to_upload = Mac::new(
                         Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
