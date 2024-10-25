@@ -13,7 +13,7 @@ use crate::{frame::Frame, INIT_WINDOW, MAX_WINDOW};
 #[allow(clippy::type_complexity)]
 type Inner = DashMap<
     u32,
-    (tachyonix::Sender<(Frame, Instant)>, SharedSemaphore),
+    (async_channel::Sender<(Frame, Instant)>, SharedSemaphore),
     BuildHasherDefault<AHasher>,
 >;
 
@@ -37,7 +37,7 @@ impl BufferTable {
     }
 
     pub fn create_entry(&self, stream_id: u32) -> BufferReceive {
-        let (send_incoming, recv_incoming) = tachyonix::channel::<(Frame, Instant)>(MAX_WINDOW);
+        let (send_incoming, recv_incoming) = async_channel::unbounded::<(Frame, Instant)>();
         let send_more = SharedSemaphore::new(false, INIT_WINDOW);
         self.inner.insert(stream_id, (send_incoming, send_more));
         BufferReceive {
@@ -52,7 +52,11 @@ impl BufferTable {
 
     pub fn send_to(&self, stream_id: u32, frame: Frame) {
         if let Some(inner) = self.inner.get(&stream_id) {
-            let _ = inner.0.try_send((frame, Instant::now()));
+            if inner.0.len() > MAX_WINDOW {
+                tracing::error!("INDIVIDUAL BUFFER IS FULL");
+            } else {
+                let _ = inner.0.try_send((frame, Instant::now()));
+            }
         }
     }
 
@@ -77,7 +81,7 @@ impl BufferTable {
 /// The receiving end for a stream-specific buffer.
 pub struct BufferReceive {
     id: u32,
-    recv: tachyonix::Receiver<(Frame, Instant)>,
+    recv: async_channel::Receiver<(Frame, Instant)>,
     inner: Arc<Inner>,
 
     queue_delay: Option<Duration>,
