@@ -42,10 +42,10 @@ jobs:
         shell: bash
         run: rustup set default-host ${{ matrix.target }}
 
-      # - name: Cache cargo build
-      #   uses: Swatinem/rust-cache@v2
-      #   with:
-      #     key: ${{ matrix.target }}
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Build client
         run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
@@ -55,19 +55,6 @@ jobs:
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
-
-      - name: Build bridge and exit
-        if: matrix.os == 'ubuntu-20.04'
-        run: |
-          cargo build --locked --release  --target ${{ matrix.target }} --manifest-path binaries/geph5-bridge/Cargo.toml
-          cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-exit/Cargo.toml
-
-      - name: Move bridge and exit binaries to artifacts directory
-        if: matrix.os == 'ubuntu-20.04'
-        run: |
-          mkdir -p artifacts/${{ matrix.dir }}
-          mv target/${{ matrix.target }}/release/geph5-bridge artifacts/${{ matrix.dir }}/
-          mv target/${{ matrix.target }}/release/geph5-exit artifacts/${{ matrix.dir }}/
 
       - name: Build client GUI (non-Windows)
         if: matrix.dir != 'musl' && matrix.os != 'windows-latest'
@@ -103,6 +90,52 @@ jobs:
           name: ${{ matrix.dir }}-latest
           path: artifacts/${{ matrix.dir }}
 
+  build-bridge-exit:
+    name: Build Bridge and Exit (Musl)
+    runs-on: ubuntu-20.04
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install musl-tools
+        run: sudo apt-get install -y musl-tools
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: x86_64-unknown-linux-musl
+
+      - name: Set default host
+        shell: bash
+        run: rustup set default-host x86_64-unknown-linux-musl
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-musl-bridge-exit
+
+      - name: Build bridge and exit
+        run: |
+          cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-bridge/Cargo.toml
+          cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
+
+      - name: Move bridge and exit binaries to artifacts directory
+        run: |
+          mkdir -p artifacts/musl
+          mv target/x86_64-unknown-linux-musl/release/geph5-bridge artifacts/musl/
+          mv target/x86_64-unknown-linux-musl/release/geph5-exit artifacts/musl/
+
+      - name: Upload bridge and exit artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: musl-latest
+          path: artifacts/musl
+
   build-windows-gui:
     runs-on: windows-latest
     steps:
@@ -121,10 +154,10 @@ jobs:
         shell: bash
         run: rustup set default-host i686-pc-windows-msvc
 
-      # - name: Cache cargo build
-      #   uses: Swatinem/rust-cache@v2
-      #   with:
-      #     key: i686-pc-windows-msvc-gui
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: i686-pc-windows-msvc-gui
 
       - name: Build Windows GUI client
         run: |
@@ -155,7 +188,7 @@ jobs:
 
   upload:
     if: github.ref == 'refs/heads/master'
-    needs: [build, build-windows-gui]
+    needs: [build, build-bridge-exit, build-windows-gui]
     runs-on: ubuntu-20.04
     strategy:
       matrix:
