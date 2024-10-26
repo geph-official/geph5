@@ -1,5 +1,15 @@
+use std::{sync::LazyLock, thread::available_parallelism};
+
 use geph5_broker_protocol::AccountLevel;
 use mizaru2::{ClientToken, UnblindedSignature};
+use threadpool::ThreadPool;
+
+static POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
+    ThreadPool::with_name(
+        "user-verifier".to_string(),
+        (available_parallelism().unwrap().get() / 8).max(2),
+    )
+});
 
 pub async fn verify_user(
     level: AccountLevel,
@@ -25,6 +35,10 @@ pub async fn verify_user(
         ),
     };
 
-    key.blind_verify(token, &sig)?;
+    let (send, recv) = oneshot::channel();
+    POOL.execute(move || {
+        let _ = send.send(key.blind_verify(token, &sig));
+    });
+    recv.await??;
     Ok(())
 }

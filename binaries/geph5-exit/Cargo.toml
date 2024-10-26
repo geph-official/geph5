@@ -50,3 +50,5 @@ flate2 = "1.0.33"
 async-io-bufpool = "0.1.0"
 
 tikv-jemallocator = "0.6"
+threadpool = "1.8.1"
+oneshot = "0.1.8"
