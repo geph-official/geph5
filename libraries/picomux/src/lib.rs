@@ -1,5 +1,6 @@
 mod buffer_table;
 mod frame;
+
 mod outgoing;
 
 use std::{
@@ -25,7 +26,7 @@ use bytes::Bytes;
 use frame::{Frame, CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
 use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
-    future::Shared, io::BufReader, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt,
+    future::Shared, io::BufReader, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt,
 };
 
 use async_io::Timer;
@@ -275,27 +276,28 @@ async fn picomux_inner(
             let buffer_table = buffer_table.clone();
             let outgoing = outgoing.clone();
             async move {
-                let mut buf = [0u8; MSS];
                 loop {
-                    let n = read_outgoing
-                        .read(&mut buf)
+                    let body = async_io_bufpool::pooled_read(&mut read_outgoing)
                         .await
                         .context("could not read_outgoing")?;
-                    if n == 0 {
+                    if body.is_empty() {
                         anyhow::bail!("EOF on read_outgoing")
                     }
+                    tracing::trace!(
+                        stream_id,
+                        n = body.len(),
+                        "sending outgoing data into channel"
+                    );
                     let frame = Frame {
                         header: Header {
                             version: 1,
                             command: CMD_PSH,
-                            body_len: n as _,
+                            body_len: body.len() as _,
                             stream_id,
                         },
-                        body: Bytes::copy_from_slice(&buf[..n]),
+                        body,
                     };
-
                     buffer_table.wait_send_window(stream_id).await;
-                    tracing::trace!(stream_id, n, "sending outgoing data into channel");
                     outgoing.send(frame).await?;
                 }
             }
