@@ -1200,9 +1200,9 @@ dependencies = [
 
 [[package]]
 name = "bipe"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14d12ea150123c85891a54a41130daf4c8cbde9d99c53776b5289d8560514311"
+checksum = "9adc32689214e282235be3fdce0d783f61bdb0c5e65725717389f0564eca9a66"
 dependencies = [
  "concurrent-queue 1.2.4",
  "crossbeam-queue",
