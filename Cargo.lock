@@ -3110,7 +3110,7 @@ dependencies = [
  "serde_yaml",
  "sillad",
  "sillad-sosistab3",
- "simple-dns",
+ "simple-dns 0.7.1",
  "smol 2.0.2",
  "smol-timeout2",
  "smol_str",
@@ -3210,7 +3210,9 @@ dependencies = [
  "async-trait",
  "atomic_float",
  "blake3",
+ "bytes",
  "clap",
+ "dashmap 6.1.0",
  "ed25519-dalek",
  "fastrand 2.1.1",
  "flate2",
@@ -3235,6 +3237,7 @@ dependencies = [
  "serde_yaml",
  "sillad",
  "sillad-sosistab3",
+ "simple-dns 0.9.0",
  "smol 2.0.2",
  "smol-timeout2",
  "smolscale",
@@ -6242,6 +6245,15 @@ name = "simple-dns"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c80e565e7dcc4f1ef247e2f395550d4cf7d777746d5988e7e4e3156b71077fc"
+dependencies = [
+ "bitflags 2.6.0",
+]
+
+[[package]]
+name = "simple-dns"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3c6d6f06cfdbd5df751d2fba9933d071fbdcfc2071e0dada98aab6154ef7120"
 dependencies = [
  "bitflags 2.6.0",
 ]

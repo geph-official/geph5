@@ -90,6 +90,7 @@ pub(super) async fn packet_shuffle(
                 let len = u16::from_le_bytes(len_buf) as usize;
                 let mut buf = vec![0u8; len];
                 conn.read_exact(&mut buf).await?;
+                tracing::debug!(pkt = hex::encode(&buf), "incoming DNS packet");
                 dns_proxy.send_to(&buf, src).await?;
                 anyhow::Ok(())
             })

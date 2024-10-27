@@ -1,6 +1,6 @@
 use std::{
     net::SocketAddr,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 
@@ -10,9 +10,9 @@ use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
 use moka::future::Cache;
 
 use sillad::{dialer::Dialer, tcp::HappyEyeballsTcpDialer};
-use smol::{future::FutureExt as _, net::UdpSocket};
+use smol::{future::FutureExt as _, io::BufWriter, net::UdpSocket};
 
-use crate::{allow::proxy_allowed, ratelimit::RateLimiter};
+use crate::{allow::proxy_allowed, dns::raw_dns_respond, ratelimit::RateLimiter};
 
 use smol_timeout2::TimeoutExt;
 
@@ -58,16 +58,19 @@ pub async fn proxy_stream(
             Ok(())
         }
         "udp" => {
-            let udp_socket: UdpSocket = UdpSocket::bind("0.0.0.0:0")
-                .await
-                .context("UDP bind failed")?;
             let addr = *dest_addrs
                 .iter()
                 .find(|s| s.is_ipv4())
                 .context("UDP only supports ipv4 for now")?;
+            if addr.port() == 53 {
+                return proxy_dns(stream).await;
+            }
             if addr.port() == 443 {
                 anyhow::bail!("special-case banning QUIC to improve traffic management")
             }
+            let udp_socket: UdpSocket = UdpSocket::bind("0.0.0.0:0")
+                .await
+                .context("UDP bind failed")?;
             udp_socket.connect(addr).await?;
             let (read_stream, mut write_stream) = stream.split();
             let up_loop = async {
@@ -114,6 +117,38 @@ pub async fn proxy_stream(
         prot => {
             anyhow::bail!("unknown protocol {prot}")
         }
+    }
+}
+
+async fn proxy_dns(stream: picomux::Stream) -> anyhow::Result<()> {
+    let (read_stream, write_stream) = stream.split();
+    let mut read_stream = BufReader::new(read_stream);
+    let write_stream = Arc::new(smol::lock::Mutex::new(BufWriter::new(write_stream)));
+    let mut len_buf = [0; 2];
+    loop {
+        read_stream
+            .read_exact(&mut len_buf)
+            .timeout(Duration::from_secs(60))
+            .await
+            .context("timeout")??;
+        let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
+        read_stream
+            .read_exact(&mut packet_buf)
+            .timeout(Duration::from_secs(60))
+            .await
+            .context("timeout")??;
+        let write_stream = write_stream.clone();
+        smolscale::spawn(async move {
+            let response = raw_dns_respond(packet_buf.into()).await?;
+            let mut stream = write_stream.lock().await;
+            stream
+                .write_all(&(response.len() as u16).to_le_bytes())
+                .await?;
+            stream.write_all(&response).await?;
+            stream.flush().await?;
+            anyhow::Ok(())
+        })
+        .detach();
     }
 }
 

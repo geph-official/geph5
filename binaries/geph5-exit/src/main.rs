@@ -1,3 +1,5 @@
+mod dns;
+
 use clap::Parser;
 use ed25519_dalek::SigningKey;
 use isocountry::CountryCode;
