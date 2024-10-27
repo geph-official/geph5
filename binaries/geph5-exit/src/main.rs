@@ -69,7 +69,7 @@ fn default_total_ratelimit() -> u32 {
 }
 
 fn default_free_port_whitelist() -> Vec<u16> {
-    vec![80, 443, 8080, 8443, 22]
+    vec![80, 443, 8080, 8443, 22, 53]
 }
 
 fn default_country_blacklist() -> Vec<String> {
