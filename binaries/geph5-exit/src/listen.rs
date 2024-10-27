@@ -142,6 +142,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         }
     };
 
+    let mut is_free = false;
     let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
         let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
@@ -152,6 +153,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         verify_user(level, token, sig).await.inspect_err(|e| {
             tracing::warn!(err = debug(e), "**** BAD BAD bad token received ***")
         })?;
+        is_free = level == AccountLevel::Free;
         get_ratelimiter(level, token).await
     } else {
         RateLimiter::unlimited()
@@ -175,7 +177,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let stream = mux.accept().await?;
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
         smolscale::spawn(
-            proxy_stream(ratelimit.clone(), stream)
+            proxy_stream(ratelimit.clone(), stream, is_free)
                 .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
         )
         .detach();

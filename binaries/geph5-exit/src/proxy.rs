@@ -17,7 +17,11 @@ use crate::{allow::proxy_allowed, ratelimit::RateLimiter};
 use smol_timeout2::TimeoutExt;
 
 #[tracing::instrument(skip_all)]
-pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> anyhow::Result<()> {
+pub async fn proxy_stream(
+    ratelimit: RateLimiter,
+    stream: picomux::Stream,
+    is_free: bool,
+) -> anyhow::Result<()> {
     let dest_host = String::from_utf8_lossy(stream.metadata());
     let (protocol, dest_host): (&str, &str) = if dest_host.contains('$') {
         dest_host.split_once('$').unwrap()
@@ -27,9 +31,10 @@ pub async fn proxy_stream(ratelimit: RateLimiter, stream: picomux::Stream) -> an
     let dest_addrs = dns_resolve(dest_host)
         .await
         .context("failed to resolve DNS")?;
-    if !dest_addrs.iter().all(|addr| proxy_allowed(*addr)) {
+    if !dest_addrs.iter().all(|addr| proxy_allowed(*addr, is_free)) {
         anyhow::bail!("Proxying to {} is not allowed", dest_host);
     }
+
     match protocol {
         "tcp" => {
             let start = Instant::now();

@@ -51,6 +51,9 @@ struct ConfigFile {
 
     #[serde(default = "default_total_ratelimit")]
     total_ratelimit: u32,
+
+    #[serde(default = "default_free_port_whitelist")]
+    free_port_whitelist: Vec<u16>,
 }
 
 fn default_free_ratelimit() -> u32 {
@@ -63,6 +66,10 @@ fn default_plus_ratelimit() -> u32 {
 
 fn default_total_ratelimit() -> u32 {
     125000
+}
+
+fn default_free_port_whitelist() -> Vec<u16> {
+    vec![80, 443, 8080, 8443, 22]
 }
 
 fn default_country_blacklist() -> Vec<String> {

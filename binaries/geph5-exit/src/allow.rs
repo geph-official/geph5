@@ -1,6 +1,16 @@
 use std::net::{IpAddr, SocketAddr};
 
-pub fn proxy_allowed(addr: SocketAddr) -> bool {
+use crate::CONFIG_FILE;
+
+pub fn proxy_allowed(addr: SocketAddr, is_free: bool) -> bool {
+    if is_free
+        && !CONFIG_FILE
+            .wait()
+            .free_port_whitelist
+            .contains(&addr.port())
+    {
+        return false;
+    }
     is_globally_routable(&addr.ip())
 }
 
