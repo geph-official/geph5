@@ -1200,9 +1200,9 @@ dependencies = [
 
 [[package]]
 name = "bipe"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfd3194cd5c5273cc178eff2b4e63b9a7c5254c0c7f28a2725d21305edf0c104"
+checksum = "14d12ea150123c85891a54a41130daf4c8cbde9d99c53776b5289d8560514311"
 dependencies = [
  "concurrent-queue 1.2.4",
  "crossbeam-queue",
@@ -4134,9 +4134,9 @@ dependencies = [
 
 [[package]]
 name = "libm"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
+checksum = "3bda4c6077b0b08da2c48b172195795498381a7c8988c9e6212a6c55c5b9bd70"
 
 [[package]]
 name = "libredox"
