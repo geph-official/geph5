@@ -58,13 +58,16 @@ async fn c2e_loop() -> anyhow::Result<()> {
                     .context("ASN lookup failed")?;
                 tracing::debug!(asn, country, remote_addr = display(remote_addr), "got ASN");
                 if CONFIG_FILE.wait().country_blacklist.contains(country) {
-                    anyhow::bail!("rejected connection from blacklisted country")
+                    anyhow::bail!(
+                        "rejected connection from {remote_addr}/AS{asn} in blacklisted country {country}"
+                    )
                 }
             }
             anyhow::Ok(())
         };
         if let Err(err) = test_addr.await {
-            tracing::warn!(err = debug(err), "addr testing failed");
+            tracing::warn!(err = debug(err), "rejected a direct connection");
+            continue;
         }
         smolscale::spawn(
             handle_client(c2e_raw).map_err(|e| tracing::warn!("client died suddenly with {e}")),
@@ -86,6 +89,10 @@ async fn b2e_loop() -> anyhow::Result<()> {
                 continue;
             }
         };
+        let bridge_addr = b2e_raw
+            .remote_addr()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         let (read, write) = b2e_raw.split();
         let mut b2e_mux = PicoMux::new(read, write);
         b2e_mux.set_liveness(LivenessConfig {
@@ -97,15 +104,17 @@ async fn b2e_loop() -> anyhow::Result<()> {
             loop {
                 let lala = b2e_mux.accept().await?;
                 let b2e_metadata: B2eMetadata = stdcode::deserialize(lala.metadata())?;
-                tracing::debug!(
-                    metadata = debug(&b2e_metadata),
+                tracing::trace!(
+                    bridge_addr = display(&bridge_addr),
                     "accepting b2e with metadata"
                 );
+
                 let send = b2e_table
                     .get_with(b2e_metadata.clone(), async {
                         tracing::debug!(
-                            metadata = debug(&b2e_metadata),
-                            "this is a new table entry"
+                            bridge_addr = display(&bridge_addr),
+                            table_length = display(b2e_table.entry_count()),
+                            "creating new b2e metadata"
                         );
                         let (send, recv) = tachyonix::channel(1);
                         smolscale::spawn(b2e_process::b2e_process(b2e_metadata, recv)).detach();

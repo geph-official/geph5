@@ -25,7 +25,7 @@ async fn b2e_inner(mut listener: impl sillad::listener::Listener) -> anyhow::Res
         let client = listener.accept().await?;
         smolscale::spawn(
             handle_client(client)
-                .map_err(|e| tracing::warn!(err = debug(e), "client stopped through b2e")),
+                .map_err(|e| tracing::trace!(err = debug(e), "client stopped through b2e")),
         )
         .detach();
     }
