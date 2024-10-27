@@ -73,7 +73,7 @@ fn default_free_port_whitelist() -> Vec<u16> {
 }
 
 fn default_country_blacklist() -> Vec<String> {
-    vec!["CN".to_string(), "IR".to_string()]
+    vec!["IR".to_string()]
 }
 
 #[derive(Deserialize)]
