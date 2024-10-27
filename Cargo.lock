@@ -510,7 +510,7 @@ dependencies = [
  "futures-lite 2.3.0",
  "parking",
  "polling 3.7.3",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "slab",
  "tracing",
  "windows-sys 0.59.0",
@@ -588,7 +588,7 @@ dependencies = [
  "cfg-if",
  "event-listener 3.1.0",
  "futures-lite 1.13.0",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "windows-sys 0.48.0",
 ]
 
@@ -607,7 +607,7 @@ dependencies = [
  "cfg-if",
  "event-listener 5.3.1",
  "futures-lite 2.3.0",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "tracing",
 ]
 
@@ -634,7 +634,7 @@ dependencies = [
  "cfg-if",
  "futures-core",
  "futures-io",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "signal-hook-registry",
  "slab",
  "windows-sys 0.59.0",
@@ -1458,7 +1458,7 @@ dependencies = [
  "bitflags 2.6.0",
  "log",
  "polling 3.7.3",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "slab",
  "thiserror",
 ]
@@ -1472,7 +1472,7 @@ dependencies = [
  "bitflags 2.6.0",
  "log",
  "polling 3.7.3",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "slab",
  "thiserror",
 ]
@@ -1484,7 +1484,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f0ea9b9476c7fad82841a8dbb380e2eae480c21910feba80725b46931ed8f02"
 dependencies = [
  "calloop 0.12.4",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "wayland-backend",
  "wayland-client",
 ]
@@ -1496,7 +1496,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95a66a987056935f7efce4ab5668920b5d0dac4a7c99991a67395f13702ddd20"
 dependencies = [
  "calloop 0.13.0",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "wayland-backend",
  "wayland-client",
 ]
@@ -5241,7 +5241,7 @@ dependencies = [
  "concurrent-queue 2.5.0",
  "hermit-abi 0.4.0",
  "pin-project-lite 0.2.15",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "tracing",
  "windows-sys 0.59.0",
 ]
@@ -5785,9 +5785,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.37"
+version = "0.38.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8acb788b847c24f28525660c4d7758620a7210875711f79e7f663cc152726811"
+checksum = "aa260229e6538e52293eeb577aabd09945a09d6d9cc0fc550ed7529056c2e32a"
 dependencies = [
  "bitflags 2.6.0",
  "errno",
@@ -6311,7 +6311,7 @@ dependencies = [
  "libc",
  "log",
  "memmap2",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "thiserror",
  "wayland-backend",
  "wayland-client",
@@ -6336,7 +6336,7 @@ dependencies = [
  "libc",
  "log",
  "memmap2",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "thiserror",
  "wayland-backend",
  "wayland-client",
@@ -6932,7 +6932,7 @@ dependencies = [
  "cfg-if",
  "fastrand 2.1.1",
  "once_cell",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "windows-sys 0.59.0",
 ]
 
@@ -7713,7 +7713,7 @@ checksum = "056535ced7a150d45159d3a8dc30f91a2e2d588ca0b23f70e56033622b8016f6"
 dependencies = [
  "cc",
  "downcast-rs",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "scoped-tls",
  "smallvec",
  "wayland-sys",
@@ -7726,7 +7726,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66249d3fc69f76fd74c82cc319300faa554e9d865dab1f7cd66cc20db10b280"
 dependencies = [
  "bitflags 2.6.0",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "wayland-backend",
  "wayland-scanner",
 ]
@@ -7748,7 +7748,7 @@ version = "0.31.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32b08bc3aafdb0035e7fe0fdf17ba0c09c268732707dca4ae098f60cb28c9e4c"
 dependencies = [
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "wayland-client",
  "xcursor",
 ]
@@ -8023,7 +8023,7 @@ dependencies = [
  "either",
  "home",
  "once_cell",
- "rustix 0.38.37",
+ "rustix 0.38.38",
 ]
 
 [[package]]
@@ -8424,7 +8424,7 @@ dependencies = [
  "raw-window-handle 0.5.2",
  "raw-window-handle 0.6.2",
  "redox_syscall 0.3.5",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "sctk-adwaita",
  "smithay-client-toolkit 0.18.1",
  "smol_str",
@@ -8516,7 +8516,7 @@ dependencies = [
  "libc",
  "libloading 0.8.5",
  "once_cell",
- "rustix 0.38.37",
+ "rustix 0.38.38",
  "x11rb-protocol",
 ]
 
