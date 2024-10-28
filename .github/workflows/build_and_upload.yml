@@ -92,7 +92,7 @@ jobs:
           path: artifacts/${{ matrix.dir }}
 
   build-bridge-exit:
-    name: Build Bridge and Exit (Musl)
+    name: Build Bridge, Exit, and Broker (Musl)
     runs-on: ubuntu-20.04
 
     steps:
@@ -119,15 +119,17 @@ jobs:
         with:
           key: x86_64-unknown-linux-musl-bridge-exit
 
-      - name: Build bridge and exit
+      - name: Build bridge and exit and broker
         run: |
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-bridge/Cargo.toml
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
+          cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-broker/Cargo.toml
 
       - name: Move bridge and exit binaries to artifacts directory
         run: |
           mkdir -p artifacts/musl
           mv target/x86_64-unknown-linux-musl/release/geph5-bridge artifacts/musl/
+          mv target/x86_64-unknown-linux-musl/release/geph5-broker artifacts/musl/
           mv target/x86_64-unknown-linux-musl/release/geph5-exit artifacts/musl/
 
       - name: Upload bridge and exit artifacts
