@@ -18,7 +18,7 @@ pub async fn bridge_to_leaf_route(
 ) -> anyhow::Result<RouteDescriptor> {
     static CACHE: Lazy<Cache<(SocketAddr, SocketAddr), RouteDescriptor>> = Lazy::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(60))
+            .time_to_live(Duration::from_secs(86400 / 2))
             .build()
     });
 
