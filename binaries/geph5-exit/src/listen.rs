@@ -79,7 +79,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
 async fn b2e_loop() -> anyhow::Result<()> {
     let mut listener = TcpListener::bind(CONFIG_FILE.wait().b2e_listen).await?;
     let b2e_table: Cache<B2eMetadata, Sender<picomux::Stream>> = Cache::builder()
-        .time_to_idle(Duration::from_secs(86400))
+        .time_to_idle(Duration::from_secs(1200))
         .build();
     loop {
         let b2e_raw = match listener.accept().await {
