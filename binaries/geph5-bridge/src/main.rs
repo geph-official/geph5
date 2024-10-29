@@ -9,10 +9,14 @@ use std::{
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
 use rand::Rng;
-use sillad::tcp::{TcpDialer, TcpListener};
+use sillad::{
+    dialer::DialerExt,
+    tcp::{TcpDialer, TcpListener},
+};
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use smol::future::FutureExt as _;
 
+use smol_timeout2::TimeoutExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 fn main() {
@@ -73,10 +77,12 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
 
     let bridge_key = format!("bridges.{pool}");
 
-    let broker_rpc =
-        geph5_broker_protocol::BrokerClient(nanorpc_sillad::DialerTransport(TcpDialer {
+    let broker_rpc = geph5_broker_protocol::BrokerClient(nanorpc_sillad::DialerTransport(
+        TcpDialer {
             dest_addr: broker_addr,
-        }));
+        }
+        .timeout(Duration::from_secs(1)),
+    ));
 
     loop {
         tracing::info!(
@@ -85,11 +91,10 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             "uploading..."
         );
         let byte_count = BYTE_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
-        broker_rpc
-            .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
-            .await
-            .unwrap();
         let res = async {
+            broker_rpc
+                .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
+                .await?;
             broker_rpc
                 .insert_bridge(Mac::new(
                     BridgeDescriptor {
@@ -108,7 +113,7 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
                 .map_err(|e| anyhow::anyhow!(e))?;
             anyhow::Ok(())
         };
-        if let Err(err) = res.await {
+        if let Some(Err(err)) = res.timeout(Duration::from_secs(10)).await {
             tracing::error!(err = %err, "error in upload_loop");
         }
         smol::Timer::after(Duration::from_secs(10)).await;

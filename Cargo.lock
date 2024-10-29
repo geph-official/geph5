@@ -2975,6 +2975,7 @@ dependencies = [
  "sillad",
  "sillad-sosistab3",
  "smol 2.0.2",
+ "smol-timeout2",
  "smolscale",
  "stdcode",
  "tap",
