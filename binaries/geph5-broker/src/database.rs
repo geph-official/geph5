@@ -92,7 +92,7 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeDescriptor>> {
     static CACHE: LazyLock<Cache<String, Vec<BridgeDescriptor>>> = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(300))
+            .time_to_live(Duration::from_secs(60))
             .build()
     });
 
