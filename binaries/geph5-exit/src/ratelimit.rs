@@ -161,6 +161,7 @@ impl RateLimiter {
             self.wait(bts.len()).await;
 
             write_stream.write_all(&bts).await?;
+            write_stream.flush().await?;
             total_bytes += bts.len() as u64;
         }
 
