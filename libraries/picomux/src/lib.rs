@@ -251,13 +251,11 @@ async fn picomux_inner(
 
                     if remote_window + min_quantum <= target_remote_window {
                         let quantum = target_remote_window - remote_window;
-                        outgoing
-                            .send(Frame::new(
-                                stream_id,
-                                CMD_MORE,
-                                &(quantum as u16).to_le_bytes(),
-                            ))
-                            .await?;
+                        outgoing.enqueue(Frame::new(
+                            stream_id,
+                            CMD_MORE,
+                            &(quantum as u16).to_le_bytes(),
+                        ));
                         tracing::debug!(
                             stream_id,
                             remote_window,
@@ -403,7 +401,7 @@ async fn picomux_inner(
             loop {
                 let frame = Frame::read(&mut inner_read).await?;
                 let stream_id = frame.header.stream_id;
-                tracing::trace!(
+                tracing::debug!(
                     command = frame.header.command,
                     stream_id,
                     body_len = frame.header.body_len,

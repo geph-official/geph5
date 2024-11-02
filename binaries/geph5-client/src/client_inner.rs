@@ -3,10 +3,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
-use futures_util::{
-    future::join_all,
-    AsyncReadExt as _,
-};
+use futures_util::{future::join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
@@ -15,10 +12,7 @@ use nursery_macro::nursery;
 use parking_lot::Mutex;
 use picomux::{LivenessConfig, PicoMux};
 use rand::Rng;
-use sillad::{
-    dialer::Dialer as _,
-    EitherPipe, Pipe,
-};
+use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
 use smol_timeout2::TimeoutExt;
 use std::{
@@ -221,6 +215,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
             };
             if let Err(err) = once.await {
                 tracing::warn!(err = debug(err), "individual client thread failed");
+                smol::Timer::after(Duration::from_secs(1)).await;
             }
         }
     };

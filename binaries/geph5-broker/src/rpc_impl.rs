@@ -3,7 +3,7 @@ use bytes::Bytes;
 use cadence::prelude::*;
 use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
-use futures_util::future::join_all;
+use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, BrokerService, Credential,
     ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, UserInfo,
@@ -255,11 +255,17 @@ impl BrokerProtocol for BrokerImpl {
         };
 
         let mut routes = vec![];
-        for route in join_all(
-            raw_descriptors
-                .into_iter()
-                .map(|desc| bridge_to_leaf_route(desc, exit)),
-        )
+        for route in join_all(raw_descriptors.into_iter().map(|desc| {
+            let bridge = desc.control_listen;
+            bridge_to_leaf_route(desc, exit).inspect_err(|err| {
+                tracing::warn!(
+                    err = debug(err),
+                    bridge = debug(bridge),
+                    exit = debug(exit),
+                    "failed to call bridge_to_leaf_route"
+                )
+            })
+        }))
         .await
         {
             match route {
