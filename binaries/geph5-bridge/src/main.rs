@@ -19,6 +19,9 @@ use smol::future::FutureExt as _;
 use smol_timeout2::TimeoutExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())

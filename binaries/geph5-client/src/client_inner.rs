@@ -3,22 +3,26 @@ use anyhow::Context;
 use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
-use futures_util::{future::try_join_all, AsyncReadExt as _};
-use geph5_broker_protocol::ExitDescriptor;
+use futures_util::{
+    future::join_all,
+    AsyncReadExt as _,
+};
 use geph5_misc_rpc::{
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
+use parking_lot::Mutex;
 use picomux::{LivenessConfig, PicoMux};
 use rand::Rng;
 use sillad::{
-    dialer::{Dialer as _, DynDialer},
+    dialer::Dialer as _,
     EitherPipe, Pipe,
 };
 use smol::future::FutureExt as _;
 use smol_timeout2::TimeoutExt;
 use std::{
+    convert::Infallible,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
@@ -132,97 +136,103 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all)]
-pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, ExitDescriptor, DynDialer)>>> =
-        |_| smol::lock::Mutex::new(None);
-
-    {
-        let mut dialer = ctx.get(DIALER).lock().await;
-        if dialer.is_none() {
-            let (pubkey, exit, raw_dialer) =
-                get_dialer(&ctx).await.context("could not get initially")?;
-            *dialer = Some((pubkey, exit, raw_dialer));
+    let dialer = Mutex::new({
+        loop {
+            let result = get_dialer(&ctx).await;
+            match result {
+                Ok(res) => break res,
+                Err(err) => {
+                    tracing::error!(err = debug(err), "failed to get dialer");
+                    smol::Timer::after(Duration::from_secs(1)).await;
+                }
+            }
         }
-    }
+    });
 
     let dial_refresh = async {
         loop {
+            let secs = rand::thread_rng().gen_range(300..2000);
+            tracing::info!(secs, "waiting until refresh");
             tracing::info!("refreshing dialer");
             match get_dialer(&ctx).await {
                 Ok((pubkey, exit, raw_dialer)) => {
-                    *ctx.get(DIALER).lock().await = Some((pubkey, exit, raw_dialer));
+                    *dialer.lock() = (pubkey, exit, raw_dialer);
                 }
                 Err(e) => tracing::warn!(err = debug(e), "failed to refresh dialer"),
             }
-            let secs = rand::thread_rng().gen_range(300..2000);
-            tracing::info!(secs, "waiting until refresh");
             smol::Timer::after(Duration::from_secs(secs)).await;
         }
     };
 
     let start = Instant::now();
-    let (pubkey, exit, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
+    let (pubkey, exit, raw_dialer) = dialer.lock().clone();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
     #[allow(unreachable_code)]
-    let once = || async {
+    let thread = || async {
         loop {
-            let authed_pipe = async {
-                let start = Instant::now();
-                let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
-                tracing::debug!(
-                    elapsed = debug(start.elapsed()),
-                    protocol = raw_pipe.protocol(),
-                    "dial completed"
-                );
-                let died = AtomicBool::new(true);
-                let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
-                scopeguard::defer!({
-                    if died.load(Ordering::SeqCst) {
-                        tracing::debug!(addr = display(addr), "deprioritizing route");
-                        deprioritize_route(addr);
-                    }
+            let once = async {
+                let authed_pipe = async {
+                    let start = Instant::now();
+                    let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
+                    tracing::debug!(
+                        elapsed = debug(start.elapsed()),
+                        protocol = raw_pipe.protocol(),
+                        "dial completed"
+                    );
+                    let died = AtomicBool::new(true);
+                    let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
+                    scopeguard::defer!({
+                        if died.load(Ordering::SeqCst) {
+                            tracing::debug!(addr = display(addr), "deprioritizing route");
+                            deprioritize_route(addr);
+                        }
+                    });
+                    let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
+                        .await
+                        .context("could not client auth")?;
+                    died.store(false, Ordering::SeqCst);
+                    tracing::debug!(
+                        elapsed = debug(start.elapsed()),
+                        "authentication done, starting mux system"
+                    );
+                    anyhow::Ok(authed_pipe)
+                }
+                .timeout(Duration::from_secs(15))
+                .await
+                .context("overall dial/mux/auth timeout")??;
+                *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
+                    protocol: authed_pipe.protocol().to_string(),
+                    bridge: authed_pipe
+                        .remote_addr()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default(),
+                    exit: exit.clone(),
                 });
-                let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
+                let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
+                proxy_loop(ctx.clone(), authed_pipe)
                     .await
-                    .context("could not client auth")?;
-                died.store(false, Ordering::SeqCst);
-                tracing::debug!(
-                    elapsed = debug(start.elapsed()),
-                    "authentication done, starting mux system"
-                );
-                anyhow::Ok(authed_pipe)
-            }
-            .timeout(Duration::from_secs(15))
-            .await
-            .context("overall dial/mux/auth timeout")??;
-            *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
-                protocol: authed_pipe.protocol().to_string(),
-                bridge: authed_pipe
-                    .remote_addr()
-                    .map(|s| s.to_string())
-                    .unwrap_or_default(),
-                exit: exit.clone(),
-            });
-            if let Err(err) = client_inner(ctx.clone(), authed_pipe).await {
-                tracing::warn!(err = debug(err), "client_inner restarted");
+                    .context(format!("inner connection to {addr} failed"))
+            };
+            if let Err(err) = once.await {
+                tracing::warn!(err = debug(err), "individual client thread failed");
             }
         }
-        anyhow::Ok(())
     };
 
-    try_join_all((0..CONCURRENCY).map(|_| once()))
+    join_all((0..CONCURRENCY).map(|_| thread()))
         .or(dial_refresh)
-        .await?;
-    Ok(())
+        .await;
+    unreachable!()
 }
 
 #[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed), server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
-async fn client_inner(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
+async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {

@@ -2979,6 +2979,7 @@ dependencies = [
  "smolscale",
  "stdcode",
  "tap",
+ "tikv-jemallocator",
  "tracing",
  "tracing-subscriber",
 ]
