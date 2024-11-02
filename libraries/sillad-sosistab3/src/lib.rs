@@ -85,7 +85,6 @@ impl Cookie {
 pub struct SosistabPipe<P: Pipe> {
     #[pin]
     lower: P,
-
     state: State,
 
     read_buf: VecDeque<u8>,
@@ -115,68 +114,34 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        // IMPORTANT: we must either write the *whole* thing (now or later) and return Ready, or write *nothing* and return Pending. This means that if the underlying transport blocks, we can't "flush" here.
         let mut this = self.project();
-        let mut buf_consumed = false;
         if this.to_write_buf.is_empty() {
             this.state.encrypt(buf, this.to_write_buf);
-            buf_consumed = true;
         }
-
-        // we try to write the whole thing, *once*. If it doesn't work, tough luck, these bytes will only be written on the next write, or on flush
-        match this.lower.as_mut().poll_write(cx, this.to_write_buf) {
-            Poll::Ready(Ok(n)) => {
-                if n == this.to_write_buf.len() {
-                    // yay we wrote the WHOLE thing!
-                    this.to_write_buf.clear();
-                    Poll::Ready(Ok(buf.len()))
-                } else {
-                    // we didn't write the whole thing, so we need to keep the rest for later
+        loop {
+            tracing::trace!(bytes_to_write = this.to_write_buf.len(), "polling write");
+            let res = futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf));
+            match res {
+                Ok(n) => {
+                    tracing::trace!(
+                        bytes_to_write = this.to_write_buf.len(),
+                        just_wrote = n,
+                        plain_n = buf.len(),
+                        "successfully wrote"
+                    );
                     this.to_write_buf.drain(..n);
-                    if buf_consumed {
-                        Poll::Ready(Ok(buf.len()))
-                    } else {
-                        Poll::Pending
+                    if this.to_write_buf.is_empty() {
+                        tracing::trace!(
+                            bytes_to_write = this.to_write_buf.len(),
+                            just_wrote = n,
+                            "returning Ready from write"
+                        );
+                        return Poll::Ready(Ok(buf.len()));
                     }
                 }
-            }
-            Poll::Ready(Err(err)) => {
-                this.to_write_buf.clear();
-                Poll::Ready(Err(err))
-            }
-            Poll::Pending => {
-                if buf_consumed {
-                    Poll::Ready(Ok(buf.len()))
-                } else {
-                    Poll::Pending
-                }
+                Err(err) => return Poll::Ready(Err(err)),
             }
         }
-
-        // loop {
-        //     tracing::trace!(bytes_to_write = this.to_write_buf.len(), "polling write");
-        //     let res = futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf));
-        //     match res {
-        //         Ok(n) => {
-        //             tracing::trace!(
-        //                 bytes_to_write = this.to_write_buf.len(),
-        //                 just_wrote = n,
-        //                 plain_n = buf.len(),
-        //                 "successfully wrote"
-        //             );
-        //             this.to_write_buf.drain(..n);
-        //             if this.to_write_buf.is_empty() {
-        //                 tracing::trace!(
-        //                     bytes_to_write = this.to_write_buf.len(),
-        //                     just_wrote = n,
-        //                     "returning Ready from write"
-        //                 );
-        //                 return Poll::Ready(Ok(buf.len()));
-        //             }
-        //         }
-        //         Err(err) => return Poll::Ready(Err(err)),
-        //     }
-        // }
     }
 
     fn poll_flush(
