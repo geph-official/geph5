@@ -106,7 +106,7 @@ impl<P: Pipe> SosistabPipe<P> {
         use futures_util::io::{AsyncReadExt, AsyncWriteExt};
         let addr = lower.remote_addr().map(|s| s.to_string());
         let (lower_read, mut lower_write) = lower.split();
-        let (bipe_write, mut bipe_read) = bipe::bipe(8192);
+        let (bipe_write, mut bipe_read) = bipe::bipe(65536);
         let state = Arc::new(Mutex::new(state));
         {
             let state = state.clone();
@@ -115,6 +115,9 @@ impl<P: Pipe> SosistabPipe<P> {
                 let mut output = vec![];
                 loop {
                     let n = bipe_read.read(&mut buf).await?;
+                    if n == 0 {
+                        return Ok(());
+                    }
                     state.lock().unwrap().encrypt(&buf[..n], &mut output);
                     lower_write.write_all(&output).await?;
                     output.clear();

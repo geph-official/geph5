@@ -51,6 +51,12 @@ impl Outgoing {
 
     /// Infallibly, non-blockingly enqueues a frame to be sent to the outgoing writer.
     pub fn enqueue(&self, outgoing: Frame) {
+        tracing::debug!(
+            command = outgoing.header.command,
+            stream_id = outgoing.header.stream_id,
+            body_len = outgoing.header.body_len,
+            "sending outgoing frame"
+        );
         self.inner.queue.push(outgoing);
         self.inner.grow_signal.notify_one();
     }
