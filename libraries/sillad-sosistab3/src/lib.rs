@@ -2,10 +2,12 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     io::{ErrorKind, Read, Write},
+    sync::{Arc, Mutex},
     task::Poll,
 };
 
-use futures_util::{AsyncRead, AsyncWrite};
+use bipe::BipeWriter;
+use futures_util::{io::ReadHalf, AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 
 use serde::{Deserialize, Serialize};
@@ -84,8 +86,13 @@ impl Cookie {
 #[pin_project]
 pub struct SosistabPipe<P: Pipe> {
     #[pin]
-    lower: P,
-    state: State,
+    lower_read: ReadHalf<P>,
+    #[pin]
+    bipe_write: BipeWriter,
+
+    addr: Option<String>,
+
+    state: Arc<Mutex<State>>,
 
     read_buf: VecDeque<u8>,
     read_closed: bool,
@@ -96,10 +103,31 @@ pub struct SosistabPipe<P: Pipe> {
 
 impl<P: Pipe> SosistabPipe<P> {
     fn new(lower: P, state: State) -> Self {
+        use futures_util::io::{AsyncReadExt, AsyncWriteExt};
+        let addr = lower.remote_addr().map(|s| s.to_string());
+        let (lower_read, mut lower_write) = lower.split();
+        let (bipe_write, mut bipe_read) = bipe::bipe(8192);
+        let state = Arc::new(Mutex::new(state));
+        {
+            let state = state.clone();
+            smolscale::spawn::<anyhow::Result<()>>(async move {
+                let mut buf = [0u8; 8192];
+                let mut output = vec![];
+                loop {
+                    let n = bipe_read.read(&mut buf).await?;
+                    state.lock().unwrap().encrypt(&buf[..n], &mut output);
+                    lower_write.write_all(&output).await?;
+                    output.clear();
+                }
+            })
+            .detach();
+        }
         Self {
-            lower,
+            lower_read,
+            bipe_write,
             state,
             read_buf: Default::default(),
+            addr,
             read_closed: false,
             raw_read_buf: Default::default(),
             to_write_buf: Default::default(),
@@ -114,62 +142,23 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        let mut this = self.project();
-        if this.to_write_buf.is_empty() {
-            this.state.encrypt(buf, this.to_write_buf);
-        }
-        loop {
-            tracing::trace!(bytes_to_write = this.to_write_buf.len(), "polling write");
-            let res = futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf));
-            match res {
-                Ok(n) => {
-                    tracing::trace!(
-                        bytes_to_write = this.to_write_buf.len(),
-                        just_wrote = n,
-                        plain_n = buf.len(),
-                        "successfully wrote"
-                    );
-                    this.to_write_buf.drain(..n);
-                    if this.to_write_buf.is_empty() {
-                        tracing::trace!(
-                            bytes_to_write = this.to_write_buf.len(),
-                            just_wrote = n,
-                            "returning Ready from write"
-                        );
-                        return Poll::Ready(Ok(buf.len()));
-                    }
-                }
-                Err(err) => return Poll::Ready(Err(err)),
-            }
-        }
+        let this = self.project();
+        this.bipe_write.poll_write(cx, buf)
     }
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let mut this = self.project();
-        if !this.to_write_buf.is_empty() {
-            match futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf)) {
-                Ok(n) => {
-                    this.to_write_buf.drain(..n);
-                    if !this.to_write_buf.is_empty() {
-                        return Poll::Pending;
-                    }
-                }
-                Err(err) => {
-                    return Poll::Ready(Err(err));
-                }
-            }
-        }
-        this.lower.poll_flush(cx)
+        let this = self.project();
+        this.bipe_write.poll_flush(cx)
     }
 
     fn poll_close(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        self.project().lower.poll_close(cx)
+        self.project().bipe_write.poll_close(cx)
     }
 }
 
@@ -187,7 +176,7 @@ impl<P: Pipe> AsyncRead for SosistabPipe<P> {
                 return Poll::Ready(this.read_buf.read(buf));
             } else {
                 // we reuse buf as a temporary buffer
-                let n = futures_util::ready!(this.lower.as_mut().poll_read(cx, buf));
+                let n = futures_util::ready!(this.lower_read.as_mut().poll_read(cx, buf));
                 match n {
                     Err(e) => return Poll::Ready(Err(e)),
                     Ok(n) => {
@@ -204,7 +193,12 @@ impl<P: Pipe> AsyncRead for SosistabPipe<P> {
                         );
                         // attempt to decrypt in order to fill the read_buf. we decrypt as many fragments as possible until we cannot decrypt anymore. at that point, we would need more fresh data to decrypt more.
                         loop {
-                            match this.state.decrypt(this.raw_read_buf, &mut this.read_buf) {
+                            match this
+                                .state
+                                .lock()
+                                .unwrap()
+                                .decrypt(this.raw_read_buf, &mut this.read_buf)
+                            {
                                 Ok(result) => {
                                     tracing::trace!(
                                         n,
@@ -242,10 +236,12 @@ impl<P: Pipe> Pipe for SosistabPipe<P> {
     }
 
     fn remote_addr(&self) -> Option<&str> {
-        self.lower.remote_addr()
+        self.addr.as_deref()
     }
 
     fn shared_secret(&self) -> Option<&[u8]> {
-        Some(self.state.shared_secret())
+        Some(unsafe {
+            std::mem::transmute::<&[u8], &[u8]>(self.state.lock().unwrap().shared_secret())
+        })
     }
 }
