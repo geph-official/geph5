@@ -54,9 +54,8 @@ impl BufferTable {
         if let Some(inner) = self.inner.get(&stream_id) {
             if inner.0.len() > MAX_WINDOW {
                 tracing::error!("INDIVIDUAL BUFFER IS FULL");
-            } else {
-                let _ = inner.0.try_send((frame, Instant::now()));
             }
+            let _ = inner.0.try_send((frame, Instant::now()));
         }
     }
 
