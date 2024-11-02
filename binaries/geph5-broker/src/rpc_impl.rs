@@ -257,7 +257,7 @@ impl BrokerProtocol for BrokerImpl {
         let mut routes = vec![];
         for route in join_all(raw_descriptors.into_iter().map(|desc| {
             let bridge = desc.control_listen;
-            bridge_to_leaf_route(desc, exit).inspect_err(|err| {
+            bridge_to_leaf_route(desc, exit).inspect_err(move |err| {
                 tracing::warn!(
                     err = debug(err),
                     bridge = debug(bridge),
