@@ -112,8 +112,8 @@ impl State {
     pub fn decrypt(&mut self, bts: &[u8], mut output: impl Write) -> Result<usize, std::io::Error> {
         if bts.len() < 24 {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Encrypted data is too short",
+                std::io::ErrorKind::WouldBlock,
+                "encrypted data is too short",
             ));
         }
 
