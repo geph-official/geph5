@@ -5,8 +5,7 @@ use std::{
     task::Poll,
 };
 
-use bipe::BipeWriter;
-use futures_util::{io::ReadHalf, AsyncRead, AsyncReadExt, AsyncWrite};
+use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 
 use serde::{Deserialize, Serialize};
@@ -85,11 +84,7 @@ impl Cookie {
 #[pin_project]
 pub struct SosistabPipe<P: Pipe> {
     #[pin]
-    lower_read: ReadHalf<P>,
-    #[pin]
-    bipe_write: BipeWriter,
-
-    addr: Option<String>,
+    lower: P,
 
     state: State,
 
@@ -102,23 +97,10 @@ pub struct SosistabPipe<P: Pipe> {
 
 impl<P: Pipe> SosistabPipe<P> {
     fn new(lower: P, state: State) -> Self {
-        let addr = lower.remote_addr().map(|s| s.to_string());
-        let (lower_read, mut lower_write) = lower.split();
-        let (bipe_write, bipe_read) = bipe::bipe(32768);
-        smolscale::spawn(async move {
-            let _ = futures_util::io::copy_buf(
-                futures_util::io::BufReader::with_capacity(32768, bipe_read),
-                &mut lower_write,
-            )
-            .await;
-        })
-        .detach();
         Self {
-            lower_read,
-            bipe_write,
+            lower,
             state,
             read_buf: Default::default(),
-            addr,
             read_closed: false,
             raw_read_buf: Default::default(),
             to_write_buf: Default::default(),
@@ -133,23 +115,96 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        let this = self.project();
-        this.bipe_write.poll_write(cx, buf)
+        // IMPORTANT: we must either write the *whole* thing (now or later) and return Ready, or write *nothing* and return Pending. This means that if the underlying transport blocks, we can't "flush" here.
+        let mut this = self.project();
+        let mut buf_consumed = false;
+        if this.to_write_buf.is_empty() {
+            this.state.encrypt(buf, this.to_write_buf);
+            buf_consumed = true;
+        }
+
+        // we try to write the whole thing, *once*. If it doesn't work, tough luck, these bytes will only be written on the next write, or on flush
+        match this.lower.as_mut().poll_write(cx, this.to_write_buf) {
+            Poll::Ready(Ok(n)) => {
+                if n == this.to_write_buf.len() {
+                    // yay we wrote the WHOLE thing!
+                    this.to_write_buf.clear();
+                    Poll::Ready(Ok(buf.len()))
+                } else {
+                    // we didn't write the whole thing, so we need to keep the rest for later
+                    this.to_write_buf.drain(..n);
+                    if buf_consumed {
+                        Poll::Ready(Ok(buf.len()))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+            }
+            Poll::Ready(Err(err)) => {
+                this.to_write_buf.clear();
+                Poll::Ready(Err(err))
+            }
+            Poll::Pending => {
+                if buf_consumed {
+                    Poll::Ready(Ok(buf.len()))
+                } else {
+                    Poll::Pending
+                }
+            }
+        }
+
+        // loop {
+        //     tracing::trace!(bytes_to_write = this.to_write_buf.len(), "polling write");
+        //     let res = futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf));
+        //     match res {
+        //         Ok(n) => {
+        //             tracing::trace!(
+        //                 bytes_to_write = this.to_write_buf.len(),
+        //                 just_wrote = n,
+        //                 plain_n = buf.len(),
+        //                 "successfully wrote"
+        //             );
+        //             this.to_write_buf.drain(..n);
+        //             if this.to_write_buf.is_empty() {
+        //                 tracing::trace!(
+        //                     bytes_to_write = this.to_write_buf.len(),
+        //                     just_wrote = n,
+        //                     "returning Ready from write"
+        //                 );
+        //                 return Poll::Ready(Ok(buf.len()));
+        //             }
+        //         }
+        //         Err(err) => return Poll::Ready(Err(err)),
+        //     }
+        // }
     }
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let this = self.project();
-        this.bipe_write.poll_flush(cx)
+        let mut this = self.project();
+        if !this.to_write_buf.is_empty() {
+            match futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf)) {
+                Ok(n) => {
+                    this.to_write_buf.drain(..n);
+                    if !this.to_write_buf.is_empty() {
+                        return Poll::Pending;
+                    }
+                }
+                Err(err) => {
+                    return Poll::Ready(Err(err));
+                }
+            }
+        }
+        this.lower.poll_flush(cx)
     }
 
     fn poll_close(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        self.project().bipe_write.poll_close(cx)
+        self.project().lower.poll_close(cx)
     }
 }
 
@@ -167,7 +222,7 @@ impl<P: Pipe> AsyncRead for SosistabPipe<P> {
                 return Poll::Ready(this.read_buf.read(buf));
             } else {
                 // we reuse buf as a temporary buffer
-                let n = futures_util::ready!(this.lower_read.as_mut().poll_read(cx, buf));
+                let n = futures_util::ready!(this.lower.as_mut().poll_read(cx, buf));
                 match n {
                     Err(e) => return Poll::Ready(Err(e)),
                     Ok(n) => {
@@ -222,7 +277,7 @@ impl<P: Pipe> Pipe for SosistabPipe<P> {
     }
 
     fn remote_addr(&self) -> Option<&str> {
-        self.addr.as_deref()
+        self.lower.remote_addr()
     }
 
     fn shared_secret(&self) -> Option<&[u8]> {

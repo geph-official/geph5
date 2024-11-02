@@ -6213,7 +6213,6 @@ dependencies = [
  "async-io 2.3.4",
  "async-task",
  "async-trait",
- "bipe",
  "blake3",
  "chacha20poly1305",
  "futures-util",
