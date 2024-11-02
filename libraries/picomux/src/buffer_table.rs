@@ -71,7 +71,7 @@ impl BufferTable {
         } else {
             futures_util::future::pending().await
         };
-        semaph.acquire(1).await;
+        semaph.acquire(1).await.disarm();
     }
 
     /// Increases the send window for the given stream.
