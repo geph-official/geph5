@@ -139,7 +139,6 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     static DIALER: CtxField<smol::lock::Mutex<Option<(VerifyingKey, ExitDescriptor, DynDialer)>>> =
         |_| smol::lock::Mutex::new(None);
 
-    let start = Instant::now();
     {
         let mut dialer = ctx.get(DIALER).lock().await;
         if dialer.is_none() {
@@ -164,6 +163,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         }
     };
 
+    let start = Instant::now();
     let (pubkey, exit, raw_dialer) = ctx.get(DIALER).lock().await.as_ref().unwrap().clone();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
@@ -172,6 +172,7 @@ pub async fn client_once(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let once = || async {
         loop {
             let authed_pipe = async {
+                let start = Instant::now();
                 let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
                 tracing::debug!(
                     elapsed = debug(start.elapsed()),

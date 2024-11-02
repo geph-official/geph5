@@ -134,10 +134,10 @@ impl State {
                 &mut enc_length,
                 array_ref![tag_length, 0, 16].into(),
             )
-            .map_err(|_e| {
+            .map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
-                    "decryption of the length failed".to_string(),
+                    format!("decryption of the length failed: {e}"),
                 )
             })?;
 
@@ -168,10 +168,10 @@ impl State {
         );
         self.recv_aead
             .decrypt_in_place_detached(&nonce.into(), &[], &mut enc_body, tag_body.into())
-            .map_err(|_| {
+            .map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
-                    format!("decrypt of the body of length {} failed", length),
+                    format!("decrypt of the body of length {} failed: {e}", length),
                 )
             })?;
 
