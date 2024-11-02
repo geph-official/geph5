@@ -52,8 +52,12 @@ impl BufferTable {
 
     pub fn send_to(&self, stream_id: u32, frame: Frame) {
         if let Some(inner) = self.inner.get(&stream_id) {
-            if inner.0.len() > MAX_WINDOW {
-                tracing::error!("INDIVIDUAL BUFFER IS FULL");
+            if inner.0.len() > MAX_WINDOW * 2 {
+                tracing::warn!(
+                    stream_id,
+                    frame = debug(frame.header),
+                    "individual buffer is full, so dropping message"
+                );
             } else {
                 let _ = inner.0.try_send((frame, Instant::now()));
             }

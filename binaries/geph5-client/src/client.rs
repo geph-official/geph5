@@ -2,21 +2,20 @@ use anyctx::AnyCtx;
 
 use anyhow::Context;
 use bytes::Bytes;
-use clone_macro::clone;
 use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
 use geph5_broker_protocol::{Credential, ExitList, UserInfo};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use smol::future::FutureExt as _;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use serde::{Deserialize, Serialize};
-use smolscale::immortal::{Immortal, RespawnStrategy};
+use smolscale::immortal::Immortal;
 
 use crate::{
     auth::{auth_loop, get_auth_token},
     broker::{broker_client, BrokerSource},
-    client_inner::{client_once, open_conn},
+    client_inner::{client_inner, open_conn},
     control_prot::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
     },
@@ -197,12 +196,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     } else {
         let vpn_loop = vpn_loop(&ctx);
 
-        let _client_loop = Immortal::respawn(
-            RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-            clone!([ctx], move || client_once(ctx.clone()).inspect_err(
-                |e| tracing::warn!("client died and restarted: {:?}", e)
-            )),
-        );
+        let _client_loop = Immortal::spawn(client_inner(ctx.clone()));
 
         let rpc_serve = async {
             if let Some(control_listen) = ctx.init().control_listen {
