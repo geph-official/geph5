@@ -2,11 +2,12 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     io::{ErrorKind, Read, Write},
+    sync::{Arc, Mutex},
     task::Poll,
 };
 
 use bipe::BipeWriter;
-use futures_util::{io::ReadHalf, AsyncRead, AsyncReadExt, AsyncWrite};
+use futures_util::{io::ReadHalf, AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 
 use serde::{Deserialize, Serialize};
@@ -91,7 +92,7 @@ pub struct SosistabPipe<P: Pipe> {
 
     addr: Option<String>,
 
-    state: State,
+    state: Arc<Mutex<State>>,
 
     read_buf: VecDeque<u8>,
     read_closed: bool,
@@ -102,17 +103,25 @@ pub struct SosistabPipe<P: Pipe> {
 
 impl<P: Pipe> SosistabPipe<P> {
     fn new(lower: P, state: State) -> Self {
+        use futures_util::io::{AsyncReadExt, AsyncWriteExt};
         let addr = lower.remote_addr().map(|s| s.to_string());
         let (lower_read, mut lower_write) = lower.split();
-        let (bipe_write, bipe_read) = bipe::bipe(32768);
-        smolscale::spawn(async move {
-            let _ = futures_util::io::copy_buf(
-                futures_util::io::BufReader::with_capacity(32768, bipe_read),
-                &mut lower_write,
-            )
-            .await;
-        })
-        .detach();
+        let (bipe_write, mut bipe_read) = bipe::bipe(8192);
+        let state = Arc::new(Mutex::new(state));
+        {
+            let state = state.clone();
+            smolscale::spawn::<anyhow::Result<()>>(async move {
+                let mut buf = [0u8; 8192];
+                let mut output = vec![];
+                loop {
+                    let n = bipe_read.read(&mut buf).await?;
+                    state.lock().unwrap().encrypt(&buf[..n], &mut output);
+                    lower_write.write_all(&output).await?;
+                    output.clear();
+                }
+            })
+            .detach();
+        }
         Self {
             lower_read,
             bipe_write,
@@ -184,7 +193,12 @@ impl<P: Pipe> AsyncRead for SosistabPipe<P> {
                         );
                         // attempt to decrypt in order to fill the read_buf. we decrypt as many fragments as possible until we cannot decrypt anymore. at that point, we would need more fresh data to decrypt more.
                         loop {
-                            match this.state.decrypt(this.raw_read_buf, &mut this.read_buf) {
+                            match this
+                                .state
+                                .lock()
+                                .unwrap()
+                                .decrypt(this.raw_read_buf, &mut this.read_buf)
+                            {
                                 Ok(result) => {
                                     tracing::trace!(
                                         n,
@@ -226,6 +240,8 @@ impl<P: Pipe> Pipe for SosistabPipe<P> {
     }
 
     fn shared_secret(&self) -> Option<&[u8]> {
-        Some(self.state.shared_secret())
+        Some(unsafe {
+            std::mem::transmute::<&[u8], &[u8]>(self.state.lock().unwrap().shared_secret())
+        })
     }
 }
