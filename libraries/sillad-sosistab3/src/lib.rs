@@ -184,15 +184,17 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
         let mut this = self.project();
-        match futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf)) {
-            Ok(n) => {
-                this.to_write_buf.drain(..n);
-                if !this.to_write_buf.is_empty() {
-                    return Poll::Pending;
+        if !this.to_write_buf.is_empty() {
+            match futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf)) {
+                Ok(n) => {
+                    this.to_write_buf.drain(..n);
+                    if !this.to_write_buf.is_empty() {
+                        return Poll::Pending;
+                    }
                 }
-            }
-            Err(err) => {
-                return Poll::Ready(Err(err));
+                Err(err) => {
+                    return Poll::Ready(Err(err));
+                }
             }
         }
         this.lower.poll_flush(cx)
