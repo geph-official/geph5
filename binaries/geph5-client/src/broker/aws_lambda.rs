@@ -1,10 +1,12 @@
+use std::time::Instant;
+
 use anyhow::Context;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_lambda::{config::Credentials, primitives::Blob};
+use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use serde::Deserialize;
-use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 
 pub struct AwsLambdaTransport {
     pub function_name: String,
@@ -17,6 +19,8 @@ pub struct AwsLambdaTransport {
 impl RpcTransport for AwsLambdaTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        tracing::debug!(method = req.method, "calling broker through lambda");
+        let start = Instant::now();
         // To use webpki-roots we need to create a custom http client, as explained here: https://github.com/smithy-lang/smithy-rs/discussions/3022
 
         // Create a connector that will be used to establish TLS connections
@@ -60,6 +64,12 @@ impl RpcTransport for AwsLambdaTransport {
             status_code: usize,
             body: String,
         }
+        tracing::debug!(
+            method = req.method,
+            resp_len = blob.as_ref().len(),
+            elapsed = debug(start.elapsed()),
+            "response received through lambda"
+        );
         let resp: Response = serde_json::from_slice(blob.as_ref())?;
         if resp.status_code == 200 {
             Ok(serde_json::from_str(&resp.body)?)

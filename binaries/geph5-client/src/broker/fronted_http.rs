@@ -15,7 +15,7 @@ pub struct FrontedHttpTransport {
 impl RpcTransport for FrontedHttpTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::debug!(method = req.method, "calling broker");
+        tracing::debug!(method = req.method, "calling broker through http");
         let start = Instant::now();
         let mut request_builder = self
             .client
@@ -38,7 +38,7 @@ impl RpcTransport for FrontedHttpTransport {
             method = req.method,
             resp_len = resp_bytes.len(),
             elapsed = debug(start.elapsed()),
-            "response received"
+            "response received through http"
         );
         Ok(serde_json::from_slice(&resp_bytes)?)
     }

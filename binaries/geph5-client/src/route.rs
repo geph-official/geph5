@@ -88,11 +88,6 @@ pub async fn get_dialer(
         }
         ExitConstraint::Auto => {}
     }
-    tracing::debug!(
-        country_constraint = debug(country_constraint),
-        city_constraint = debug(&city_constraint),
-        "created dialer"
-    );
 
     // First get the conn token
     let (level, conn_token, sig) = get_connect_token(ctx)

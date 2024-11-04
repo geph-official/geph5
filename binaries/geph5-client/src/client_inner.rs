@@ -33,6 +33,7 @@ use crate::{
     china::is_chinese_host,
     client::CtxField,
     control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
+    refresh_cell::RefreshCell,
     route::{deprioritize_route, get_dialer},
     stats::{stat_incr_num, stat_set_num},
     vpn::{fake_dns_backtranslate, vpn_whitelist},
@@ -60,12 +61,11 @@ pub async fn open_conn(
         dest_addr.to_string()
     };
 
-    let dest_host = dest_addr
-        .split(":")
-        .next()
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-    if whitelist_host(ctx, &dest_host) {
+    let (dest_host, _) = dest_addr
+        .rsplit_once(":")
+        .context("cannot split into host and port")?;
+
+    if whitelist_host(ctx, dest_host) {
         let addrs = smol::net::resolve(&dest_addr).await?;
         for addr in addrs.iter() {
             vpn_whitelist(addr.ip());
@@ -134,36 +134,32 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    let dialer = Mutex::new({
-        loop {
-            let result = get_dialer(&ctx).await;
-            match result {
-                Ok(res) => break res,
-                Err(err) => {
-                    tracing::error!(err = debug(err), "failed to get dialer");
-                    smol::Timer::after(Duration::from_secs(1)).await;
+    let dialer = RefreshCell::create(Duration::from_secs(1000), {
+        let ctx = ctx.clone();
+        move || {
+            let ctx = ctx.clone();
+            async move {
+                // jitter here to avoid thundering herd effects
+                let mut sleep_secs: f64 = rand::random();
+                smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
+                loop {
+                    let result = get_dialer(&ctx).await;
+                    match result {
+                        Ok(res) => break res,
+                        Err(err) => {
+                            tracing::error!(err = debug(err), "failed to get dialer");
+                            sleep_secs =
+                                rand::thread_rng().gen_range(sleep_secs..=(sleep_secs * 1.5));
+                            smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
+                        }
+                    }
                 }
             }
         }
-    });
-
-    let dial_refresh = async {
-        loop {
-            let secs = rand::thread_rng().gen_range(300..2000);
-            tracing::info!(secs, "waiting until refresh");
-            tracing::info!("refreshing dialer");
-            match get_dialer(&ctx).await {
-                Ok((pubkey, exit, raw_dialer)) => {
-                    *dialer.lock() = (pubkey, exit, raw_dialer);
-                }
-                Err(e) => tracing::warn!(err = debug(e), "failed to refresh dialer"),
-            }
-            smol::Timer::after(Duration::from_secs(secs)).await;
-        }
-    };
+    })
+    .await;
 
     let start = Instant::now();
-    let (pubkey, exit, raw_dialer) = dialer.lock().clone();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
@@ -171,6 +167,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     let thread = || async {
         loop {
             let once = async {
+                let (pubkey, exit, raw_dialer) = dialer.get();
                 let authed_pipe = async {
                     let start = Instant::now();
                     let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
@@ -220,9 +217,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
         }
     };
 
-    join_all((0..CONCURRENCY).map(|_| thread()))
-        .or(dial_refresh)
-        .await;
+    join_all((0..CONCURRENCY).map(|_| thread())).await;
     unreachable!()
 }
 
