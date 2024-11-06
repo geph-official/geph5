@@ -134,7 +134,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    let dialer = RefreshCell::create(Duration::from_secs(1000), {
+    let dialer = RefreshCell::create(Duration::from_secs(600), {
         let ctx = ctx.clone();
         move || {
             let ctx = ctx.clone();
