@@ -24,6 +24,7 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
                     tracing::debug!(interval = debug(interval), "RefreshCell refreshed properly");
                     let mut inner = inner2.lock();
                     *inner = new_value;
+                    true
                 };
                 let timeout = async {
                     (&mut heartbeat).await;
@@ -31,8 +32,12 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
                         interval = debug(interval),
                         "RefreshCell timed out this time"
                     );
+                    false
                 };
-                fresh.race(timeout).await;
+                let refreshed = fresh.race(timeout).await;
+                if refreshed {
+                    (&mut heartbeat).await;
+                }
             }
         });
         Self { inner, _task: task }
