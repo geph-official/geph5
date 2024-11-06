@@ -145,7 +145,10 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 loop {
                     let result = get_dialer(&ctx).await;
                     match result {
-                        Ok(res) => break res,
+                        Ok(res) => {
+                            tracing::debug!("obtained a fresh, fresh dialer!");
+                            break res;
+                        }
                         Err(err) => {
                             tracing::error!(err = debug(err), "failed to get dialer");
                             sleep_secs =
