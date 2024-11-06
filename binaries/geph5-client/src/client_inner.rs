@@ -9,7 +9,7 @@ use geph5_misc_rpc::{
     read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
-use parking_lot::Mutex;
+
 use picomux::{LivenessConfig, PicoMux};
 use rand::Rng;
 use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
@@ -92,7 +92,7 @@ pub async fn open_conn(
 }
 
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
-    if host.is_empty() {
+    if host.is_empty() || host.contains("[") {
         return false;
     }
     if let Ok(ip) = IpAddr::from_str(host) {
@@ -170,6 +170,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     let thread = || async {
         loop {
             let once = async {
+                *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
                 let (pubkey, exit, raw_dialer) = dialer.get();
                 let authed_pipe = async {
                     let start = Instant::now();
