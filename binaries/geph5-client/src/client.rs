@@ -171,8 +171,6 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         exits: ExitList,
     }
 
-    tracing::info!("loaded config: {}", serde_yaml::to_string(ctx.init())?);
-
     if ctx.init().dry_run {
         auth_loop(&ctx)
             .race(async {

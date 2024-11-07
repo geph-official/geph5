@@ -19,7 +19,7 @@ use std::{net::Ipv4Addr, time::Instant};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
-use futures_util::{AsyncReadExt, AsyncWriteExt};
+use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt as _};
 
 #[cfg(target_os = "windows")]
 mod windows;
@@ -111,7 +111,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         send_injected,
     );
     let _shuffle = if ctx.init().vpn {
-        smolscale::spawn(packet_shuffle(ctx.clone(), send_captured, recv_injected))
+        smolscale::spawn(
+            packet_shuffle(ctx.clone(), send_captured, recv_injected)
+                .inspect_err(|e| tracing::warn!(e = debug(e), "packet_shuffle stopped")),
+        )
     } else {
         let ctx = ctx.clone();
         smolscale::spawn(async move {

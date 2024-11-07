@@ -61,20 +61,18 @@ pub async fn open_conn(
         dest_addr.to_string()
     };
 
-    let (dest_host, _) = dest_addr
-        .rsplit_once(":")
-        .context("cannot split into host and port")?;
-
-    if whitelist_host(ctx, dest_host) {
-        let addrs = smol::net::resolve(&dest_addr).await?;
-        for addr in addrs.iter() {
-            vpn_whitelist(addr.ip());
+    if let Some((dest_host, _)) = dest_addr.rsplit_once(":") {
+        if whitelist_host(ctx, dest_host) {
+            let addrs = smol::net::resolve(&dest_addr).await?;
+            for addr in addrs.iter() {
+                vpn_whitelist(addr.ip());
+            }
+            tracing::debug!(
+                dest_addr = debug(dest_addr),
+                "passing through whitelisted address"
+            );
+            return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
         }
-        tracing::debug!(
-            dest_addr = debug(dest_addr),
-            "passing through whitelisted address"
-        );
-        return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
     }
 
     let (send, recv) = oneshot::channel();
