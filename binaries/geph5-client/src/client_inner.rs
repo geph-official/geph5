@@ -169,7 +169,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
         loop {
             let once = async {
                 *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
-                let (pubkey, exit, raw_dialer) = dialer.get();
+                let (pubkey, exit, raw_dialer) = dialer.get().await;
                 let authed_pipe = async {
                     let start = Instant::now();
                     let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
