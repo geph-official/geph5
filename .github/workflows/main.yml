@@ -8,9 +8,9 @@ on:
     types: created
   issues:
     types: [opened, edited, pinned, closed, reopened, assigned, labeled]
-  pull_request:
-  pull_request_review_comment:
-  push:
+  # pull_request:
+  # pull_request_review_comment:
+  # push:
 
 jobs:
   build:
