@@ -26,7 +26,7 @@ pub async fn raw_dns_respond(req: Bytes) -> anyhow::Result<Bytes> {
 
 static DNS_RESPONDER: LazyLock<Sender<(Bytes, oneshot::Sender<Bytes>)>> = LazyLock::new(|| {
     let (send_req, recv_req) = smol::channel::bounded(1);
-    for _ in 0..100 {
+    for _ in 0..500 {
         smolscale::spawn(dns_respond_loop(recv_req.clone())).detach();
     }
     send_req
