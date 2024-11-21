@@ -169,8 +169,8 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
         loop {
             let once = async {
                 *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
-                let (pubkey, exit, raw_dialer) = dialer.get().await;
-                let authed_pipe = async {
+                let (authed_pipe, exit) = async {
+                    let (pubkey, exit, raw_dialer) = dialer.get().await;
                     let start = Instant::now();
                     let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
                     tracing::debug!(
@@ -194,7 +194,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                         elapsed = debug(start.elapsed()),
                         "authentication done, starting mux system"
                     );
-                    anyhow::Ok(authed_pipe)
+                    anyhow::Ok((authed_pipe, exit))
                 }
                 .timeout(Duration::from_secs(15))
                 .await
