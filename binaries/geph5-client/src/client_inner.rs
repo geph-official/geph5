@@ -182,7 +182,10 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                     let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
                     scopeguard::defer!({
                         if died.load(Ordering::SeqCst) {
-                            tracing::debug!(addr = display(addr), "deprioritizing route");
+                            tracing::debug!(
+                                addr = display(addr),
+                                "deprioritizing route due to failed dial"
+                            );
                             deprioritize_route(addr);
                         }
                     });
@@ -199,6 +202,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 .timeout(Duration::from_secs(15))
                 .await
                 .context("overall dial/mux/auth timeout")??;
+
                 *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
                     protocol: authed_pipe.protocol().to_string(),
                     bridge: authed_pipe
@@ -211,6 +215,13 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 proxy_loop(ctx.clone(), authed_pipe)
                     .await
                     .context(format!("inner connection to {addr} failed"))
+                    .inspect_err(|_| {
+                        tracing::debug!(
+                            addr = display(addr),
+                            "deprioritizing route due to failed dial"
+                        );
+                        deprioritize_route(addr);
+                    })
             };
             if let Err(err) = once.await {
                 tracing::warn!(err = debug(err), "individual client thread failed");
