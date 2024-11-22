@@ -5,7 +5,7 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
-use parking_lot::Mutex;
+
 use smol::future::FutureExt;
 use smolscale::immortal::Immortal;
 
