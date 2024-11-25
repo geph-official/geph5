@@ -41,6 +41,16 @@ pub trait DialerExt: Dialer {
             delay: duration,
         }
     }
+
+    fn dyn_delay(
+        self,
+        duration: impl Fn() -> std::time::Duration + Send + Sync + 'static,
+    ) -> DynDelayDialer<Self> {
+        DynDelayDialer {
+            dialer: self,
+            delay: Box::new(duration),
+        }
+    }
 }
 
 impl<T: Dialer> DialerExt for T {}
@@ -176,6 +186,21 @@ impl<D: Dialer> Dialer for DelayDialer<D> {
 
     async fn dial(&self) -> std::io::Result<Self::P> {
         async_io::Timer::after(self.delay).await;
+        self.dialer.dial().await
+    }
+}
+
+pub struct DynDelayDialer<D: Dialer> {
+    dialer: D,
+    delay: Box<dyn Fn() -> std::time::Duration + Send + Sync + 'static>,
+}
+
+#[async_trait]
+impl<D: Dialer> Dialer for DynDelayDialer<D> {
+    type P = D::P;
+
+    async fn dial(&self) -> std::io::Result<Self::P> {
+        async_io::Timer::after((self.delay)()).await;
         self.dialer.dial().await
     }
 }

@@ -145,12 +145,12 @@ pub async fn get_dialer(
 
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
     vpn_whitelist(exit.c2e_listen.ip());
+
+    let exit_c2e = exit.c2e_listen;
     let direct_dialer = TcpDialer {
-        dest_addr: exit.c2e_listen,
+        dest_addr: exit_c2e,
     }
-    .delay(Duration::from_secs(
-        ROUTE_SHITLIST.get(&exit.c2e_listen).unwrap_or_default() as _,
-    ));
+    .dyn_delay(move || Duration::from_secs(ROUTE_SHITLIST.get(&exit_c2e).unwrap_or_default() as _));
 
     // also get bridges
     let bridge_routes = broker
@@ -179,10 +179,11 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
     match route {
         RouteDescriptor::Tcp(addr) => {
             vpn_whitelist(addr.ip());
-            TcpDialer { dest_addr: *addr }
-                .delay(Duration::from_secs(
-                    ROUTE_SHITLIST.get(addr).unwrap_or_default() as _,
-                ))
+            let addr = *addr;
+            TcpDialer { dest_addr: addr }
+                .dyn_delay(move || {
+                    Duration::from_secs(ROUTE_SHITLIST.get(&addr).unwrap_or_default() as _)
+                })
                 .dynamic()
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
