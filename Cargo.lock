@@ -6189,7 +6189,7 @@ dependencies = [
 
 [[package]]
 name = "sillad"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "async-io 2.3.4",
