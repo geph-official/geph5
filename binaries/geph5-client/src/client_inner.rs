@@ -107,7 +107,7 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
             }
         }
         match psl::suffix(host.as_bytes()) {
-            None => true,
+            None => false,
             Some(suf) => !suf.is_known(),
         }
     }
