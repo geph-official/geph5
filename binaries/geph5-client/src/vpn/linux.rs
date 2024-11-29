@@ -51,10 +51,7 @@ extern "C" fn teardown_routing() {
     );
     WHITELIST.clear();
     std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
-    let cmd = include_str!("linux_routing_setup.sh")
-        .lines()
-        .filter(|l| l.contains("-D") || l.contains("del") || l.contains("flush"))
-        .join("\n");
+    let cmd = include_str!("linux_routing_teardown.sh");
     let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
     child.wait().expect("iptables was not set up properly");
     std::process::exit(0);
