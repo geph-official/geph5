@@ -21,5 +21,5 @@ iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS
 iptables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS
 
 # Redirect DNS requests for IPv6
-ip6tables -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS
-ip6tables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS
+#ip6tables -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS_IPV6
+#ip6tables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS_IPV6

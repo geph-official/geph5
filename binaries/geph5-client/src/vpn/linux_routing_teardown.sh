@@ -22,7 +22,7 @@ iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS || echo "No I
 iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS || echo "No IPv4 TCP DNS redirection rule found"
 
 # Remove redirection of DNS requests for IPv6
-ip6tables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS || echo "No IPv6 UDP DNS redirection rule found"
-ip6tables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS || echo "No IPv6 TCP DNS redirection rule found"
+#ip6tables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS_IPV6 || echo "No IPv6 UDP DNS redirection rule found"
+#ip6tables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS_IPV6 || echo "No IPv6 TCP DNS redirection rule found"
 
 echo "Script execution complete. Reverse actions applied."

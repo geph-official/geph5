@@ -125,7 +125,7 @@ static CONN_REQ_CHAN: CtxField<(
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-static CONCURRENCY: usize = 3;
+static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
@@ -165,77 +165,85 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
     #[allow(unreachable_code)]
-    let thread = || async {
-        loop {
-            let once = async {
-                *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
-                let (authed_pipe, exit) = async {
-                    let (pubkey, exit, raw_dialer) = dialer.get().await;
-                    let start = Instant::now();
-                    let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
-                    tracing::debug!(
-                        elapsed = debug(start.elapsed()),
-                        protocol = raw_pipe.protocol(),
-                        "dial completed"
-                    );
-                    let died = AtomicBool::new(true);
-                    let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
-                    scopeguard::defer!({
-                        if died.load(Ordering::SeqCst) {
+    let instance_thread = |instance| {
+        let dialer = &dialer;
+        let ctx = &ctx;
+        async move {
+            loop {
+                let once = async {
+                    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
+                    let (authed_pipe, exit) = async {
+                        let (pubkey, exit, raw_dialer) = dialer.get().await;
+                        let start = Instant::now();
+                        let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
+                        tracing::debug!(
+                            elapsed = debug(start.elapsed()),
+                            protocol = raw_pipe.protocol(),
+                            "dial completed"
+                        );
+                        let died = AtomicBool::new(true);
+                        let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
+                        scopeguard::defer!({
+                            if died.load(Ordering::SeqCst) {
+                                tracing::debug!(
+                                    addr = display(addr),
+                                    "deprioritizing route due to failed dial"
+                                );
+                                deprioritize_route(addr);
+                            }
+                        });
+                        let authed_pipe = client_auth(ctx, raw_pipe, pubkey)
+                            .await
+                            .context("could not client auth")?;
+                        died.store(false, Ordering::SeqCst);
+                        tracing::debug!(
+                            elapsed = debug(start.elapsed()),
+                            "authentication done, starting mux system"
+                        );
+                        anyhow::Ok((authed_pipe, exit))
+                    }
+                    .timeout(Duration::from_secs(15))
+                    .await
+                    .context("overall dial/mux/auth timeout")??;
+
+                    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
+                        protocol: authed_pipe.protocol().to_string(),
+                        bridge: authed_pipe
+                            .remote_addr()
+                            .map(|s| s.to_string())
+                            .unwrap_or_default(),
+                        exit: exit.clone(),
+                    });
+                    let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
+                    proxy_loop(ctx.clone(), authed_pipe, instance)
+                        .await
+                        .context(format!("inner connection to {addr} failed"))
+                        .inspect_err(|_| {
                             tracing::debug!(
                                 addr = display(addr),
                                 "deprioritizing route due to failed dial"
                             );
                             deprioritize_route(addr);
-                        }
-                    });
-                    let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
-                        .await
-                        .context("could not client auth")?;
-                    died.store(false, Ordering::SeqCst);
-                    tracing::debug!(
-                        elapsed = debug(start.elapsed()),
-                        "authentication done, starting mux system"
-                    );
-                    anyhow::Ok((authed_pipe, exit))
+                        })
+                };
+                if let Err(err) = once.await {
+                    tracing::warn!(err = debug(err), "individual client thread failed");
+                    smol::Timer::after(Duration::from_secs(1)).await;
                 }
-                .timeout(Duration::from_secs(15))
-                .await
-                .context("overall dial/mux/auth timeout")??;
-
-                *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
-                    protocol: authed_pipe.protocol().to_string(),
-                    bridge: authed_pipe
-                        .remote_addr()
-                        .map(|s| s.to_string())
-                        .unwrap_or_default(),
-                    exit: exit.clone(),
-                });
-                let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
-                proxy_loop(ctx.clone(), authed_pipe)
-                    .await
-                    .context(format!("inner connection to {addr} failed"))
-                    .inspect_err(|_| {
-                        tracing::debug!(
-                            addr = display(addr),
-                            "deprioritizing route due to failed dial"
-                        );
-                        deprioritize_route(addr);
-                    })
-            };
-            if let Err(err) = once.await {
-                tracing::warn!(err = debug(err), "individual client thread failed");
-                smol::Timer::after(Duration::from_secs(1)).await;
             }
         }
     };
 
-    join_all((0..CONCURRENCY).map(|_| thread())).await;
+    join_all((0..CONCURRENCY).map(instance_thread)).await;
     unreachable!()
 }
 
-#[tracing::instrument(skip_all, fields(instance=COUNTER.fetch_add(1, Ordering::Relaxed), server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
-async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
+#[tracing::instrument(skip_all, fields(instance=instance, server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
+async fn proxy_loop(
+    ctx: AnyCtx<Config>,
+    authed_pipe: impl Pipe,
+    instance: usize,
+) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
