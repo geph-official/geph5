@@ -26,6 +26,7 @@ pub trait ControlProtocol {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "state")]
 pub enum ConnInfo {
     Connecting,
     Connected(ConnectedInfo),

@@ -4,7 +4,6 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 
-use itertools::Itertools;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use smol::{

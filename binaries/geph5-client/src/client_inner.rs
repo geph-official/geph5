@@ -20,7 +20,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -123,9 +123,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b.into())
 };
 
-static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-static CONCURRENCY: usize = 6;
+pub static CONCURRENCY: usize = 3;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
