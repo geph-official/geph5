@@ -139,17 +139,20 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 let mut sleep_secs: f64 = rand::random();
                 smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
                 loop {
-                    let result = get_dialer(&ctx).await;
+                    let result = get_dialer(&ctx).timeout(Duration::from_secs(20)).await;
                     match result {
-                        Ok(res) => {
+                        Some(Ok(res)) => {
                             tracing::debug!("obtained a fresh, fresh dialer!");
                             break res;
                         }
-                        Err(err) => {
+                        Some(Err(err)) => {
                             tracing::error!(err = debug(err), "failed to get dialer");
                             sleep_secs =
                                 rand::thread_rng().gen_range(sleep_secs..=(sleep_secs * 1.5));
                             smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
+                        }
+                        None => {
+                            tracing::error!("dialer refresh timeout");
                         }
                     }
                 }
@@ -185,7 +188,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                             if died.load(Ordering::SeqCst) {
                                 tracing::debug!(
                                     addr = display(addr),
-                                    "deprioritizing route due to failed dial"
+                                    "deprioritizing route due to failed auth"
                                 );
                                 deprioritize_route(addr);
                             }
@@ -200,7 +203,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                         );
                         anyhow::Ok((authed_pipe, exit))
                     }
-                    .timeout(Duration::from_secs(15))
+                    .timeout(Duration::from_secs(30))
                     .await
                     .context("overall dial/mux/auth timeout")??;
 
@@ -226,7 +229,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 };
                 if let Err(err) = once.await {
                     tracing::warn!(err = debug(err), "individual client thread failed");
-                    smol::Timer::after(Duration::from_secs(1)).await;
+                    smol::Timer::after(Duration::from_millis(100)).await;
                 }
             }
         }
