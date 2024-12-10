@@ -244,6 +244,7 @@ impl BrokerProtocol for BrokerImpl {
             "NEW_ls_ap_northeast_1",
             "NEW_ls_ap_northeast_2",
             "yaofan-hk",
+            "yaofan-tw",
         ];
         let raw_descriptors = if account_level == AccountLevel::Free {
             raw_descriptors
