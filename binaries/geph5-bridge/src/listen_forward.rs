@@ -9,20 +9,24 @@ use std::{
 };
 
 use anyhow::Context;
+use async_channel::{Receiver, Sender};
+use async_io_bufpool::pooled_read;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use deadpool::managed::{Metrics, Pool, RecycleResult};
-use futures_util::{AsyncRead, AsyncReadExt as _};
+use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
-use picomux::PicoMux;
+use picomux::{PicoMux, Stream};
 use sillad::{
     dialer::Dialer,
     listener::Listener,
     tcp::{TcpDialer, TcpListener},
 };
 use smol::future::FutureExt as _;
+use smol::io::AsyncWriteExt;
+use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
 
@@ -80,15 +84,20 @@ async fn handle_one_listener(
         let metadata = metadata.clone();
         smolscale::spawn(async move {
             scopeguard::defer!({
-                COUNT.fetch_sub(1, Ordering::Relaxed);
+                let count = COUNT.fetch_sub(1, Ordering::Relaxed);
+                tracing::debug!(count, b2e_dest = debug(b2e_dest), "closing a connection");
             });
             let exit_conn = dial_pooled(b2e_dest, &metadata.stdcode())
                 .await
                 .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
             let (client_read, client_write) = client_conn.split();
             let (exit_read, exit_write) = exit_conn.split();
-            smol::io::copy(ByteCounter(exit_read), client_write)
-                .race(smol::io::copy(ByteCounter(client_read), exit_write))
+            io_copy_with_timeout(exit_read, client_write, Duration::from_secs(1800))
+                .race(io_copy_with_timeout(
+                    client_read,
+                    exit_write,
+                    Duration::from_secs(1800),
+                ))
                 .await?;
             anyhow::Ok(())
         })
@@ -96,76 +105,100 @@ async fn handle_one_listener(
     }
 }
 
-pub static BYTE_COUNT: AtomicU64 = AtomicU64::new(0);
-
-struct ByteCounter<R>(R);
-
-impl<R: AsyncRead + Unpin> AsyncRead for ByteCounter<R> {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        let poll = unsafe { Pin::map_unchecked_mut(self, |this| &mut this.0) }.poll_read(cx, buf);
-        if let std::task::Poll::Ready(Ok(n)) = &poll {
-            BYTE_COUNT.fetch_add(*n as u64, std::sync::atomic::Ordering::Relaxed);
+/// Copies data between a reader and a writer with a timeout.
+pub async fn io_copy_with_timeout<R, W>(
+    mut reader: R,
+    mut writer: W,
+    timeout: Duration,
+) -> std::io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    loop {
+        match pooled_read(&mut reader).timeout(timeout).await {
+            Some(Ok(buf)) => {
+                if buf.is_empty() {
+                    return Ok(());
+                }
+                writer.write_all(&buf).await?;
+                BYTE_COUNT.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            }
+            Some(Err(err)) => return Err(err),
+            None => return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout")),
         }
-        poll
     }
 }
 
+pub static BYTE_COUNT: AtomicU64 = AtomicU64::new(0);
+
 async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<picomux::Stream> {
-    static POOLS: Lazy<DashMap<u8, Cache<SocketAddr, Pool<MuxManager>>>> =
-        Lazy::new(Default::default);
-    let pool = POOLS
-        .entry(rand::random::<u8>() % 10)
-        .or_insert_with(|| {
-            Cache::builder()
-                .time_to_idle(Duration::from_secs(600))
-                .build()
-        })
-        .try_get_with(b2e_dest, async {
-            Pool::builder(MuxManager {
-                underlying: TcpDialer {
-                    dest_addr: b2e_dest,
-                },
-            })
-            .max_size(20)
+    static POOLS: Lazy<Cache<SocketAddr, Arc<SinglePool>>> = Lazy::new(|| {
+        Cache::builder()
+            .time_to_idle(Duration::from_secs(3600 * 2))
             .build()
+    });
+    let pool = POOLS
+        .try_get_with(b2e_dest, async {
+            let pool = SinglePool::create(b2e_dest).await?;
+            tracing::info!(b2e_dest = display(b2e_dest), "**** created a NEW pool ****");
+            anyhow::Ok(Arc::new(pool))
         })
         .await
-        .context(format!("cannot get pool, b2e_dest={b2e_dest}"))?;
-    let mux = pool
-        .get()
-        .await
-        .context(format!("cannot get from pool, b2e_dest={b2e_dest}"))?;
-    let stream = mux
-        .open(metadata)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let stream = pool
+        .connect(metadata)
         .await
         .context(format!("cannot open through mux, b2e_dest={b2e_dest}"))?;
     Ok(stream)
 }
 
-struct MuxManager {
-    underlying: TcpDialer,
+struct SinglePool {
+    send: Sender<(Vec<u8>, oneshot::Sender<Stream>)>,
+    dest: SocketAddr,
+    tasks: Vec<smol::Task<()>>,
 }
 
-impl deadpool::managed::Manager for MuxManager {
-    type Type = picomux::PicoMux;
-    type Error = std::io::Error;
-
-    async fn create(&self) -> Result<Self::Type, Self::Error> {
-        let dialed = self.underlying.dial().await?;
-        let (read, write) = dialed.split();
-        let mux = PicoMux::new(read, write);
-        Ok(mux)
-    }
-    async fn recycle(&self, conn: &mut Self::Type, _: &Metrics) -> RecycleResult<Self::Error> {
-        tracing::debug!(alive = conn.is_alive(), "trying to recycle");
-        if !conn.is_alive() {
-            let error = conn.open(b"").await.expect_err("dude");
-            return Err(error.into());
+impl SinglePool {
+    pub async fn create(dest: SocketAddr) -> anyhow::Result<Self> {
+        let (send, recv) = async_channel::bounded(100);
+        let mut tasks = vec![];
+        for _ in 0..32 {
+            let conn = sillad::tcp::TcpDialer { dest_addr: dest }.dial().await?;
+            let (read, write) = conn.split();
+            let mux = PicoMux::new(read, write);
+            let recv = recv.clone();
+            let task = smolscale::spawn(async move {
+                loop {
+                    if let Err(err) = remote_once(recv.clone(), &mux).await {
+                        tracing::error!("remote_once error: {}", err);
+                    }
+                    smol::Timer::after(Duration::from_secs(1)).await;
+                }
+            });
+            tasks.push(task);
         }
-        Ok(())
+        Ok(Self { send, dest, tasks })
+    }
+
+    pub async fn connect(&self, metadata: &[u8]) -> anyhow::Result<Stream> {
+        let (back, front) = oneshot::channel();
+        self.send
+            .send((metadata.to_vec(), back))
+            .await
+            .ok()
+            .context("oh no underlying streams are dead")?;
+        Ok(front.await?)
+    }
+}
+
+async fn remote_once(
+    req: Receiver<(Vec<u8>, oneshot::Sender<Stream>)>,
+    mux: &PicoMux,
+) -> anyhow::Result<()> {
+    loop {
+        let (metadata, back) = req.recv().await?;
+        let stream = mux.open(&metadata).await?;
+        back.send(stream).ok();
     }
 }
