@@ -234,8 +234,6 @@ impl BrokerProtocol for BrokerImpl {
             AccountLevel::Free
         };
 
-        // TODO filter out plus only
-
         let raw_descriptors = query_bridges(&format!("{:?}", token)).await?;
 
         let plus_pools = [

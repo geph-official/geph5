@@ -87,22 +87,22 @@ pub async fn broker_loop() -> anyhow::Result<()> {
             let client = BrokerClient(transport);
             let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
             loop {
-                let free_exits = client
-                    .get_free_exits()
-                    .await?
-                    .map_err(|e| anyhow::anyhow!(e))?
-                    .inner
-                    .all_exits;
-                if CONFIG_FILE.wait().free_ratelimit > 0 {
-                    let accept_free = free_exits
-                        .iter()
-                        .map(|s| s.0)
-                        .any(|vk| vk == (&*SIGNING_SECRET).into());
-                    tracing::info!("accept free? {:?}", accept_free);
-                    ACCEPT_FREE.store(accept_free, Ordering::Relaxed);
-                }
-
                 let upload = async {
+                    let free_exits = client
+                        .get_free_exits()
+                        .await?
+                        .map_err(|e| anyhow::anyhow!(e))?
+                        .inner
+                        .all_exits;
+                    if CONFIG_FILE.wait().free_ratelimit > 0 {
+                        let accept_free = free_exits
+                            .iter()
+                            .map(|s| s.0)
+                            .any(|vk| vk == (&*SIGNING_SECRET).into());
+                        tracing::info!("accept free? {:?}", accept_free);
+                        ACCEPT_FREE.store(accept_free, Ordering::Relaxed);
+                    }
+
                     let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
                     let diff = byte_count.saturating_sub(last_byte_count);
                     last_byte_count = byte_count;

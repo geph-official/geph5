@@ -1,6 +1,5 @@
 use std::{
     net::{IpAddr, SocketAddr},
-    pin::Pin,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, LazyLock,
@@ -12,18 +11,13 @@ use anyhow::Context;
 use async_channel::{Receiver, Sender};
 use async_io_bufpool::pooled_read;
 use async_trait::async_trait;
-use dashmap::DashMap;
-use deadpool::managed::{Metrics, Pool, RecycleResult};
+
 use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{PicoMux, Stream};
-use sillad::{
-    dialer::Dialer,
-    listener::Listener,
-    tcp::{TcpDialer, TcpListener},
-};
+use sillad::{dialer::Dialer, listener::Listener, tcp::TcpListener};
 use smol::future::FutureExt as _;
 use smol::io::AsyncWriteExt;
 use smol_timeout2::TimeoutExt;
