@@ -164,14 +164,17 @@ impl SinglePool {
         let (send, recv) = async_channel::bounded(100);
         let mut tasks = vec![];
         for _ in 0..32 {
-            let conn = sillad::tcp::TcpDialer { dest_addr: dest }.dial().await?;
-            let (read, write) = conn.split();
-            let mux = PicoMux::new(read, write);
             let recv = recv.clone();
             let task = smolscale::spawn(async move {
                 loop {
-                    if let Err(err) = remote_once(recv.clone(), &mux).await {
-                        tracing::error!("remote_once error: {}", err);
+                    let conn = sillad::tcp::TcpDialer { dest_addr: dest }.dial().await;
+                    if let Ok(conn) = conn {
+                        let (read, write) = conn.split();
+                        let mux = PicoMux::new(read, write);
+                        let recv = recv.clone();
+                        if let Err(err) = remote_once(recv.clone(), &mux).await {
+                            tracing::error!(dest = display(dest), "remote_once error: {}", err);
+                        }
                     }
                     smol::Timer::after(Duration::from_secs(1)).await;
                 }
