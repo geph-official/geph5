@@ -275,7 +275,7 @@ async fn proxy_loop(
                         }
                     }
                     anyhow::Ok(())
-                })
+                }) 
                 .detach();
             }
         })

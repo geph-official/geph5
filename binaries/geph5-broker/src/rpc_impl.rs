@@ -236,35 +236,31 @@ impl BrokerProtocol for BrokerImpl {
 
         let raw_descriptors = query_bridges(&format!("{:?}", token)).await?;
 
-        let plus_pools = [
-            "ls_ap_northeast_1",
-            "ls_ap_northeast_2",
-            "NEW_ls_ap_northeast_1",
-            "NEW_ls_ap_northeast_2",
-            "yaofan-hk",
-            "yaofan-tw",
-        ];
         let raw_descriptors = if account_level == AccountLevel::Free {
             raw_descriptors
                 .into_iter()
-                .filter(|s| !plus_pools.iter().any(|plus_group| &s.pool == plus_group))
+                .filter(|(_, _, is_plus)| !is_plus)
                 .collect()
         } else {
             raw_descriptors
         };
 
         let mut routes = vec![];
-        for route in join_all(raw_descriptors.into_iter().map(|desc| {
-            let bridge = desc.control_listen;
-            bridge_to_leaf_route(desc, exit).inspect_err(move |err| {
-                tracing::warn!(
-                    err = debug(err),
-                    bridge = debug(bridge),
-                    exit = debug(exit),
-                    "failed to call bridge_to_leaf_route"
-                )
-            })
-        }))
+        for route in join_all(
+            raw_descriptors
+                .into_iter()
+                .map(|(desc, delay_ms, _is_plus)| {
+                    let bridge = desc.control_listen;
+                    bridge_to_leaf_route(desc, delay_ms, exit).inspect_err(move |err| {
+                        tracing::warn!(
+                            err = debug(err),
+                            bridge = debug(bridge),
+                            exit = debug(exit),
+                            "failed to call bridge_to_leaf_route"
+                        )
+                    })
+                }),
+        )
         .await
         {
             match route {

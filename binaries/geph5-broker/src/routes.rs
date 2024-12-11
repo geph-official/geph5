@@ -14,6 +14,7 @@ use std::{
 
 pub async fn bridge_to_leaf_route(
     bridge: BridgeDescriptor,
+    delay_ms: u32,
     exit_b2e: SocketAddr,
 ) -> anyhow::Result<RouteDescriptor> {
     static CACHE: Lazy<Cache<(SocketAddr, SocketAddr), RouteDescriptor>> = Lazy::new(|| {
@@ -45,9 +46,17 @@ pub async fn bridge_to_leaf_route(
                 .timeout(Duration::from_secs(1))
                 .await
                 .context("timeout")??;
-            anyhow::Ok(RouteDescriptor::Sosistab3 {
+            let no_delay_route = RouteDescriptor::Sosistab3 {
                 cookie,
                 lower: RouteDescriptor::Tcp(forwarded_listen).into(),
+            };
+            anyhow::Ok(if delay_ms > 0 {
+                RouteDescriptor::Delay {
+                    milliseconds: delay_ms,
+                    lower: no_delay_route.into(),
+                }
+            } else {
+                no_delay_route
             })
         })
         .await
