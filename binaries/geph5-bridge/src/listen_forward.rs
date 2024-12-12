@@ -1,5 +1,6 @@
 use std::{
     net::{IpAddr, SocketAddr},
+    str::FromStr,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, LazyLock,
@@ -17,12 +18,14 @@ use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlSe
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{PicoMux, Stream};
-use sillad::{dialer::Dialer, listener::Listener, tcp::TcpListener};
+use sillad::{dialer::Dialer, listener::Listener, tcp::TcpListener, Pipe};
 use smol::future::FutureExt as _;
 use smol::io::AsyncWriteExt;
 use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
+
+use crate::asn_count::{self, decr_asn_conn_count};
 
 pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) -> anyhow::Result<()> {
     let state = State { my_ip };
@@ -74,12 +77,29 @@ async fn handle_one_listener(
     loop {
         let client_conn = listener.accept().await?;
         let count = COUNT.fetch_add(1, Ordering::Relaxed);
-        tracing::debug!(count, b2e_dest = debug(b2e_dest), "handled a connection");
+
+        let remote_ip = SocketAddr::from_str(client_conn.remote_addr().unwrap())
+            .unwrap()
+            .ip();
+        let remote_asn = asn_count::ip_to_asn(remote_ip).await?;
+        let _asn_count = asn_count::incr_asn_conn_count(remote_asn);
+        tracing::debug!(
+            count,
+            asn = remote_asn,
+            b2e_dest = debug(b2e_dest),
+            "handled a connection"
+        );
         let metadata = metadata.clone();
         smolscale::spawn(async move {
             scopeguard::defer!({
                 let count = COUNT.fetch_sub(1, Ordering::Relaxed);
-                tracing::debug!(count, b2e_dest = debug(b2e_dest), "closing a connection");
+                let _asn_count = decr_asn_conn_count(remote_asn);
+                tracing::debug!(
+                    count,
+                    asn = remote_asn,
+                    b2e_dest = debug(b2e_dest),
+                    "closing a connection"
+                );
             });
             let exit_conn = dial_pooled(b2e_dest, &metadata.stdcode())
                 .await

@@ -1,3 +1,4 @@
+mod asn_count;
 mod listen_forward;
 
 use std::{
@@ -6,6 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use asn_count::ASN_CONN_COUNT;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
 use rand::Rng;
@@ -98,6 +100,14 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             broker_rpc
                 .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
                 .await?;
+            for item in ASN_CONN_COUNT.iter() {
+                broker_rpc
+                    .set_stat(
+                        format!("{bridge_key}.asn.{}", item.key()),
+                        *item.value() as _,
+                    )
+                    .await?;
+            }
             broker_rpc
                 .insert_bridge(Mac::new(
                     BridgeDescriptor {

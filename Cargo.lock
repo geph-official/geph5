@@ -2982,6 +2982,7 @@ dependencies = [
  "blake3",
  "dashmap 6.1.0",
  "deadpool",
+ "flate2",
  "futures-util",
  "geph5-broker-protocol",
  "geph5-misc-rpc",

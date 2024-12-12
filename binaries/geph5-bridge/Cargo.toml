@@ -39,4 +39,5 @@ async-channel = "2.3.1"
 oneshot = "0.1.8"
 async-io-bufpool = "0.1.0"
 tikv-jemallocator = { version = "0.6.0", features = ["unprefixed_malloc_on_supported_platforms"] }
+flate2 = "1.0.35"
 #jemalloc_pprof = "0.6.0"
