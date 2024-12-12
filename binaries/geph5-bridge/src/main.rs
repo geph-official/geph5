@@ -100,13 +100,11 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
             broker_rpc
                 .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
                 .await?;
-            for item in ASN_CONN_COUNT.iter() {
+            for mut item in ASN_CONN_COUNT.iter_mut() {
                 broker_rpc
-                    .set_stat(
-                        format!("{bridge_key}.asn.{}", item.key()),
-                        *item.value() as _,
-                    )
+                    .incr_stat(format!("{bridge_key}.asn.{}", item.key()), *item.value())
                     .await?;
+                *item.value_mut() = 0;
             }
             broker_rpc
                 .insert_bridge(Mac::new(

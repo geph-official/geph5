@@ -5,7 +5,7 @@ use moka::future::Cache;
 use once_cell::sync::Lazy;
 use std::{collections::BTreeMap, io::BufRead, net::IpAddr, sync::LazyLock, time::Duration};
 
-pub static ASN_CONN_COUNT: Lazy<DashMap<u32, u32>> = Lazy::new(|| DashMap::new());
+pub static ASN_CONN_COUNT: Lazy<DashMap<u32, i32>> = Lazy::new(|| DashMap::new());
 pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
     let ip_to_asn_map = get_ip_to_asn_map().await?;
     let ip = match ip {
@@ -20,16 +20,14 @@ pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
 }
 
 // Increment the connection count for a given ASN
-pub fn incr_asn_conn_count(asn: u32) -> u32 {
+pub fn incr_asn_conn_count(asn: u32) {
     let mut entry = ASN_CONN_COUNT.entry(asn).or_insert(0);
     *entry += 1;
-    *entry
 }
 
-pub fn decr_asn_conn_count(asn: u32) -> anyhow::Result<u32> {
-    let mut entry = ASN_CONN_COUNT.get_mut(&asn).context("no such asn")?;
+pub fn decr_asn_conn_count(asn: u32) {
+    let mut entry = ASN_CONN_COUNT.entry(asn).or_insert(0);
     *entry -= 1;
-    Ok(*entry)
 }
 
 async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
