@@ -25,7 +25,7 @@ use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
 
-use crate::asn_count::{self, decr_asn_conn_count};
+use crate::asn_count::{self, incr_bytes_asn};
 
 pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) -> anyhow::Result<()> {
     let state = State { my_ip };
@@ -82,7 +82,6 @@ async fn handle_one_listener(
             .unwrap()
             .ip();
         let remote_asn = asn_count::ip_to_asn(remote_ip).await?;
-        let _asn_count = asn_count::incr_asn_conn_count(remote_asn);
         tracing::debug!(
             count,
             asn = remote_asn,
@@ -93,7 +92,6 @@ async fn handle_one_listener(
         smolscale::spawn(async move {
             scopeguard::defer!({
                 let count = COUNT.fetch_sub(1, Ordering::Relaxed);
-                let _asn_count = decr_asn_conn_count(remote_asn);
                 tracing::debug!(
                     count,
                     asn = remote_asn,
@@ -106,13 +104,19 @@ async fn handle_one_listener(
                 .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
             let (client_read, client_write) = client_conn.split();
             let (exit_read, exit_write) = exit_conn.split();
-            io_copy_with_timeout(exit_read, client_write, Duration::from_secs(1800))
-                .race(io_copy_with_timeout(
-                    client_read,
-                    exit_write,
-                    Duration::from_secs(1800),
-                ))
-                .await?;
+            io_copy_with_timeout(
+                exit_read,
+                client_write,
+                remote_asn,
+                Duration::from_secs(1800),
+            )
+            .race(io_copy_with_timeout(
+                client_read,
+                exit_write,
+                remote_asn,
+                Duration::from_secs(1800),
+            ))
+            .await?;
             anyhow::Ok(())
         })
         .detach();
@@ -123,6 +127,7 @@ async fn handle_one_listener(
 pub async fn io_copy_with_timeout<R, W>(
     mut reader: R,
     mut writer: W,
+    asn: u32,
     timeout: Duration,
 ) -> std::io::Result<()>
 where
@@ -137,6 +142,7 @@ where
                 }
                 writer.write_all(&buf).await?;
                 BYTE_COUNT.fetch_add(buf.len() as u64, Ordering::Relaxed);
+                incr_bytes_asn(asn, buf.len() as u64);
             }
             Some(Err(err)) => return Err(err),
             None => return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout")),

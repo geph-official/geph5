@@ -3,9 +3,16 @@ use dashmap::DashMap;
 use flate2::read::GzDecoder;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
-use std::{collections::BTreeMap, io::BufRead, net::IpAddr, sync::LazyLock, time::Duration};
+use std::{
+    collections::BTreeMap,
+    io::BufRead,
+    net::IpAddr,
+    sync::{atomic::AtomicU64, LazyLock},
+    time::Duration,
+};
 
-pub static ASN_CONN_COUNT: Lazy<DashMap<u32, i32>> = Lazy::new(|| DashMap::new());
+pub static ASN_BYTES: Lazy<DashMap<u32, AtomicU64>> = Lazy::new(|| DashMap::new());
+
 pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
     let ip_to_asn_map = get_ip_to_asn_map().await?;
     let ip = match ip {
@@ -20,14 +27,9 @@ pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
 }
 
 // Increment the connection count for a given ASN
-pub fn incr_asn_conn_count(asn: u32) {
-    let mut entry = ASN_CONN_COUNT.entry(asn).or_insert(0);
-    *entry += 1;
-}
-
-pub fn decr_asn_conn_count(asn: u32) {
-    let mut entry = ASN_CONN_COUNT.entry(asn).or_insert(0);
-    *entry -= 1;
+pub fn incr_bytes_asn(asn: u32, bytes: u64) {
+    let entry = ASN_BYTES.entry(asn).or_insert(AtomicU64::new(0));
+    entry.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
 }
 
 async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
