@@ -2,6 +2,7 @@ mod asn_count;
 mod listen_forward;
 
 use std::{
+    i32,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     time::{Duration, SystemTime},
@@ -52,7 +53,7 @@ fn main() {
         let control_listen = SocketAddr::new(my_ip, port);
         let control_cookie = format!("bridge-cookie-{}", rand::random::<u128>());
 
-        let upload_loop = broker_upload_loop(control_listen, control_cookie.clone());
+        let upload_loop = broker_loop(control_listen, control_cookie.clone());
         let listen_loop = async {
             loop {
                 let listener = TcpListener::bind(format!("0.0.0.0:{port}").parse().unwrap())
@@ -71,7 +72,7 @@ fn main() {
     })
 }
 
-async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) {
+async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
     let auth_token = std::env::var("GEPH5_BRIDGE_TOKEN").unwrap();
     let pool = std::env::var("GEPH5_BRIDGE_POOL").unwrap();
     let broker_addr: SocketAddr = std::env::var("GEPH5_BROKER_ADDR").unwrap().parse().unwrap();
@@ -90,62 +91,82 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         .timeout(Duration::from_secs(1)),
     ));
 
-    loop {
-        tracing::info!(
-            auth_token,
-            broker_addr = display(broker_addr),
-            "uploading..."
-        );
-        let byte_count = BYTE_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
-        let res = async {
-            broker_rpc
-                .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
-                .timeout(Duration::from_secs(2))
-                .await
-                .context("incrementing bytes timed out")??;
+    let upload_loop = async {
+        loop {
+            tracing::info!(
+                auth_token,
+                broker_addr = display(broker_addr),
+                "uploading..."
+            );
 
-            ASN_BYTES.retain(|_, v| v.load(std::sync::atomic::Ordering::Relaxed) > 0);
-
-            // only pick around 10 asns at a time
-            let chance = (10.0 / ASN_BYTES.len() as f64).min(1.0);
-            let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
-                .iter()
-                .filter(|_| rand::random::<f64>() < chance)
-                .map(|item| {
-                    let asn_byte_count = item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
-                    (*item.key(), asn_byte_count)
-                })
-                .collect();
-            for (asn, bytes) in asn_bytes {
+            let res = async {
                 broker_rpc
-                    .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes as _)
+                    .insert_bridge(Mac::new(
+                        BridgeDescriptor {
+                            control_listen,
+                            control_cookie: control_cookie.clone(),
+                            pool: pool.clone(),
+                            expiry: SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs()
+                                + 120,
+                        },
+                        blake3::hash(auth_token.as_bytes()).as_bytes(),
+                    ))
                     .timeout(Duration::from_secs(2))
                     .await
-                    .context("incrementing ASN timed out")??;
+                    .context("insert bridge timed out")??
+                    .map_err(|e| anyhow::anyhow!(e))?;
+                anyhow::Ok(())
+            };
+            if let Err(err) = res.await {
+                tracing::error!(err = %err, "error in upload_loop");
             }
-            broker_rpc
-                .insert_bridge(Mac::new(
-                    BridgeDescriptor {
-                        control_listen,
-                        control_cookie: control_cookie.clone(),
-                        pool: pool.clone(),
-                        expiry: SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs()
-                            + 120,
-                    },
-                    blake3::hash(auth_token.as_bytes()).as_bytes(),
-                ))
-                .timeout(Duration::from_secs(2))
-                .await
-                .context("insert bridge timed out")??
-                .map_err(|e| anyhow::anyhow!(e))?;
-            anyhow::Ok(())
-        };
-        if let Err(err) = res.await {
-            tracing::error!(err = %err, "error in upload_loop");
+            smol::Timer::after(Duration::from_secs(10)).await;
         }
-        smol::Timer::after(Duration::from_secs(10)).await;
-    }
+    };
+
+    let stats_loop = async {
+        loop {
+            tracing::info!(auth_token, broker_addr = display(broker_addr), "stats...");
+            let res = async {
+                let byte_count = BYTE_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
+                broker_rpc
+                    .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
+                    .timeout(Duration::from_secs(2))
+                    .await
+                    .context("incrementing bytes timed out")??;
+
+                ASN_BYTES.retain(|_, v| v.load(std::sync::atomic::Ordering::Relaxed) > 0);
+
+                // only pick around 10 asns at a time
+                let chance = (10.0 / ASN_BYTES.len() as f64).min(1.0);
+                let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
+                    .iter()
+                    .filter(|_| rand::random::<f64>() < chance)
+                    .map(|item| {
+                        let asn_byte_count =
+                            item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
+                        (*item.key(), asn_byte_count)
+                    })
+                    .collect();
+                for (asn, bytes) in asn_bytes {
+                    let bytes = bytes.min(i32::MAX as u64) as i32;
+                    broker_rpc
+                        .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes)
+                        .timeout(Duration::from_secs(2))
+                        .await
+                        .context("incrementing ASN timed out")??;
+                    tracing::debug!("incremented ASN {} with {} bytes", asn, bytes);
+                }
+                anyhow::Ok(())
+            };
+            if let Err(err) = res.await {
+                tracing::error!(err = %err, "error in stats_loop");
+            }
+            smol::Timer::after(Duration::from_secs(10)).await;
+        }
+    };
+    upload_loop.race(stats_loop).await
 }
