@@ -7,6 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use anyhow::Context as _;
 use asn_count::ASN_BYTES;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
@@ -99,15 +100,24 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
         let res = async {
             broker_rpc
                 .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
-                .await?;
+                .timeout(Duration::from_secs(2))
+                .await
+                .context("incrementing bytes timed out")??;
+
+            // only pick around 10 asns at a time
+            let chance = (10.0 / ASN_BYTES.len() as f64).min(1.0);
             for item in ASN_BYTES.iter() {
-                let asn_byte_count = item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
-                broker_rpc
-                    .incr_stat(
-                        format!("{bridge_key}.asn.{}", item.key()),
-                        asn_byte_count as _,
-                    )
-                    .await?;
+                if rand::random::<f64>() < chance {
+                    let asn_byte_count = item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
+                    broker_rpc
+                        .incr_stat(
+                            format!("{bridge_key}.asn.{}", item.key()),
+                            asn_byte_count as _,
+                        )
+                        .timeout(Duration::from_secs(2))
+                        .await
+                        .context("incrementing ASN timed out")??;
+                }
             }
             broker_rpc
                 .insert_bridge(Mac::new(
@@ -123,11 +133,13 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
                     },
                     blake3::hash(auth_token.as_bytes()).as_bytes(),
                 ))
-                .await?
+                .timeout(Duration::from_secs(2))
+                .await
+                .context("insert bridge timed out")??
                 .map_err(|e| anyhow::anyhow!(e))?;
             anyhow::Ok(())
         };
-        if let Some(Err(err)) = res.timeout(Duration::from_secs(10)).await {
+        if let Err(err) = res.await {
             tracing::error!(err = %err, "error in upload_loop");
         }
         smol::Timer::after(Duration::from_secs(10)).await;
