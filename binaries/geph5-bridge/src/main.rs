@@ -106,18 +106,20 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
 
             // only pick around 10 asns at a time
             let chance = (10.0 / ASN_BYTES.len() as f64).min(1.0);
-            for item in ASN_BYTES.iter() {
-                if rand::random::<f64>() < chance {
+            let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
+                .iter()
+                .filter(|_| rand::random::<f64>() < chance)
+                .map(|item| {
                     let asn_byte_count = item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
-                    broker_rpc
-                        .incr_stat(
-                            format!("{bridge_key}.asn.{}", item.key()),
-                            asn_byte_count as _,
-                        )
-                        .timeout(Duration::from_secs(2))
-                        .await
-                        .context("incrementing ASN timed out")??;
-                }
+                    (*item.key(), asn_byte_count)
+                })
+                .collect();
+            for (asn, bytes) in asn_bytes {
+                broker_rpc
+                    .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes as _)
+                    .timeout(Duration::from_secs(2))
+                    .await
+                    .context("incrementing ASN timed out")??;
             }
             broker_rpc
                 .insert_bridge(Mac::new(
