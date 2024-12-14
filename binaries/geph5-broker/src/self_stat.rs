@@ -27,7 +27,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                 load_avg / available_parallelism().unwrap().get() as f64,
             )?;
         }
-        let pool_counts: Vec<(String, i32)> =
+        let pool_counts: Vec<(String, i64)> =
             sqlx::query_as("select pool,count(listen) from bridges_new group by pool")
                 .fetch_all(&*POSTGRES)
                 .await?;
