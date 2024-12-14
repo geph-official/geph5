@@ -104,6 +104,8 @@ async fn broker_upload_loop(control_listen: SocketAddr, control_cookie: String) 
                 .await
                 .context("incrementing bytes timed out")??;
 
+            ASN_BYTES.retain(|_, v| v.load(std::sync::atomic::Ordering::Relaxed) > 0);
+
             // only pick around 10 asns at a time
             let chance = (10.0 / ASN_BYTES.len() as f64).min(1.0);
             let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
