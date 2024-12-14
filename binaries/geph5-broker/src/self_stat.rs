@@ -31,6 +31,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
             sqlx::query_as("select pool,count(listen) from bridges_new group by pool")
                 .fetch_all(&*POSTGRES)
                 .await?;
+        tracing::debug!("pool_counts: {:?}", pool_counts);
         for (pool, count) in pool_counts {
             if let Some(client) = STATSD_CLIENT.as_ref() {
                 client.gauge(&format!("broker.bridge_pool_count.{pool}"), count as f64)?;
