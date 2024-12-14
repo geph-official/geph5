@@ -298,7 +298,7 @@ impl BrokerProtocol for BrokerImpl {
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
         let descriptor = descriptor
             .verify(blake3::hash(CONFIG_FILE.wait().bridge_token.as_bytes()).as_bytes())?;
-
+        tracing::debug!("inserting bridge from pool {}", descriptor.pool);
         sqlx::query(
             r#"
             INSERT INTO bridges_new (listen, cookie, pool, expiry)
