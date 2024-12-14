@@ -7,11 +7,11 @@ use std::{
     collections::BTreeMap,
     io::BufRead,
     net::IpAddr,
-    sync::{atomic::AtomicU64, LazyLock},
+    sync::{atomic::AtomicU64, Arc, LazyLock},
     time::Duration,
 };
 
-pub static ASN_BYTES: Lazy<DashMap<u32, AtomicU64>> = Lazy::new(|| DashMap::new());
+pub static ASN_BYTES: Lazy<DashMap<u32, AtomicU64>> = Lazy::new(DashMap::new);
 
 pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
     let ip_to_asn_map = get_ip_to_asn_map().await?;
@@ -32,8 +32,8 @@ pub fn incr_bytes_asn(asn: u32, bytes: u64) {
     entry.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
 }
 
-async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
-    static ASN_MAP_CACHE: LazyLock<Cache<String, BTreeMap<u32, (u32, String)>>> =
+async fn get_ip_to_asn_map() -> anyhow::Result<Arc<BTreeMap<u32, (u32, String)>>> {
+    static ASN_MAP_CACHE: LazyLock<Cache<String, Arc<BTreeMap<u32, (u32, String)>>>> =
         LazyLock::new(|| {
             Cache::builder()
                 .time_to_live(Duration::from_secs(86400))
@@ -63,7 +63,7 @@ async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
                     map.insert(range_end, (as_number, country_code));
                 }
             }
-            anyhow::Ok(map)
+            anyhow::Ok(Arc::new(map))
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))
