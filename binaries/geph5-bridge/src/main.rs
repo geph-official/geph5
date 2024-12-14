@@ -138,19 +138,17 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
                     .await
                     .context("incrementing bytes timed out")??;
 
-                ASN_BYTES.retain(|_, v| v.load(std::sync::atomic::Ordering::Relaxed) > 0);
-
                 // only pick around 10 asns at a time
-                let chance = (10.0 / ASN_BYTES.len() as f64).min(1.0);
+
                 let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
                     .iter()
-                    .filter(|_| rand::random::<f64>() < chance)
                     .map(|item| {
                         let asn_byte_count =
                             item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
                         (*item.key(), asn_byte_count)
                     })
                     .collect();
+                ASN_BYTES.clear();
                 for (asn, bytes) in asn_bytes {
                     let bytes = bytes.min(i32::MAX as u64) as i32;
                     broker_rpc
