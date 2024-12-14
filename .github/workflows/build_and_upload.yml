@@ -138,59 +138,59 @@ jobs:
           name: musl-latest
           path: artifacts/musl
 
-  build-windows-gui:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  # build-windows-gui:
+  #   runs-on: windows-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: i686-pc-windows-msvc
+  #     - name: Install Rust
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         profile: minimal
+  #         toolchain: stable
+  #         override: true
+  #         target: i686-pc-windows-msvc
 
-      - name: Set default host
-        shell: bash
-        run: rustup set default-host i686-pc-windows-msvc
+  #     - name: Set default host
+  #       shell: bash
+  #       run: rustup set default-host i686-pc-windows-msvc
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: i686-pc-windows-msvc-gui
+  #     - name: Cache cargo build
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         key: i686-pc-windows-msvc-gui
 
-      - name: Build Windows GUI client
-        run: |
-          cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client/Cargo.toml --all-features
-          cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client-gui/Cargo.toml
+  #     - name: Build Windows GUI client
+  #       run: |
+  #         cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client/Cargo.toml --all-features
+  #         cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client-gui/Cargo.toml
 
-      - name: Build Windows installer
-        shell: bash
-        run: |
-          choco install innosetup
-          cp target/i686-pc-windows-msvc/release/geph5-client-gui packaging/windows
-          cp target/i686-pc-windows-msvc/release/geph5-client packaging/windows
-          cp binaries/geph5-client/windows-lib/* packaging/windows
-          iscc packaging/windows/setup.iss
+  #     - name: Build Windows installer
+  #       shell: bash
+  #       run: |
+  #         choco install innosetup
+  #         cp target/i686-pc-windows-msvc/release/geph5-client-gui packaging/windows
+  #         cp target/i686-pc-windows-msvc/release/geph5-client packaging/windows
+  #         cp binaries/geph5-client/windows-lib/* packaging/windows
+  #         iscc packaging/windows/setup.iss
 
-      - name: Move Windows GUI artifacts
-        shell: bash
-        run: |
-          mkdir -p artifacts/windows-gui
-          cp packaging/windows/Output/* artifacts/windows-gui/
-          cp target/i686-pc-windows-msvc/release/geph5-client-gui artifacts/windows-gui/
+  #     - name: Move Windows GUI artifacts
+  #       shell: bash
+  #       run: |
+  #         mkdir -p artifacts/windows-gui
+  #         cp packaging/windows/Output/* artifacts/windows-gui/
+  #         cp target/i686-pc-windows-msvc/release/geph5-client-gui artifacts/windows-gui/
 
-      - name: Upload Windows GUI artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-gui-latest
-          path: artifacts/windows-gui
+  #     - name: Upload Windows GUI artifact
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: windows-gui-latest
+  #         path: artifacts/windows-gui
 
   upload:
     if: github.ref == 'refs/heads/master'
-    needs: [build, build-bridge-exit, build-windows-gui]
+    needs: [build, build-bridge-exit]
     runs-on: ubuntu-20.04
     strategy:
       matrix:
@@ -199,7 +199,7 @@ jobs:
           - dir: musl
           - dir: macos
           - dir: windows
-          - dir: windows-gui
+          # - dir: windows-gui
 
     steps:
       - name: Download all artifacts
