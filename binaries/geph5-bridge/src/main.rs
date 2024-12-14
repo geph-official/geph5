@@ -138,8 +138,6 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
                     .await
                     .context("incrementing bytes timed out")??;
 
-                // only pick around 10 asns at a time
-
                 let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
                     .iter()
                     .map(|item| {
@@ -163,7 +161,7 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
             if let Err(err) = res.await {
                 tracing::error!(err = %err, "error in stats_loop");
             }
-            smol::Timer::after(Duration::from_secs(10)).await;
+            smol::Timer::after(Duration::from_secs(3)).await;
         }
     };
     upload_loop.race(stats_loop).await
