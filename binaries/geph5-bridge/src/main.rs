@@ -5,12 +5,14 @@ use std::{
     i32,
     net::{IpAddr, SocketAddr},
     str::FromStr,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
 use anyhow::Context as _;
 use asn_count::ASN_BYTES;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
+use geph5_misc_rpc::bridge;
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
 use rand::Rng;
 use sillad::{
@@ -84,11 +86,13 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
 
     let bridge_key = format!("bridges.{pool}");
 
-    let broker_rpc = geph5_broker_protocol::BrokerClient(nanorpc_sillad::DialerTransport(
-        TcpDialer {
-            dest_addr: broker_addr,
-        }
-        .timeout(Duration::from_secs(1)),
+    let broker_rpc = Arc::new(geph5_broker_protocol::BrokerClient(
+        nanorpc_sillad::DialerTransport(
+            TcpDialer {
+                dest_addr: broker_addr,
+            }
+            .timeout(Duration::from_secs(1)),
+        ),
     ));
 
     let upload_loop = async {
@@ -149,12 +153,18 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
                 ASN_BYTES.clear();
                 for (asn, bytes) in asn_bytes {
                     let bytes = bytes.min(i32::MAX as u64) as i32;
-                    broker_rpc
-                        .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes)
-                        .timeout(Duration::from_secs(2))
-                        .await
-                        .context("incrementing ASN timed out")??;
-                    tracing::debug!("incremented ASN {} with {} bytes", asn, bytes);
+                    let broker_rpc = broker_rpc.clone();
+                    let bridge_key = bridge_key.clone();
+                    smolscale::spawn(async move {
+                        broker_rpc
+                            .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes)
+                            .timeout(Duration::from_secs(2))
+                            .await
+                            .context("incrementing ASN timed out")??;
+                        tracing::debug!("incremented ASN {} with {} bytes", asn, bytes);
+                        anyhow::Ok(())
+                    })
+                    .detach();
                 }
                 anyhow::Ok(())
             };
