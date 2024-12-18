@@ -2,7 +2,6 @@ mod asn_count;
 mod listen_forward;
 
 use std::{
-    i32,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
@@ -12,7 +11,6 @@ use std::{
 use anyhow::Context as _;
 use asn_count::ASN_BYTES;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
-use geph5_misc_rpc::bridge;
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
 use rand::Rng;
 use sillad::{

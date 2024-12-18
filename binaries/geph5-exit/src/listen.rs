@@ -1,6 +1,5 @@
 use anyhow::Context;
 use ed25519_dalek::Signer;
-use flate2::read::GzDecoder;
 use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::AccountLevel;
 use geph5_misc_rpc::{
@@ -14,7 +13,7 @@ use picomux::{LivenessConfig, PicoMux};
 
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
-use std::{collections::BTreeMap, io::BufRead, net::SocketAddr, sync::Arc, time::Duration};
+use std::{io::BufRead, net::SocketAddr, sync::Arc, time::Duration};
 use stdcode::StdcodeSerializeExt;
 use tachyonix::Sender;
 

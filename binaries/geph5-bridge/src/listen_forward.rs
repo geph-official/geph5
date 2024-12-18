@@ -175,8 +175,8 @@ async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<pi
 
 struct SinglePool {
     send: Sender<(Vec<u8>, oneshot::Sender<Stream>)>,
-    dest: SocketAddr,
-    tasks: Vec<smol::Task<()>>,
+
+    _tasks: Vec<smol::Task<()>>,
 }
 
 impl SinglePool {
@@ -201,7 +201,11 @@ impl SinglePool {
             });
             tasks.push(task);
         }
-        Ok(Self { send, dest, tasks })
+        Ok(Self {
+            send,
+
+            _tasks: tasks,
+        })
     }
 
     pub async fn connect(&self, metadata: &[u8]) -> anyhow::Result<Stream> {
