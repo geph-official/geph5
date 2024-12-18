@@ -227,6 +227,11 @@ async fn reachability_test(
         smolscale::spawn(async move {
             let broker = broker_client(&ctx).context("could not get broker client")?;
             let success = if let Err(err) = dialer.timeout(Duration::from_secs(10)).dial().await {
+                tracing::warn!(
+                    name = display(&name),
+                    err = debug(err),
+                    "could not reach something"
+                );
                 false
             } else {
                 true
