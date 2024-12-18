@@ -345,8 +345,7 @@ impl BrokerProtocol for BrokerImpl {
                     let diff = current_timestamp.saturating_sub(up_time) as f64;
                     // 1-hour decay interval
                     let decay_factor = 2.0f64.powf(diff / 3600.0);
-                    tracing::warn!(factor=display(decay_factor), "decay factor");
-                    sqlx::query("update bridge_availability set successes = successes / $1 + 1, failures = failures / $1 + 1, last_update = $2").bind(decay_factor).bind(current_timestamp).execute(&mut *txn).await?;
+                    sqlx::query("update bridge_availability set successes = successes / $1 + 1, failures = failures / $1 + 1, last_update = $2 where listen = $3 and user_country = $4 and user_asn = $5").bind(decay_factor).bind(current_timestamp).bind(&data.listen).bind(&data.country).bind(&data.asn).execute(&mut *txn).await?;
                 } else {
                     sqlx::query("insert into bridge_availability (listen, user_country, user_asn, successes, failures, last_update) values ($1, $2, $3, 1.0, 1.0, $4)").bind(&data.listen).bind(&data.country).bind(&data.asn).bind(current_timestamp).execute(&mut *txn).await?;
                 }
