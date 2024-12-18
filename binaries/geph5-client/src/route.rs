@@ -197,7 +197,7 @@ pub async fn get_dialer(
         tracing::warn!(err = debug(err), "could not refresh the ipinfo");
     }
 
-    if IP_INFO.get().is_some() {
+    if IP_INFO.get().is_some() && rand::random::<f64>() < 0.1 {
         smolscale::spawn(
             reachability_test(ctx.clone(), route_to_flat_dialers(&bridge_routes))
                 .inspect_err(|e| tracing::warn!(err = debug(e), "reachability test failed to run")),
