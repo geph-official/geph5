@@ -6,7 +6,7 @@ use anyhow::Context;
 use ed25519_dalek::VerifyingKey;
 use futures_util::TryFutureExt as _;
 use geph5_broker_protocol::{
-    AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, AvailabilityData, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use moka::sync::Cache;
@@ -214,27 +214,39 @@ async fn reachability_test(
 ) -> anyhow::Result<()> {
     let nfo = IP_INFO.get().unwrap();
     let country = nfo["country"].as_str().context("country code not found")?;
+    let asn = nfo["org"]
+        .as_str()
+        .context("no org")?
+        .split_ascii_whitespace()
+        .next()
+        .unwrap();
 
     for (name, dialer) in dialers {
-        let name = name.replace(".", "-");
         tracing::debug!(name = display(&name), "doing a reachability test");
         let ctx = ctx.clone();
         smolscale::spawn(async move {
             let broker = broker_client(&ctx).context("could not get broker client")?;
-            if let Err(err) = dialer.timeout(Duration::from_secs(10)).dial().await {
+            let success = if let Err(err) = dialer.timeout(Duration::from_secs(10)).dial().await {
                 tracing::warn!(
                     name = display(&name),
                     err = debug(err),
                     "failure happened during reachability test"
                 );
-                broker
-                    .incr_stat(format!("reachability.{country}.{name}.fail"), 1)
-                    .await?;
+                false
             } else {
                 broker
                     .incr_stat(format!("reachability.{country}.{name}.success"), 1)
                     .await?;
-            }
+                true
+            };
+            broker
+                .upload_available(AvailabilityData {
+                    listen: name,
+                    country: country.to_string(),
+                    asn: asn.to_string(),
+                    success,
+                })
+                .await?;
             anyhow::Ok(())
         })
         .detach();
