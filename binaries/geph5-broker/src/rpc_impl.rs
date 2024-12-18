@@ -349,6 +349,7 @@ impl BrokerProtocol for BrokerImpl {
                 } else {
                     sqlx::query("insert into bridge_availability (listen, user_country, user_asn, successes, failures, last_update) values ($1, $2, $3, 1.0, 1.0, $4)").bind(&data.listen).bind(&data.country).bind(&data.asn).bind(current_timestamp).execute(&mut *txn).await?;
                 }
+                txn.commit().await?;
                 anyhow::Ok(())
             }
             .inspect_err(|e| tracing::warn!(err = debug(e), "setting availability failed")),
