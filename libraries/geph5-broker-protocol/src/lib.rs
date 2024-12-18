@@ -51,6 +51,16 @@ pub trait BrokerProtocol {
     async fn incr_stat(&self, stat: String, value: i32);
 
     async fn set_stat(&self, stat: String, value: f64);
+
+    async fn upload_available(&self, data: AvailabilityData);
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AvailabilityData {
+    pub listen: String,
+    pub country: String,
+    pub asn: String,
+    pub success: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

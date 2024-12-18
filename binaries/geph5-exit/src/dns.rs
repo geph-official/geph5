@@ -1,17 +1,37 @@
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::{LazyLock, Mutex},
+    time::Duration,
 };
 
 use anyhow::Context;
 use bytes::Bytes;
 
+use moka::future::Cache;
 use simple_dns::Packet;
 use smol::{
     channel::{Receiver, Sender},
     future::FutureExt as _,
     net::UdpSocket,
 };
+
+/// DNS resolve a name
+pub async fn dns_resolve(name: &str) -> anyhow::Result<Vec<SocketAddr>> {
+    static CACHE: LazyLock<Cache<String, Vec<SocketAddr>>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(240))
+            .build()
+    });
+    let addr = CACHE
+        .try_get_with(name.to_string(), async {
+            let choices = smol::net::resolve(name).await?;
+            anyhow::Ok(choices)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    Ok(addr)
+}
 
 /// A udp-socket-efficient DNS responder.
 pub async fn raw_dns_respond(req: Bytes) -> anyhow::Result<Bytes> {

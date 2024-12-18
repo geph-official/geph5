@@ -13,7 +13,7 @@ use picomux::{LivenessConfig, PicoMux};
 
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
-use std::{io::BufRead, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use stdcode::StdcodeSerializeExt;
 use tachyonix::Sender;
 

@@ -5,8 +5,8 @@ use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
-    AccountLevel, AuthError, BridgeDescriptor, BrokerProtocol, BrokerService, Credential,
-    ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, UserInfo,
+    AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
+    Credential, ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, UserInfo,
     DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
@@ -18,7 +18,7 @@ use std::{
     net::SocketAddr,
     ops::Deref,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{auth::get_subscription_expiry, log_error};
@@ -326,6 +326,30 @@ impl BrokerProtocol for BrokerImpl {
         if let Some(client) = STATSD_CLIENT.as_ref() {
             client.gauge(&stat, value).unwrap();
         }
+    }
+
+    async fn upload_available(&self, data: AvailabilityData) {
+        smolscale::spawn(
+            async move {
+                let current_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+                let mut txn = POSTGRES.begin().await?;
+                let up_time: Option<(i64,)> = sqlx::query_as("select last_update from bridge_availability where listen = $1 and user_country = $2 and user_asn = $3").bind(&data.listen).bind(&data.country).bind(&data.asn).fetch_optional(&mut *txn).await?;
+                if let Some((up_time,)) = up_time {
+                    let diff = current_timestamp.saturating_sub(up_time) as f64;
+                    // 1-hour decay interval
+                    let decay_factor = 2.0f64.powf(diff / 3600.0);
+                    sqlx::query("update bridge_availability set successes = successes / $1 + 1, failures = failures / $1 + 1, last_update = $2").bind(decay_factor).bind(current_timestamp).execute(&mut *txn).await?;
+                } else {
+                    sqlx::query("insert into bridge_availability (listen, user_country, user_asn, successes, failures, last_update) values ($1, $2, $3, 1.0, 1.0, $4)").bind(&data.listen).bind(&data.country).bind(&data.asn).bind(current_timestamp).execute(&mut *txn).await?;
+                }
+                anyhow::Ok(())
+            }
+            .inspect_err(|e| tracing::warn!(err = debug(e), "setting availability failed")),
+        )
+        .detach();
     }
 }
 

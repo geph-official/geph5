@@ -12,7 +12,11 @@ use moka::future::Cache;
 use sillad::{dialer::Dialer, tcp::HappyEyeballsTcpDialer};
 use smol::{future::FutureExt as _, io::BufWriter, net::UdpSocket};
 
-use crate::{allow::proxy_allowed, dns::raw_dns_respond, ratelimit::RateLimiter};
+use crate::{
+    allow::proxy_allowed,
+    dns::{dns_resolve, raw_dns_respond},
+    ratelimit::RateLimiter,
+};
 
 use smol_timeout2::TimeoutExt;
 
@@ -151,20 +155,4 @@ async fn proxy_dns(stream: picomux::Stream) -> anyhow::Result<()> {
         })
         .detach();
     }
-}
-
-async fn dns_resolve(name: &str) -> anyhow::Result<Vec<SocketAddr>> {
-    static CACHE: LazyLock<Cache<String, Vec<SocketAddr>>> = LazyLock::new(|| {
-        Cache::builder()
-            .time_to_live(Duration::from_secs(240))
-            .build()
-    });
-    let addr = CACHE
-        .try_get_with(name.to_string(), async {
-            let choices = smol::net::resolve(name).await?;
-            anyhow::Ok(choices)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
-    Ok(addr)
 }
