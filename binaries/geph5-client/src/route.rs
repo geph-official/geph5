@@ -255,7 +255,7 @@ async fn reachability_test(
 fn route_to_flat_dialers(route: &RouteDescriptor) -> BTreeMap<String, DynDialer> {
     match route {
         RouteDescriptor::Tcp(socket_addr) => std::iter::once((
-            socket_addr.ip().to_string(),
+            socket_addr.to_string(),
             TcpDialer {
                 dest_addr: *socket_addr,
             }
