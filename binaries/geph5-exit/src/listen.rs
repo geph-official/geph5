@@ -14,7 +14,7 @@ use picomux::{LivenessConfig, PicoMux};
 
 use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
 use smol::future::FutureExt as _;
-use std::{collections::BTreeMap, io::BufRead, net::SocketAddr, time::Duration};
+use std::{collections::BTreeMap, io::BufRead, net::SocketAddr, sync::Arc, time::Duration};
 use stdcode::StdcodeSerializeExt;
 use tachyonix::Sender;
 
@@ -22,6 +22,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
 
 use crate::{
+    asn::ip_to_asn_country,
     auth::verify_user,
     broker::{broker_loop, ACCEPT_FREE},
     proxy::proxy_stream,
@@ -38,8 +39,6 @@ pub async fn listen_main() -> anyhow::Result<()> {
 
 async fn c2e_loop() -> anyhow::Result<()> {
     let mut listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
-    let ip_to_asn = get_ip_to_asn_map().await?;
-    tracing::info!(len = ip_to_asn.len(), "loaded ASN mapping");
     loop {
         let c2e_raw = match listener.accept().await {
             Ok(conn) => conn,
@@ -52,12 +51,9 @@ async fn c2e_loop() -> anyhow::Result<()> {
         let test_addr = async {
             let remote_addr: SocketAddr = c2e_raw.remote_addr().unwrap().parse()?;
             if let SocketAddr::V4(remote_addr) = remote_addr {
-                let (_, (asn, country)) = ip_to_asn
-                    .range(remote_addr.ip().to_bits()..)
-                    .next()
-                    .context("ASN lookup failed")?;
+                let (asn, country) = ip_to_asn_country(*remote_addr.ip()).await?;
                 tracing::debug!(asn, country, remote_addr = display(remote_addr), "got ASN");
-                if CONFIG_FILE.wait().country_blacklist.contains(country) {
+                if CONFIG_FILE.wait().country_blacklist.contains(&country) {
                     anyhow::bail!(
                         "rejected connection from {remote_addr}/AS{asn} in blacklisted country {country}"
                     )
@@ -182,39 +178,24 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
     let (client_read, client_write) = client.split();
     let mux = PicoMux::new(client_read, client_write);
+
+    let mut sess_metadata = Arc::new(serde_json::Value::Null);
+
     loop {
         let stream = mux.accept().await?;
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
+        if let Ok(new_sess_metadata) = serde_json::from_str::<serde_json::Value>(&metadata) {
+            sess_metadata = Arc::new(new_sess_metadata);
+            tracing::debug!(
+                sess_metadata = display(&sess_metadata),
+                "registering session-specific metadata"
+            );
+        }
+        let sess_metadata = sess_metadata.clone();
         smolscale::spawn(
-            proxy_stream(ratelimit.clone(), stream, is_free)
+            proxy_stream(sess_metadata.clone(), ratelimit.clone(), stream, is_free)
                 .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
         )
         .detach();
     }
-}
-
-async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
-    let url = "https://iptoasn.com/data/ip2asn-v4-u32.tsv.gz";
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
-
-    let decoder = GzDecoder::new(&bytes[..]);
-    let reader = std::io::BufReader::new(decoder);
-
-    let mut map = BTreeMap::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        let fields: Vec<&str> = line.split('\t').collect();
-
-        if fields.len() >= 4 {
-            let range_end: u32 = fields[1].parse()?;
-            let as_number: u32 = fields[2].parse()?;
-            let country_code = fields[3].to_string();
-
-            map.insert(range_end, (as_number, country_code));
-        }
-    }
-
-    Ok(map)
 }

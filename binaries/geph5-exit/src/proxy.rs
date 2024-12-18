@@ -18,6 +18,7 @@ use smol_timeout2::TimeoutExt;
 
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(
+    sess_metadata: Arc<serde_json::Value>,
     ratelimit: RateLimiter,
     stream: picomux::Stream,
     is_free: bool,

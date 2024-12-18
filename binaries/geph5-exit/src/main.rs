@@ -1,3 +1,4 @@
+mod asn;
 mod dns;
 
 use clap::Parser;
