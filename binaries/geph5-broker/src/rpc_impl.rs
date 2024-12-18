@@ -98,7 +98,11 @@ impl BrokerImpl {
 fn is_plus_exit(exit: &ExitDescriptor) -> bool {
     !matches!(
         exit.country,
-        CountryCode::CAN | CountryCode::NLD | CountryCode::FRA | CountryCode::POL
+        CountryCode::CAN
+            | CountryCode::NLD
+            | CountryCode::FRA
+            | CountryCode::POL
+            | CountryCode::DEU
     )
 }
 
