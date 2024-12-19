@@ -253,6 +253,9 @@ async fn proxy_loop(
     });
     let mux = Arc::new(mux);
 
+    // we first register the session metadata
+    mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?).await?;
+
     async {
         nursery!({
             loop {

@@ -50,6 +50,9 @@ pub struct Config {
     pub dry_run: bool,
     #[serde(default)]
     pub credentials: Credential,
+
+    #[serde(default)]
+    pub sess_metadata: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

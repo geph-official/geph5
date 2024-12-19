@@ -189,6 +189,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
                 sess_metadata = display(&sess_metadata),
                 "registering session-specific metadata"
             );
+            continue;
         }
         let sess_metadata = sess_metadata.clone();
         smolscale::spawn(

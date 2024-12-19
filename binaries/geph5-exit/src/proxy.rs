@@ -14,7 +14,7 @@ use smol::{future::FutureExt as _, io::BufWriter, net::UdpSocket};
 
 use crate::{
     allow::proxy_allowed,
-    dns::{dns_resolve, raw_dns_respond},
+    dns::{dns_resolve, raw_dns_respond, FilterOptions},
     ratelimit::RateLimiter,
 };
 
@@ -33,7 +33,9 @@ pub async fn proxy_stream(
     } else {
         ("tcp", &dest_host)
     };
-    let dest_addrs = dns_resolve(dest_host)
+    let filter: FilterOptions =
+        serde_json::from_value(sess_metadata["filter"].clone()).unwrap_or_default();
+    let dest_addrs = dns_resolve(dest_host, filter)
         .await
         .context("failed to resolve DNS")?;
     if !dest_addrs.iter().all(|addr| proxy_allowed(*addr, is_free)) {

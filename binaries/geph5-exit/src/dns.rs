@@ -1,14 +1,17 @@
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::{LazyLock, Mutex},
+    str::FromStr,
+    sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
 
 use anyhow::Context;
 use bytes::Bytes;
 
+use globset::{Glob, GlobSet};
 use moka::future::Cache;
+use serde::{Deserialize, Serialize};
 use simple_dns::Packet;
 use smol::{
     channel::{Receiver, Sender},
@@ -16,13 +19,73 @@ use smol::{
     net::UdpSocket,
 };
 
+#[derive(Serialize, Deserialize, Clone, Debug, Copy, Default)]
+pub struct FilterOptions {
+    pub nsfw: bool,
+    pub ads: bool,
+}
+
+impl FilterOptions {
+    pub async fn check_host(&self, name: &str) -> anyhow::Result<()> {
+        static NSFW_LIST: LazyLock<Cache<(), Arc<GlobSet>>> = LazyLock::new(|| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(86400))
+                .build()
+        });
+        static ADS_LIST: LazyLock<Cache<(), Arc<GlobSet>>> = LazyLock::new(|| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(86400))
+                .build()
+        });
+        let nsfw_list = NSFW_LIST
+            .try_get_with((), async move {
+                anyhow::Ok(Arc::new(
+                    parse_oisd("https://nsfw.oisd.nl/domainswild").await?,
+                ))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let ads_list = ADS_LIST
+            .try_get_with((), async move {
+                anyhow::Ok(Arc::new(
+                    parse_oisd("https://big.oisd.nl/domainswild").await?,
+                ))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if self.nsfw && nsfw_list.is_match(name) {
+            anyhow::bail!("blocking NSFW domain")
+        }
+        if self.ads && ads_list.is_match(name) {
+            anyhow::bail!("blocking ads domain")
+        }
+        Ok(())
+    }
+}
+
+async fn parse_oisd(url: &str) -> anyhow::Result<GlobSet> {
+    let raw = reqwest::get(url).await?.bytes().await?;
+    let mut builder = GlobSet::builder();
+    let mut count = 0;
+    for line in String::from_utf8_lossy(&raw)
+        .lines()
+        .filter(|s| !s.contains("#"))
+    {
+        builder.add(Glob::from_str(line)?);
+        count += 1;
+    }
+    tracing::info!(url, count, "LOADED an oisd blocklist");
+    Ok(builder.build()?)
+}
+
 /// DNS resolve a name
-pub async fn dns_resolve(name: &str) -> anyhow::Result<Vec<SocketAddr>> {
+pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Vec<SocketAddr>> {
     static CACHE: LazyLock<Cache<String, Vec<SocketAddr>>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(240))
             .build()
     });
+    filter.check_host(name.split(':').next().unwrap()).await?;
     let addr = CACHE
         .try_get_with(name.to_string(), async {
             let choices = smol::net::resolve(name).await?;
