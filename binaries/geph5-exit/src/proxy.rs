@@ -70,7 +70,7 @@ pub async fn proxy_stream(
                 .find(|s| s.is_ipv4())
                 .context("UDP only supports ipv4 for now")?;
             if addr.port() == 53 {
-                return proxy_dns(stream).await;
+                return proxy_dns(stream, filter).await;
             }
             if addr.port() == 443 {
                 anyhow::bail!("special-case banning QUIC to improve traffic management")
@@ -127,7 +127,7 @@ pub async fn proxy_stream(
     }
 }
 
-async fn proxy_dns(stream: picomux::Stream) -> anyhow::Result<()> {
+async fn proxy_dns(stream: picomux::Stream, filter: FilterOptions) -> anyhow::Result<()> {
     let (read_stream, write_stream) = stream.split();
     let mut read_stream = BufReader::new(read_stream);
     let write_stream = Arc::new(smol::lock::Mutex::new(BufWriter::new(write_stream)));
@@ -146,7 +146,7 @@ async fn proxy_dns(stream: picomux::Stream) -> anyhow::Result<()> {
             .context("timeout")??;
         let write_stream = write_stream.clone();
         smolscale::spawn(async move {
-            let response = raw_dns_respond(packet_buf.into()).await?;
+            let response = raw_dns_respond(packet_buf.into(), filter).await?;
             let mut stream = write_stream.lock().await;
             stream
                 .write_all(&(response.len() as u16).to_le_bytes())

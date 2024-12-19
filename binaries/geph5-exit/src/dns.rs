@@ -29,7 +29,7 @@ pub struct FilterOptions {
 
 impl FilterOptions {
     pub async fn check_host(&self, name: &str) -> anyhow::Result<()> {
-        tracing::debug!(filter = debug(self), name, "checking against filter");
+        tracing::trace!(filter = debug(self), name, "checking against filter");
         static NSFW_LIST: LazyLock<Cache<(), Arc<GlobSet>>> = LazyLock::new(|| {
             Cache::builder()
                 .time_to_live(Duration::from_secs(86400))
@@ -89,7 +89,11 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
             .time_to_live(Duration::from_secs(240))
             .build()
     });
-    filter.check_host(name.split(':').next().unwrap()).await?;
+    let (host, port) = name
+        .rsplit_once(":")
+        .context("could not split into host and port")?;
+    let port: u16 = port.parse()?;
+    filter.check_host(host).await?;
     let addr = CACHE
         .try_get_with(name.to_string(), async {
             let choices = smol::net::resolve(name).await?;
@@ -101,7 +105,13 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
 }
 
 /// A udp-socket-efficient DNS responder.
-pub async fn raw_dns_respond(req: Bytes) -> anyhow::Result<Bytes> {
+pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Result<Bytes> {
+    if let Ok(packet) = Packet::parse(&req) {
+        for q in packet.questions.iter() {
+            let qname = q.qname.to_string();
+            filter.check_host(&qname).await?;
+        }
+    }
     let (send_resp, recv_resp) = oneshot::channel();
     DNS_RESPONDER
         .send((req, send_resp))
