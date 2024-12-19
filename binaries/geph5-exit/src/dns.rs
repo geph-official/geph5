@@ -21,12 +21,15 @@ use smol::{
 
 #[derive(Serialize, Deserialize, Clone, Debug, Copy, Default)]
 pub struct FilterOptions {
+    #[serde(default)]
     pub nsfw: bool,
+    #[serde(default)]
     pub ads: bool,
 }
 
 impl FilterOptions {
     pub async fn check_host(&self, name: &str) -> anyhow::Result<()> {
+        tracing::debug!(filter = debug(self), name, "checking against filter");
         static NSFW_LIST: LazyLock<Cache<(), Arc<GlobSet>>> = LazyLock::new(|| {
             Cache::builder()
                 .time_to_live(Duration::from_secs(86400))
@@ -72,6 +75,7 @@ async fn parse_oisd(url: &str) -> anyhow::Result<GlobSet> {
         .filter(|s| !s.contains("#"))
     {
         builder.add(Glob::from_str(line)?);
+        builder.add(Glob::from_str(&line.replace("*.", ""))?);
         count += 1;
     }
     tracing::info!(url, count, "LOADED an oisd blocklist");
