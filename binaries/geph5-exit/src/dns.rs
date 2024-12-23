@@ -104,7 +104,7 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
     Ok(addr)
 }
 
-/// A udp-socket-efficient DNS responder.
+/// A udp-socket-efficient DNS responder.   
 pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Result<Bytes> {
     if let Ok(packet) = Packet::parse(&req) {
         for q in packet.questions.iter() {

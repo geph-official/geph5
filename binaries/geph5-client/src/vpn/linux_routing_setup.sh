@@ -6,7 +6,7 @@ ip route add default dev tun-geph table 8964
 
 # Clear IPv6 table (create it if it doesn't exist)
 ip -6 route flush table 8964
-ip -6 route add default dev tun-geph table 8964
+ip -6 route add default blackhole table 8964
 
 # Set up rules for IPv4
 ip rule add table main suppress_prefixlength 0
