@@ -35,38 +35,12 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
-use crate::{client::CtxField, client_inner::open_conn, Config};
-
-static FAKE_DNS_FORWARD: CtxField<DashMap<String, Ipv4Addr>> = |_| DashMap::new();
-
-static FAKE_DNS_BACKWARD: CtxField<DashMap<Ipv4Addr, String>> = |_| DashMap::new();
-
-pub fn fake_dns_backtranslate(ctx: &AnyCtx<Config>, fake: Ipv4Addr) -> Option<String> {
-    tracing::trace!(fake = debug(fake), "attempting to backtranslate");
-    ctx.get(FAKE_DNS_BACKWARD)
-        .get(&fake)
-        .map(|entry| entry.clone())
-}
-
-pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
-    *ctx.get(FAKE_DNS_FORWARD)
-        .entry(dns_name.to_string())
-        .or_insert_with(|| {
-            let base = u32::from_be_bytes([240, 0, 0, 0]);
-            let mask = u32::from_be_bytes([240, 0, 0, 0]);
-            let offset = rand::thread_rng().gen_range(0..=!mask);
-            let ip_addr = base | offset;
-            let ip_addr = Ipv4Addr::from(ip_addr);
-            ctx.get(FAKE_DNS_BACKWARD)
-                .insert(ip_addr, dns_name.to_string());
-            tracing::debug!(
-                from = debug(dns_name),
-                to = debug(ip_addr),
-                "created fake dns mapping",
-            );
-            ip_addr
-        })
-}
+use crate::{
+    client::CtxField,
+    client_inner::open_conn,
+    spoof_dns::{fake_dns_allocate, fake_dns_respond},
+    Config,
+};
 
 /// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
 pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
@@ -193,28 +167,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         // fakedns handling
                         loop {
                             let pkt = captured.recv().await?;
-                            let pkt = Packet::parse(&pkt)?;
-                            tracing::trace!(pkt = debug(&pkt), "got DNS packet");
-                            let mut answers = vec![];
-                            for question in pkt.questions.iter() {
-                                if question.qtype == QTYPE::TYPE(simple_dns::TYPE::A) {
-                                    answers.push(simple_dns::ResourceRecord::new(
-                                        question.qname.clone(),
-                                        simple_dns::CLASS::IN,
-                                        1,
-                                        simple_dns::rdata::RData::A(
-                                            fake_dns_allocate(&ctx, &question.qname.to_string())
-                                                .into(),
-                                        ),
-                                    ));
-                                }
-                            }
-                            let mut response = pkt.into_reply();
-                            response.answers = answers;
-
-                            captured
-                                .send(&response.build_bytes_vec_compressed()?)
-                                .await?;
+                            captured.send(&fake_dns_respond(&ctx, &pkt)?).await?;
                         }
                     } else {
                         let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;

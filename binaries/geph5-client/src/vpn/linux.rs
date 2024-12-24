@@ -17,7 +17,7 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::{client_inner::open_conn, Config};
+use crate::{client_inner::open_conn, spoof_dns::fake_dns_respond, Config};
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
@@ -74,22 +74,28 @@ pub(super) async fn packet_shuffle(
             let mut buf = [0u8; 8192];
             let (n, src) = dns_proxy.recv_from(&mut buf).await?;
             tracing::trace!(n, src = display(src), "received DNS packet");
-            let dns_proxy = dns_proxy.clone();
-            let ctx = ctx.clone();
-            smolscale::spawn(async move {
-                let buf = &buf[..n];
-                let mut conn = open_conn(&ctx, "udp", "1.1.1.1:53").await?;
-                conn.write_all(&(buf.len() as u16).to_le_bytes()).await?;
-                conn.write_all(buf).await?;
-                let mut len_buf = [0u8; 2];
-                conn.read_exact(&mut len_buf).await?;
-                let len = u16::from_le_bytes(len_buf) as usize;
-                let mut buf = vec![0u8; len];
-                conn.read_exact(&mut buf).await?;
-                dns_proxy.send_to(&buf, src).await?;
-                anyhow::Ok(())
-            })
-            .detach();
+            if ctx.init().spoof_dns {
+                if let Ok(resp) = fake_dns_respond(&ctx, &buf[..n]) {
+                    let _ = dns_proxy.send_to(&resp, src).await;
+                }
+            } else {
+                let dns_proxy = dns_proxy.clone();
+                let ctx = ctx.clone();
+                smolscale::spawn(async move {
+                    let buf = &buf[..n];
+                    let mut conn = open_conn(&ctx, "udp", "1.1.1.1:53").await?;
+                    conn.write_all(&(buf.len() as u16).to_le_bytes()).await?;
+                    conn.write_all(buf).await?;
+                    let mut len_buf = [0u8; 2];
+                    conn.read_exact(&mut len_buf).await?;
+                    let len = u16::from_le_bytes(len_buf) as usize;
+                    let mut buf = vec![0u8; len];
+                    conn.read_exact(&mut buf).await?;
+                    dns_proxy.send_to(&buf, src).await?;
+                    anyhow::Ok(())
+                })
+                .detach();
+            }
         }
     };
 

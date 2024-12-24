@@ -29,15 +29,7 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token,
-    china::is_chinese_host,
-    client::CtxField,
-    control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
-    refresh_cell::RefreshCell,
-    route::{deprioritize_route, get_dialer},
-    stats::{stat_incr_num, stat_set_num},
-    vpn::{fake_dns_backtranslate, vpn_whitelist},
-    ConnInfo,
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::{deprioritize_route, get_dialer}, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::vpn_whitelist, ConnInfo
 };
 
 use super::Config;
@@ -88,6 +80,7 @@ pub async fn open_conn(
     }));
     Ok(Box::new(conn))
 }
+
 
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if host.is_empty() || host.contains("[") {

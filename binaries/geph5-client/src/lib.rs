@@ -17,6 +17,6 @@ pub mod logs;
 mod refresh_cell;
 mod route;
 mod socks5;
+mod spoof_dns;
 mod stats;
-
 mod vpn;
