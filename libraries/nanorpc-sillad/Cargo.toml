@@ -11,7 +11,7 @@ sillad = { version = "0.2", path = "../sillad" }
 async-trait = "0.1.83"
 nanorpc = "0.1.13"
 serde_json = "1.0.134"
-thiserror = "1.0.69"
+thiserror = "2.0.9"
 anyhow = "1.0.95"
 futures-util = { version = "0.3.31", features = ["io"] }
 async-executor = "1.13.1"

@@ -11,7 +11,7 @@ sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 picomux = { path = "../../libraries/picomux" }
 async-trait = "0.1.83"
 nanorpc = "0.1.13"
-thiserror = "1.0.69"
+thiserror = "2.0.9"
 smolscale = "0.4.11"
 futures-util = "0.3.31"
 async-io = "2.4.0"
@@ -38,9 +38,9 @@ hex = "0.4.3"
 nursery_macro = "0.1.0"
 moka = { version = "0.12.8", features = ["future"] }
 mizaru2 = { path = "../../libraries/mizaru2" }
-governor = "0.6.3"
+governor = "0.8.0"
 quanta = "0.12.4"
-sysinfo = "0.30.13"
+sysinfo = "0.33.0"
 atomic_float = "1.1.0"
 fastrand = "2.3.0"
 tachyonix = "0.3.1"

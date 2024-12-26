@@ -1,4 +1,4 @@
-use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, Widget};
+use egui::{Align, Image, Key, Layout, TextBuffer, TextEdit, UiBuilder, Widget};
 use geph5_broker_protocol::{BrokerClient, Credential};
 use poll_promise::Promise;
 
@@ -61,7 +61,7 @@ impl Login {
         } else {
             let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click());
             let rect = rect.shrink2(egui::vec2(40., 0.));
-            ui.allocate_ui_at_rect(rect, |ui| {
+            ui.allocate_new_ui(UiBuilder::new().max_rect(rect), |ui| {
                 ui.with_layout(Layout::top_down_justified(Align::Center), |ui| {
                     ui.add_space(10.);
                     Image::new(egui::include_image!("../../icon.png"))

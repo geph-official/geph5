@@ -9,12 +9,12 @@ resolver = "2"
 
 [dependencies]
 log = "0.4"
-pollster = "0.2"
+pollster = "0.4.0"
 # winit = { git = "https://github.com/xorgy/winit", branch = "basic-keyboard-show-hide" }
 # For some reason logging within the egui crate isn't working, even with
 # the log feature. Maybe the android_logger crate is broken?
-egui = "0.28"
-egui-winit = { version = "0.28", default-features = false, features = [
+egui = "0.30.0"
+egui-winit = { version = "0.30.0", default-features = false, features = [
     "android-native-activity",
 ] }
 # egui_demo_lib = "0.22"
@@ -29,16 +29,16 @@ smolscale = "0.4.11"
 tracing = "0.1.41"
 ndk-context = "0.1.1"
 anyhow = "1.0.95"
-eframe = { version = "0.28.1", features = [
+eframe = { version = "0.30", features = [
     "android-native-activity",
     "wgpu",
 ], default-features = false }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-env_logger = "0.10"
+env_logger = "0.11.6"
 
 [target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.13.3"
+android_logger = "0.14.1"
 
 [features]
 default = []
@@ -46,7 +46,7 @@ desktop = []
 
 [lib]
 name = "na_egui"
-crate_type = ["cdylib"]
+crate-type = ["cdylib"]
 
 [[bin]]
 path = "src/lib.rs"
