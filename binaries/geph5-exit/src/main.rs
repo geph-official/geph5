@@ -1,5 +1,6 @@
 mod asn;
 mod dns;
+mod tasklimit;
 
 use clap::Parser;
 use ed25519_dalek::SigningKey;
@@ -57,6 +58,9 @@ struct ConfigFile {
 
     #[serde(default = "default_free_port_whitelist")]
     free_port_whitelist: Vec<u16>,
+
+    #[serde(default = "default_task_limit")]
+    task_limit: usize,
 }
 
 fn default_free_ratelimit() -> u32 {
@@ -69,6 +73,10 @@ fn default_plus_ratelimit() -> u32 {
 
 fn default_total_ratelimit() -> u32 {
     125000
+}
+
+fn default_task_limit() -> usize {
+    1_000_000
 }
 
 fn default_free_port_whitelist() -> Vec<u16> {

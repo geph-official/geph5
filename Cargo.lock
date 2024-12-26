@@ -1921,9 +1921,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-queue"
-version = "0.3.11"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df0346b5d5e76ac2fe4e327c5fd1118d6be7c51dfb18f9b7922923f287471e35"
+checksum = "0f58bbc28f91df819d0aa2a2c00cd19754769c2fad90579b3592b1c9ba7a3115"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -3241,6 +3241,7 @@ name = "geph5-exit"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-event",
  "async-io 2.4.0",
  "async-io-bufpool",
  "async-trait",
@@ -3248,6 +3249,7 @@ dependencies = [
  "blake3",
  "bytes",
  "clap",
+ "crossbeam-queue",
  "dashmap 6.1.0",
  "ed25519-dalek",
  "fastrand 2.3.0",
@@ -3269,6 +3271,7 @@ dependencies = [
  "quanta",
  "rand",
  "reqwest",
+ "scopeguard",
  "serde",
  "serde_json",
  "serde_yaml",

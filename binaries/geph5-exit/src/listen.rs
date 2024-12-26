@@ -26,6 +26,7 @@ use crate::{
     broker::{broker_loop, ACCEPT_FREE},
     proxy::proxy_stream,
     ratelimit::{get_ratelimiter, RateLimiter},
+    tasklimit::new_task_until_death,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -194,6 +195,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let sess_metadata = sess_metadata.clone();
         smolscale::spawn(
             proxy_stream(sess_metadata.clone(), ratelimit.clone(), stream, is_free)
+                .race(new_task_until_death(Duration::from_secs(30)))
                 .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
         )
         .detach();
