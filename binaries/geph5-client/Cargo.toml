@@ -39,7 +39,7 @@ hex = "0.4.3"
 http = "1.2.0"
 http-body-util = "0.1.2"
 hyper = { version = "1.5.2", features = ["http1", "client", "server"] }
-hyper-rustls = { version = "0.25.0", features = ["webpki-roots", "http2"] }
+hyper-rustls = { version = "0.24.2", features = ["webpki-roots"] }
 hyper-util = { version = "0.1.10" }
 ipstack-geph = "0.2.7"
 # ipstack-geph={path="../../../ipstack-geph"}
