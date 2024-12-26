@@ -8,38 +8,38 @@ description = "A protocol to multiplex multiple AsyncRead/Write streams over a s
 
 [dependencies]
 ahash = "0.8.11"
-anyhow = "1.0.86"
+anyhow = "1.0.95"
 async-dup = "1.2.4"
 async-task = "4.7.1"
 async_io_stream = "0.3.3"
 bipe = "0.2"
-bytemuck = { version = "1.16.1", features = ["derive", "min_const_generics"] }
-bytes = "1.6.0"
-dashmap = "6.0.1"
-futures-lite = "2.3.0"
-futures-util = { version = "0.3.30", features = ["io"] }
+bytemuck = { version = "1.21.0", features = ["derive", "min_const_generics"] }
+bytes = "1.9.0"
+dashmap = "6.1.0"
+futures-lite = "2.5.0"
+futures-util = { version = "0.3.31", features = ["io"] }
 oneshot = "0.1.8"
 parking_lot = "0.12.3"
 rand = "0.8.5"
 recycle-box = "0.2.0"
 scopeguard = "1.2.0"
-smol-timeout2 = "0.6.0"
-smolscale = "0.4.7"
-tracing = "0.1.40"
+smol-timeout2 = "0.6.1"
+smolscale = "0.4.11"
+tracing = "0.1.41"
 tracing-test = "0.2.5"
-fastrand = "2.1.0"
+fastrand = "2.3.0"
 tap = "1.0.1"
-serde = { version = "1.0.204", features = ["derive"] }
-serde_json = "1.0.120"
-async-io = "2.3.3"
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.134"
+async-io = "2.4.0"
 sillad = { version = "0.2", path = "../sillad" }
 futures-intrusive = "0.5.0"
 async-channel = "2.3.1"
-pin-project = "1.1.5"
-tachyonix = "0.3.0"
+pin-project = "1.1.7"
+tachyonix = "0.3.1"
 async-event = "0.2.1"
 async-lock = "3.4.0"
-crossbeam-queue = "0.3.11"
+crossbeam-queue = "0.3.12"
 async-io-bufpool = "0.1.2"
 
 [dev-dependencies]
@@ -47,4 +47,4 @@ smol = "2"
 socksv5 = "0.3"
 sillad-sosistab3 = { path = "../sillad-sosistab3" }
 tracing-subscriber = "0.3"
-clap = { version = "4.5.8", features = ["derive"] }
+clap = { version = "4.5.23", features = ["derive"] }

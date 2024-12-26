@@ -10,34 +10,34 @@ picomux = { path = "../../libraries/picomux" }
 rand = "0.8.5"
 sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
-smolscale = "0.4.7"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+smolscale = "0.4.11"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
-nanorpc = "0.1.12"
+nanorpc = "0.1.13"
 nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
-async-trait = "0.1.80"
-blake3 = "1.5.1"
-async-io = "2.3.3"
+async-trait = "0.1.83"
+blake3 = "1.5.5"
+async-io = "2.4.0"
 tap = "1.0.1"
-reqwest = { version = "0.12.5", default-features = false, features = [
+reqwest = { version = "0.12.9", default-features = false, features = [
   "rustls-tls",
   "json"
 ] }
-moka = { version = "0.12.7", features = ["future"] }
-anyhow = "1.0.86"
+moka = { version = "0.12.8", features = ["future"] }
+anyhow = "1.0.95"
 stdcode = "0.1.14"
-smol = "2.0.0"
-futures-util = { version = "0.3.30", features = ["io"] }
+smol = "2.0.2"
+futures-util = { version = "0.3.31", features = ["io"] }
 deadpool = "0.12.1"
-once_cell = "1.19.0"
-dashmap = "6.0.1"
-serde_json = "1.0.120"
+once_cell = "1.20.2"
+dashmap = "6.1.0"
+serde_json = "1.0.134"
 scopeguard = "1.2.0"
 smol-timeout2 = "0.6.1"
 async-channel = "2.3.1"
 oneshot = "0.1.8"
-async-io-bufpool = "0.1.0"
+async-io-bufpool = "0.1.2"
 tikv-jemallocator = { version = "0.6.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 flate2 = "1.0.35"
 #jemalloc_pprof = "0.6.0"
