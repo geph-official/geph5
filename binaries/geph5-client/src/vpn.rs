@@ -39,6 +39,7 @@ use crate::{
     client::CtxField,
     client_inner::open_conn,
     spoof_dns::{fake_dns_allocate, fake_dns_respond},
+    taskpool::add_task,
     Config,
 };
 
@@ -136,7 +137,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 );
                 let ctx = ctx.clone();
 
-                smolscale::spawn(async move {
+                let task = smolscale::spawn(async move {
                     let tunneled = open_conn(&ctx, "tcp", &peer_addr.to_string()).await?;
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                     let (read_tunneled, write_tunneled) = tunneled.split();
@@ -145,8 +146,16 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         .race(smol::io::copy(read_captured, write_tunneled))
                         .await?;
                     anyhow::Ok(())
-                })
-                .detach();
+                });
+
+                #[cfg(target_os = "ios")]
+                {
+                    add_task(task);
+                }
+                #[cfg(not(target_os = "ios"))]
+                {
+                    task.detach();
+                }
             }
             ipstack_geph::stream::IpStackStream::Udp(captured) => {
                 let peer_addr = captured.peer_addr();
@@ -162,7 +171,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 };
 
                 let ctx = ctx.clone();
-                smolscale::spawn::<anyhow::Result<()>>(async move {
+                let task = smolscale::spawn::<anyhow::Result<()>>(async move {
                     if peer_addr.port() == 53 && ctx.init().spoof_dns {
                         // fakedns handling
                         loop {
@@ -194,8 +203,15 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         };
                         up_loop.race(dn_loop).await
                     }
-                })
-                .detach();
+                });
+                #[cfg(target_os = "ios")]
+                {
+                    add_task(task);
+                }
+                #[cfg(not(target_os = "ios"))]
+                {
+                    task.detach();
+                }
             }
             ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
                 tracing::warn!("captured an UnknownTransport")
