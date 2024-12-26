@@ -135,10 +135,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     peer_addr = display(peer_addr),
                     "captured a TCP"
                 );
-                let ctx = ctx.clone();
+                let ctx_clone = ctx.clone();
 
                 let task = smolscale::spawn(async move {
-                    let tunneled = open_conn(&ctx, "tcp", &peer_addr.to_string()).await?;
+                    let tunneled = open_conn(&ctx_clone, "tcp", &peer_addr.to_string()).await?;
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                     let (read_tunneled, write_tunneled) = tunneled.split();
                     let (read_captured, write_captured) = captured.split();
@@ -148,12 +148,9 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     anyhow::Ok(())
                 });
 
-                #[cfg(target_os = "ios")]
-                {
-                    add_task(task);
-                }
-                #[cfg(not(target_os = "ios"))]
-                {
+                if let Some(task_limit) = ctx.init().task_limit {
+                    add_task(task_limit, task);
+                } else {
                     task.detach();
                 }
             }
@@ -169,17 +166,16 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 } else {
                     peer_addr
                 };
-
-                let ctx = ctx.clone();
+                let ctx_clone = ctx.clone();
                 let task = smolscale::spawn::<anyhow::Result<()>>(async move {
-                    if peer_addr.port() == 53 && ctx.init().spoof_dns {
+                    if peer_addr.port() == 53 && ctx_clone.init().spoof_dns {
                         // fakedns handling
                         loop {
                             let pkt = captured.recv().await?;
-                            captured.send(&fake_dns_respond(&ctx, &pkt)?).await?;
+                            captured.send(&fake_dns_respond(&ctx_clone, &pkt)?).await?;
                         }
                     } else {
-                        let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;
+                        let tunneled = open_conn(&ctx_clone, "udp", &peer_addr.to_string()).await?;
                         let (mut read_tunneled, mut write_tunneled) = tunneled.split();
                         let up_loop = async {
                             loop {
@@ -204,12 +200,9 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         up_loop.race(dn_loop).await
                     }
                 });
-                #[cfg(target_os = "ios")]
-                {
-                    add_task(task);
-                }
-                #[cfg(not(target_os = "ios"))]
-                {
+                if let Some(task_limit) = ctx.init().task_limit {
+                    add_task(task_limit, task);
+                } else {
                     task.detach();
                 }
             }

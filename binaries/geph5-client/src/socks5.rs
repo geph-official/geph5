@@ -1,4 +1,4 @@
-use crate::client_inner::open_conn;
+use crate::{client_inner::open_conn, taskpool::add_task};
 
 use anyctx::AnyCtx;
 
@@ -56,13 +56,9 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         .await?;
                     anyhow::Ok(())
                 });
-                #[cfg(target_os = "ios")]
-                {
-                    use crate::taskpool::add_task;
-                    add_task(task);
-                }
-                #[cfg(not(target_os = "ios"))]
-                {
+                if let Some(task_limit) = ctx.init().task_limit {
+                    add_task(task_limit, task);
+                } else {
                     task.detach();
                 }
             }
