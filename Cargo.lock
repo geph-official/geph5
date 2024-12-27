@@ -3077,7 +3077,7 @@ dependencies = [
  "nanorpc",
  "serde",
  "serde_json",
- "serde_with 3.11.0",
+ "serde_with 3.12.0",
  "stdcode",
  "thiserror 1.0.69",
  "tracing",
@@ -3254,12 +3254,14 @@ dependencies = [
  "ed25519-dalek",
  "fastrand 2.3.0",
  "flate2",
+ "futures-concurrency",
  "futures-util",
  "geph5-broker-protocol",
  "geph5-misc-rpc",
  "globset",
  "governor",
  "hex",
+ "ipnet",
  "isocountry",
  "mizaru2",
  "moka",
@@ -3274,6 +3276,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
+ "serde_with 3.12.0",
  "serde_yaml",
  "sillad",
  "sillad-sosistab3",
@@ -3281,6 +3284,7 @@ dependencies = [
  "smol 2.0.2",
  "smol-timeout2",
  "smolscale",
+ "socket2 0.5.8",
  "stdcode",
  "sysinfo",
  "tachyonix",
@@ -6272,9 +6276,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.11.0"
+version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e28bdad6db2b8340e449f7108f020b3b092e8583a9e3fb82713e1d4e71fe817"
+checksum = "d6b6f7f2fcb69f747921f79f3926bd1e203fce4fef62c268dd3abfb6d86029aa"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6284,7 +6288,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "serde_with_macros 3.11.0",
+ "serde_with_macros 3.12.0",
  "time",
 ]
 
@@ -6302,9 +6306,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.11.0"
+version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d846214a9854ef724f3da161b426242d8de7c1fc7de2f89bb1efcb154dca79d"
+checksum = "8d00caa5193a3c8362ac2b73be6b9e768aa5a4b2f721d8f4b339600c3cb51f8e"
 dependencies = [
  "darling 0.20.10",
  "proc-macro2",

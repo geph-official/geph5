@@ -1,14 +1,18 @@
 mod asn;
 mod dns;
+mod ipv6;
 mod tasklimit;
 
 use clap::Parser;
 use ed25519_dalek::SigningKey;
+use ipnet::Ipv6Net;
+use ipv6::configure_ipv6_routing;
 use isocountry::CountryCode;
 use listen::listen_main;
 use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -32,6 +36,7 @@ use crate::ratelimit::update_load_loop;
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
 
 /// This struct defines the structure of our configuration file
+#[serde_as]
 #[derive(Deserialize)]
 struct ConfigFile {
     signing_secret: PathBuf,
@@ -61,6 +66,10 @@ struct ConfigFile {
 
     #[serde(default = "default_task_limit")]
     task_limit: usize,
+
+    #[serde_as(as = "DisplayFromStr")]
+    #[serde(default)]
+    ipv6_subnet: Ipv6Net,
 }
 
 fn default_free_ratelimit() -> u32 {
