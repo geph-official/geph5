@@ -12,7 +12,7 @@ static TASK_KILLER: LazyLock<async_event::Event> = LazyLock::new(async_event::Ev
 pub async fn new_task_until_death(protected_period: Duration) -> anyhow::Result<()> {
     let task_limit = CONFIG_FILE.wait().task_limit;
     let count = TASK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    tracing::debug!(count, task_limit, "making a task death handle");
+    // tracing::debug!(count, task_limit, "making a task death handle");
     scopeguard::defer!({
         TASK_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     });
@@ -30,6 +30,6 @@ pub async fn new_task_until_death(protected_period: Duration) -> anyhow::Result<
             }
         })
         .await;
-    tracing::warn!(task_limit, "a task is killed due to overflow");
+    // tracing::warn!(task_limit, "a task is killed due to overflow");
     anyhow::bail!("too many tasks")
 }

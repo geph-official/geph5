@@ -6,7 +6,7 @@ mod tasklimit;
 use clap::Parser;
 use ed25519_dalek::SigningKey;
 use ipnet::Ipv6Net;
-use ipv6::configure_ipv6_routing;
+
 use isocountry::CountryCode;
 use listen::listen_main;
 use once_cell::sync::{Lazy, OnceCell};
@@ -27,8 +27,8 @@ mod proxy;
 mod ratelimit;
 mod schedlag;
 
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+// #[global_allocator]
+// static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use crate::ratelimit::update_load_loop;
 
