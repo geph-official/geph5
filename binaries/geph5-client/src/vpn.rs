@@ -2,7 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
-use crossbeam_queue::SegQueue;
+use crossbeam_queue::{ArrayQueue, SegQueue};
 use dashmap::DashMap;
 
 use ipstack_geph::{IpStack, IpStackConfig};
@@ -65,13 +65,13 @@ pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
 
 static VPN_EVENT: CtxField<async_event::Event> = |_| async_event::Event::new();
 
-static VPN_CAPTURE: CtxField<SegQueue<(Bytes, Instant)>> = |_| SegQueue::new();
+static VPN_CAPTURE: CtxField<ArrayQueue<(Bytes, Instant)>> = |_| ArrayQueue::new(100);
 
-static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
+static VPN_INJECT: CtxField<ArrayQueue<Bytes>> = |_| ArrayQueue::new(100);
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    let (send_captured, recv_captured) = smol::channel::unbounded();
-    let (send_injected, recv_injected) = smol::channel::unbounded();
+    let (send_captured, recv_captured) = smol::channel::bounded(100);
+    let (send_injected, recv_injected) = smol::channel::bounded(100);
 
     let ipstack = IpStack::new(
         #[cfg(target_os = "ios")]
@@ -115,8 +115,6 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
                     ctx.get(VPN_INJECT).push(bts);
                     ctx.get(VPN_EVENT).notify_all();
-
-                    smol::future::yield_now().await;
                 }
             };
             up_loop.race(dn_loop).await
