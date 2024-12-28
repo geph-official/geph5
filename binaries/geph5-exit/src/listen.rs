@@ -24,12 +24,15 @@ use crate::{
     asn::ip_to_asn_country,
     auth::verify_user,
     broker::{broker_loop, ACCEPT_FREE},
+    ipv6::{configure_ipv6_routing, EyeballDialer},
     proxy::proxy_stream,
     ratelimit::{get_ratelimiter, RateLimiter},
+    tasklimit::new_task_until_death,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
 pub async fn listen_main() -> anyhow::Result<()> {
+    configure_ipv6_routing().await?;
     let c2e = c2e_loop();
     let b2e = b2e_loop();
     let broker = broker_loop();
@@ -179,7 +182,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     let mux = PicoMux::new(client_read, client_write);
 
     let mut sess_metadata = Arc::new(serde_json::Value::Null);
-
+    let dialer = EyeballDialer::new();
     loop {
         let stream = mux.accept().await?;
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
@@ -192,9 +195,17 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             continue;
         }
         let sess_metadata = sess_metadata.clone();
+        let dialer = dialer.clone();
         smolscale::spawn(
-            proxy_stream(sess_metadata.clone(), ratelimit.clone(), stream, is_free)
-                .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
+            proxy_stream(
+                dialer,
+                sess_metadata.clone(),
+                ratelimit.clone(),
+                stream,
+                is_free,
+            )
+            .race(new_task_until_death(Duration::from_secs(30)))
+            .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
         )
         .detach();
     }

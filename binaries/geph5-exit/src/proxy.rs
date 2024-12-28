@@ -15,6 +15,7 @@ use smol::{future::FutureExt as _, io::BufWriter, net::UdpSocket};
 use crate::{
     allow::proxy_allowed,
     dns::{dns_resolve, raw_dns_respond, FilterOptions},
+    ipv6::EyeballDialer,
     ratelimit::RateLimiter,
 };
 
@@ -22,6 +23,7 @@ use smol_timeout2::TimeoutExt;
 
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(
+    dialer: EyeballDialer,
     sess_metadata: Arc<serde_json::Value>,
     ratelimit: RateLimiter,
     stream: picomux::Stream,
@@ -45,10 +47,10 @@ pub async fn proxy_stream(
     match protocol {
         "tcp" => {
             let start = Instant::now();
-            let dest_tcp = HappyEyeballsTcpDialer(dest_addrs)
-                .dial()
+            let dest_tcp = dialer
+                .connect(dest_addrs)
                 .await
-                .context("failed to dial")?;
+                .inspect_err(|err| tracing::warn!(err = debug(err), dest_host, "fail to dial"))?;
             tracing::trace!(
                 protocol,
                 dest_host = display(dest_host),

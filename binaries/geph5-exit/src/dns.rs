@@ -16,6 +16,7 @@ use simple_dns::Packet;
 use smol::{
     channel::{Receiver, Sender},
     future::FutureExt as _,
+    lock::Semaphore,
     net::UdpSocket,
 };
 
@@ -40,26 +41,31 @@ impl FilterOptions {
                 .time_to_live(Duration::from_secs(86400))
                 .build()
         });
-        let nsfw_list = NSFW_LIST
-            .try_get_with((), async move {
-                anyhow::Ok(Arc::new(
-                    parse_oisd("https://nsfw.oisd.nl/domainswild").await?,
-                ))
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let ads_list = ADS_LIST
-            .try_get_with((), async move {
-                anyhow::Ok(Arc::new(
-                    parse_oisd("https://big.oisd.nl/domainswild").await?,
-                ))
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-        if self.nsfw && nsfw_list.is_match(name) {
+
+        if self.nsfw
+            && NSFW_LIST
+                .try_get_with((), async move {
+                    anyhow::Ok(Arc::new(
+                        parse_oisd("https://nsfw.oisd.nl/domainswild").await?,
+                    ))
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .is_match(name)
+        {
             anyhow::bail!("blocking NSFW domain")
         }
-        if self.ads && ads_list.is_match(name) {
+        if self.ads
+            && ADS_LIST
+                .try_get_with((), async move {
+                    anyhow::Ok(Arc::new(
+                        parse_oisd("https://small.oisd.nl/domainswild").await?,
+                    ))
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+                .is_match(name)
+        {
             anyhow::bail!("blocking ads domain")
         }
         Ok(())
@@ -68,6 +74,8 @@ impl FilterOptions {
 
 async fn parse_oisd(url: &str) -> anyhow::Result<GlobSet> {
     let raw = reqwest::get(url).await?.bytes().await?;
+    tracing::info!(url, "STARTING TO BUILD an oisd blocklist");
+
     let mut builder = GlobSet::builder();
     let mut count = 0;
     for line in String::from_utf8_lossy(&raw)
@@ -77,6 +85,10 @@ async fn parse_oisd(url: &str) -> anyhow::Result<GlobSet> {
         builder.add(Glob::from_str(line)?);
         builder.add(Glob::from_str(&line.replace("*.", ""))?);
         count += 1;
+        if fastrand::f32() < 0.01 {
+            tracing::info!(url, count, "LOADING an oisd blocklist");
+            smol::future::yield_now().await;
+        }
     }
     tracing::info!(url, count, "LOADED an oisd blocklist");
     Ok(builder.build()?)

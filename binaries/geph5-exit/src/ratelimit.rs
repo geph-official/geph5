@@ -37,7 +37,7 @@ static CURRENT_SPEED: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 
 pub fn get_load() -> f32 {
     // we weigh CPU usage lower until it's really close to massively overloading
-    let cpu = CPU_USAGE.load(Ordering::Relaxed).powi(4);
+    let cpu = CPU_USAGE.load(Ordering::Relaxed).powi(2);
     let speed = CURRENT_SPEED.load(Ordering::Relaxed)
         / (CONFIG_FILE.wait().total_ratelimit as f32 * 1000.0);
     cpu.max(speed)
