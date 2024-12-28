@@ -131,8 +131,11 @@ pub async fn proxy_stream(
 
 async fn proxy_dns(stream: picomux::Stream, filter: FilterOptions) -> anyhow::Result<()> {
     let (read_stream, write_stream) = stream.split();
-    let mut read_stream = BufReader::new(read_stream);
-    let write_stream = Arc::new(smol::lock::Mutex::new(BufWriter::new(write_stream)));
+    let mut read_stream = BufReader::with_capacity(600, read_stream);
+    let write_stream = Arc::new(smol::lock::Mutex::new(BufWriter::with_capacity(
+        600,
+        write_stream,
+    )));
     let mut len_buf = [0; 2];
     loop {
         read_stream
