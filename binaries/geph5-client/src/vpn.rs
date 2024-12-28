@@ -2,7 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
-use crossbeam_queue::SegQueue;
+use crossbeam_queue::{ArrayQueue, SegQueue};
 use dashmap::DashMap;
 
 use ipstack_geph::{IpStack, IpStackConfig};
@@ -39,6 +39,7 @@ use crate::{
     client::CtxField,
     client_inner::open_conn,
     spoof_dns::{fake_dns_allocate, fake_dns_respond},
+    taskpool::add_task,
     Config,
 };
 
@@ -64,13 +65,13 @@ pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
 
 static VPN_EVENT: CtxField<async_event::Event> = |_| async_event::Event::new();
 
-static VPN_CAPTURE: CtxField<SegQueue<(Bytes, Instant)>> = |_| SegQueue::new();
+static VPN_CAPTURE: CtxField<ArrayQueue<(Bytes, Instant)>> = |_| ArrayQueue::new(100);
 
-static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
+static VPN_INJECT: CtxField<ArrayQueue<Bytes>> = |_| ArrayQueue::new(100);
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    let (send_captured, recv_captured) = smol::channel::unbounded();
-    let (send_injected, recv_injected) = smol::channel::unbounded();
+    let (send_captured, recv_captured) = smol::channel::bounded(100);
+    let (send_injected, recv_injected) = smol::channel::bounded(100);
 
     let ipstack = IpStack::new(
         #[cfg(target_os = "ios")]
@@ -114,8 +115,6 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
                     ctx.get(VPN_INJECT).push(bts);
                     ctx.get(VPN_EVENT).notify_all();
-
-                    smol::future::yield_now().await;
                 }
             };
             up_loop.race(dn_loop).await
@@ -134,10 +133,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     peer_addr = display(peer_addr),
                     "captured a TCP"
                 );
-                let ctx = ctx.clone();
+                let ctx_clone = ctx.clone();
 
-                smolscale::spawn(async move {
-                    let tunneled = open_conn(&ctx, "tcp", &peer_addr.to_string()).await?;
+                let task = smolscale::spawn(async move {
+                    let tunneled = open_conn(&ctx_clone, "tcp", &peer_addr.to_string()).await?;
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                     let (read_tunneled, write_tunneled) = tunneled.split();
                     let (read_captured, write_captured) = captured.split();
@@ -145,8 +144,13 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         .race(smol::io::copy(read_captured, write_tunneled))
                         .await?;
                     anyhow::Ok(())
-                })
-                .detach();
+                });
+
+                if let Some(task_limit) = ctx.init().task_limit {
+                    add_task(task_limit, task);
+                } else {
+                    task.detach();
+                }
             }
             ipstack_geph::stream::IpStackStream::Udp(captured) => {
                 let peer_addr = captured.peer_addr();
@@ -160,17 +164,16 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 } else {
                     peer_addr
                 };
-
-                let ctx = ctx.clone();
-                smolscale::spawn::<anyhow::Result<()>>(async move {
-                    if peer_addr.port() == 53 && ctx.init().spoof_dns {
+                let ctx_clone = ctx.clone();
+                let task = smolscale::spawn::<anyhow::Result<()>>(async move {
+                    if peer_addr.port() == 53 && ctx_clone.init().spoof_dns {
                         // fakedns handling
                         loop {
                             let pkt = captured.recv().await?;
-                            captured.send(&fake_dns_respond(&ctx, &pkt)?).await?;
+                            captured.send(&fake_dns_respond(&ctx_clone, &pkt)?).await?;
                         }
                     } else {
-                        let tunneled = open_conn(&ctx, "udp", &peer_addr.to_string()).await?;
+                        let tunneled = open_conn(&ctx_clone, "udp", &peer_addr.to_string()).await?;
                         let (mut read_tunneled, mut write_tunneled) = tunneled.split();
                         let up_loop = async {
                             loop {
@@ -194,8 +197,12 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         };
                         up_loop.race(dn_loop).await
                     }
-                })
-                .detach();
+                });
+                if let Some(task_limit) = ctx.init().task_limit {
+                    add_task(task_limit, task);
+                } else {
+                    task.detach();
+                }
             }
             ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
                 tracing::warn!("captured an UnknownTransport")

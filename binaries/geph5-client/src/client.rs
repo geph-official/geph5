@@ -53,6 +53,7 @@ pub struct Config {
 
     #[serde(default)]
     pub sess_metadata: serde_json::Value,
+    pub task_limit: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

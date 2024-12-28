@@ -1,4 +1,4 @@
-use crate::client_inner::open_conn;
+use crate::{client_inner::open_conn, taskpool::add_task};
 
 use anyctx::AnyCtx;
 
@@ -21,7 +21,7 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         nursery!({
             loop {
                 let client = listener.accept().await?;
-                spawn!(async {
+                let task = spawn!(async {
                     tracing::trace!("socks5 connection accepted");
                     let (mut read_client, mut write_client) = client.split();
                     let _handshake = read_handshake(&mut read_client).await?;
@@ -55,8 +55,12 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         .race(smol::io::copy(read_client, write_stream))
                         .await?;
                     anyhow::Ok(())
-                })
-                .detach();
+                });
+                if let Some(task_limit) = ctx.init().task_limit {
+                    add_task(task_limit, task);
+                } else {
+                    task.detach();
+                }
             }
         })
     } else {
