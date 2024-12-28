@@ -64,7 +64,7 @@ pub struct PicoMux {
     send_open_req: Sender<(Bytes, oneshot::Sender<Stream>)>,
 
     recv_accepted: async_channel::Receiver<Stream>,
-    send_liveness: Sender<LivenessConfig>,
+    send_liveness: async_channel::Sender<LivenessConfig>,
     liveness: LivenessConfig,
 
     last_ping: Arc<Mutex<Option<Duration>>>,
@@ -78,7 +78,7 @@ impl PicoMux {
     ) -> Self {
         let (send_open_req, recv_open_req) = tachyonix::channel(1);
         let (send_accepted, recv_accepted) = async_channel::bounded(100);
-        let (send_liveness, recv_liveness) = tachyonix::channel(1000);
+        let (send_liveness, recv_liveness) = async_channel::unbounded();
         let liveness = LivenessConfig::default();
         send_liveness.try_send(liveness).unwrap();
         let last_ping = Arc::new(Mutex::new(None));
@@ -183,7 +183,7 @@ async fn picomux_inner(
     write: impl AsyncWrite + Send + Unpin + 'static,
     send_accepted: async_channel::Sender<Stream>,
     mut recv_open_req: Receiver<(Bytes, oneshot::Sender<Stream>)>,
-    mut recv_liveness: Receiver<LivenessConfig>,
+    recv_liveness: async_channel::Receiver<LivenessConfig>,
     last_ping: Arc<Mutex<Option<Duration>>>,
 ) -> Result<Infallible, std::io::Error> {
     let mut inner_read = BufReader::with_capacity(MSS * 4, read);

@@ -5,7 +5,10 @@ use std::{
 };
 
 use anyhow::Context;
-use futures_concurrency::prelude::{ConcurrentStream, IntoConcurrentStream};
+use futures_concurrency::{
+    future::RaceOk,
+    prelude::{ConcurrentStream, IntoConcurrentStream},
+};
 use ipnet::Ipv6Net;
 use rand::Rng;
 use smol::{net::TcpStream, process::Command, Async};
@@ -35,8 +38,8 @@ impl EyeballDialer {
     /// Connect to a given remote.
     pub async fn connect(&self, addrs: Vec<SocketAddr>) -> anyhow::Result<TcpStream> {
         let my_addr = self.inner;
-        let mut streams: Vec<_> = addrs
-            .into_co_stream()
+        let streams: Vec<_> = addrs
+            .into_iter()
             .enumerate()
             .map(|(idx, addr)| async move {
                 if idx > 0 {
@@ -49,10 +52,8 @@ impl EyeballDialer {
                 }
                 Ok(TcpStream::connect(addr).await?)
             })
-            .take(1)
-            .collect()
-            .await;
-        streams.swap_remove(0)
+            .collect();
+        streams.race_ok().await.map_err(|mut e| e.remove(0))
     }
 }
 

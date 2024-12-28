@@ -110,10 +110,10 @@ type ChanElem = (String, oneshot::Sender<picomux::Stream>);
 
 static CONN_REQ_CHAN: CtxField<(
     smol::channel::Sender<ChanElem>,
-    smol::lock::Mutex<smol::channel::Receiver<ChanElem>>,
+    smol::channel::Receiver<ChanElem>,
 )> = |_| {
     let (a, b) = smol::channel::unbounded();
-    (a, b.into())
+    (a, b)
 };
 
 pub static CONCURRENCY: usize = 8;
@@ -123,7 +123,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    let dialer = RefreshCell::create(Duration::from_secs(600), {
+    let dialer = Arc::new(RefreshCell::create(Duration::from_secs(600), {
         let ctx = ctx.clone();
         move || {
             let ctx = ctx.clone();
@@ -152,7 +152,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
             }
         }
     })
-    .await;
+    .await);
 
     let start = Instant::now();
 
@@ -160,9 +160,9 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
 
     #[allow(unreachable_code)]
     let instance_thread = |instance| {
-        let dialer = &dialer;
-        let ctx = &ctx;
-        async move {
+        let dialer = dialer.clone();
+        let ctx = ctx.clone();
+        smolscale::spawn(async move {
             loop {
                 let once = async {
                     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
@@ -186,7 +186,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                                 deprioritize_route(addr);
                             }
                         });
-                        let authed_pipe = client_auth(ctx, raw_pipe, pubkey)
+                        let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
                             .await
                             .context("could not client auth")?;
                         died.store(false, Ordering::SeqCst);
@@ -225,7 +225,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                     smol::Timer::after(Duration::from_millis(100)).await;
                 }
             }
-        }
+        })
     };
 
     join_all((0..CONCURRENCY).map(instance_thread)).await;
@@ -254,7 +254,7 @@ async fn proxy_loop(
             loop {
                 let mux = mux.clone();
                 let ctx = ctx.clone();
-                let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.lock().await.recv().await?;
+                let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
                 if let Some(latency) = mux.last_latency() {
                     stat_set_num(&ctx, "ping", latency.as_secs_f64());
                 }
@@ -273,6 +273,7 @@ async fn proxy_loop(
                     anyhow::Ok(())
                 }) 
                 .detach();
+                smol::Timer::after(Duration::from_millis(10)).await;
             }
         })
     }.or(mux.wait_until_dead())
