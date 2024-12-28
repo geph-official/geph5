@@ -7,10 +7,10 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-blake3 = { version = "1.5.1", features = ["serde"] }
+blake3 = { version = "1.5.5", features = ["serde"] }
 blind-rsa-signatures = "0.15.1"
 rand = "0.8.5"
 stdcode = "0.1.14"
-serde = { version = "1.0.204", features = ["derive", "rc"] }
-anyhow = "1.0.86"
+serde = { version = "1.0.216", features = ["derive", "rc"] }
+anyhow = "1.0.95"
 rayon = "1.10.0"

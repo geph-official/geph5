@@ -55,11 +55,11 @@ impl App {
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
             "normal".into(),
-            FontData::from_static(include_bytes!("assets/normal.otf")),
+            FontData::from_static(include_bytes!("assets/normal.otf")).into(),
         );
         fonts.font_data.insert(
             "chinese".into(),
-            FontData::from_static(include_bytes!("assets/chinese.ttf")),
+            FontData::from_static(include_bytes!("assets/chinese.ttf")).into(),
         );
 
         {

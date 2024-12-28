@@ -132,7 +132,7 @@ impl Settings {
             });
 
             columns[1].vertical(|ui| {
-                egui::ComboBox::from_id_source("country")
+                egui::ComboBox::from_id_salt("country")
                     .selected_text(
                         SELECTED_COUNTRY
                             .get()
@@ -163,7 +163,7 @@ impl Settings {
                         }
                     });
                 if let Some(country) = SELECTED_COUNTRY.get() {
-                    egui::ComboBox::from_id_source("city")
+                    egui::ComboBox::from_id_salt("city")
                         .selected_text(
                             SELECTED_CITY
                                 .get()
@@ -205,7 +205,7 @@ impl Settings {
                 ui.horizontal(|ui| {
                     ui.label("Bridge mode");
 
-                    egui::ComboBox::from_id_source("bridge")
+                    egui::ComboBox::from_id_salt("bridge")
                         .selected_text(mode_label(*bridge_mode))
                         .show_ui(ui, |ui| {
                             for this_mode in [
@@ -246,7 +246,7 @@ impl Settings {
 
 pub fn render_language_settings(ui: &mut egui::Ui) -> anyhow::Result<()> {
     LANG_CODE.modify(|lang_code| {
-        egui::ComboBox::from_id_source("lcmbx")
+        egui::ComboBox::from_id_salt("lcmbx")
             .selected_text(match lang_code.as_str() {
                 "en" => "English",
                 "zh" => "中文",

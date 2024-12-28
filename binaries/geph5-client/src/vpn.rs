@@ -3,7 +3,6 @@
 mod linux;
 use bytes::Bytes;
 use crossbeam_queue::SegQueue;
-use dashmap::DashMap;
 
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
@@ -15,7 +14,7 @@ mod dummy;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use dummy::*;
 
-use std::{net::Ipv4Addr, time::Instant};
+use std::time::Instant;
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -26,8 +25,6 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::*;
 
-use rand::Rng;
-use simple_dns::{Packet, QTYPE};
 use smol::future::FutureExt;
 
 #[cfg(target_os = "macos")]
@@ -35,12 +32,7 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
-use crate::{
-    client::CtxField,
-    client_inner::open_conn,
-    spoof_dns::{fake_dns_allocate, fake_dns_respond},
-    Config,
-};
+use crate::{client::CtxField, client_inner::open_conn, spoof_dns::fake_dns_respond, Config};
 
 /// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
 pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
