@@ -35,6 +35,7 @@ use parking_lot::Mutex;
 use pin_project::pin_project;
 use rand::Rng;
 use smol_timeout2::TimeoutExt;
+use smolscale::reaper::TaskReaper;
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
 
@@ -186,6 +187,7 @@ async fn picomux_inner(
     recv_liveness: async_channel::Receiver<LivenessConfig>,
     last_ping: Arc<Mutex<Option<Duration>>>,
 ) -> Result<Infallible, std::io::Error> {
+    let reaper = TaskReaper::new();
     let mut inner_read = BufReader::with_capacity(MSS * 4, read);
 
     let outgoing = Outgoing::new(write);
@@ -303,7 +305,7 @@ async fn picomux_inner(
 
         {
             let outgoing = outgoing.clone();
-            smolscale::spawn(async move {
+            reaper.attach(smolscale::spawn(async move {
                 scopeguard::defer!({
                     tracing::debug!(stream_id, "enqueuing FIN to the other side");
                     outgoing.enqueue(Frame {
@@ -323,8 +325,7 @@ async fn picomux_inner(
                             "incoming/outgoing task for individual stream stopped"
                         )
                     });
-            })
-            .detach();
+            }));
         }
         stream
     };

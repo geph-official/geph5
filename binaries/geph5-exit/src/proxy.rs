@@ -1,15 +1,12 @@
 use std::{
-    net::SocketAddr,
-    sync::{Arc, LazyLock},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::Context;
 
 use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
-use moka::future::Cache;
 
-use sillad::{dialer::Dialer, tcp::HappyEyeballsTcpDialer};
 use smol::{future::FutureExt as _, io::BufWriter, net::UdpSocket};
 
 use crate::{
