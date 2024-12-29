@@ -205,7 +205,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 }
             }
             ipstack_geph::stream::IpStackStream::UnknownTransport(_) => {
-                tracing::warn!("captured an UnknownTransport")
+                // tracing::warn!("captured an UnknownTransport")
             }
             ipstack_geph::stream::IpStackStream::UnknownNetwork(_) => {
                 tracing::warn!("captured an UnknownNetwork")
