@@ -101,22 +101,30 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
         .try_get_with(key.to_string(), async {
             let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
                 r"
-SELECT DISTINCT ON (bn.pool) 
-    bn.listen, 
-    bn.cookie, 
-    bn.pool, 
-    bn.expiry, 
-    COALESCE(bgd.delay_ms, 0) AS delay, 
-    COALESCE(bgd.is_plus, false) AS is_plus
-FROM 
-    bridges_new bn
-LEFT JOIN 
-    bridge_group_delays bgd 
-ON 
-    bn.pool = bgd.pool
-ORDER BY 
-    bn.pool, 
-    ENCODE(DIGEST(bn.listen || $1, 'sha256'), 'hex');
+WITH selected_bridges AS (
+    SELECT DISTINCT ON (bn.pool) 
+        bn.listen, 
+        bn.cookie, 
+        bn.pool, 
+        bn.expiry, 
+        COALESCE(bgd.delay_ms, 0) AS delay, 
+        COALESCE(bgd.is_plus, false) AS is_plus
+    FROM 
+        bridges_new bn
+    LEFT JOIN 
+        bridge_group_delays bgd 
+    ON 
+        bn.pool = bgd.pool
+    ORDER BY 
+        bn.pool, 
+        ENCODE(DIGEST(bn.listen || $1, 'sha256'), 'hex')
+)
+UPDATE bridges_new
+SET alloc_count = alloc_count + 1
+FROM selected_bridges
+WHERE bridges_new.listen = selected_bridges.listen
+RETURNING bridges_new.listen, bridges_new.alloc_count;
+
         ",
             )
             .bind(key)
