@@ -64,7 +64,7 @@ impl BrokerImpl {
         let exit_list = EXIT_CACHE
             .try_get_with((), async {
                 let exits: Vec<(VerifyingKey, ExitDescriptor)> =
-                    sqlx::query_as("select * from exits_new")
+                    sqlx::query_as("select listen,cookie,pool,expiry from exits_new")
                         .fetch_all(POSTGRES.deref())
                         .await?
                         .into_iter()
