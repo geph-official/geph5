@@ -76,7 +76,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           cd binaries/geph5-client-gui
-          cargo bundle --release --target ${{ matrix.target }}
+          cargo bundle --release --target ${{ matrix.target }} --force
 
       - name: Create macOS .app zip
         if: matrix.os == 'macos-latest'
