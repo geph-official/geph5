@@ -11,9 +11,6 @@ jobs:
             target: x86_64-unknown-linux-musl
             dir: musl
           - os: ubuntu-20.04
-            target: aarch64-unknown-linux-musl
-            dir: musl-arm64
-          - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
             dir: gnu
           # - os: windows-latest
@@ -33,13 +30,6 @@ jobs:
         if: ${{ matrix.dir == 'musl' || matrix.dir == 'musl-arm64' }}
         run: sudo apt-get install -y musl-tools
 
-      - name: Install cross-compilation tools (ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools gcc-aarch64-linux-musl
-      
-
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -48,9 +38,12 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
-      - name: Set default host
-        shell: bash
-        run: rustup set default-host ${{ matrix.target }}
+      - name: Install cross-compilation tools
+        run: cargo install cross
+
+      # - name: Set default host
+      #   shell: bash
+      #   run: rustup set default-host ${{ matrix.target }}
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -59,24 +52,13 @@ jobs:
           prefix-key: "lele"
 
       - name: Build client
-        run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
+        run: cross build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
 
       - name: Move client binaries to artifacts directory
         shell: bash
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
-
-      - name: Build client GUI (non-Windows)
-        if: matrix.dir != 'musl' && matrix.dir != 'musl-arm64' && matrix.os != 'windows-latest'
-        run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client-gui/Cargo.toml
-
-      - name: Move client GUI binaries to artifacts directory (non-Windows)
-        if: matrix.dir != 'musl' && matrix.dir != 'musl-arm64' && matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          mkdir -p artifacts/${{ matrix.dir }}
-          mv target/${{ matrix.target }}/release/geph5-client-gui artifacts/${{ matrix.dir }}/
 
       - name: Install cargo-bundle
         if: matrix.os == 'macos-latest'
