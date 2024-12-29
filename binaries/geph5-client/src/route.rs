@@ -173,6 +173,8 @@ pub async fn get_dialer(
     }
     .dyn_delay(move || shitlist_delay(exit_c2e));
 
+    tracing::debug!(token = debug(&conn_token), sig = debug(&sig), "CONN TOKEN");
+
     // also get bridges
     let bridge_routes = broker
         .get_routes(conn_token, sig, exit.b2e_listen)
