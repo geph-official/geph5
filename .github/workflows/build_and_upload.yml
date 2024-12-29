@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install musl-tools (Linux)
-        if: ${{ matrix.dir == 'musl' || matrix.dir == 'musl-arm64' }}
+        if: ${{ matrix.dir == 'musl' }}
         run: sudo apt-get install -y musl-tools
 
       - name: Install Rust
@@ -41,12 +41,9 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools
+      - name: Install cross (only for arm64)
+        if: ${{ matrix.target == 'aarch64-unknown-linux-musl' }}
         run: cargo install cross
-
-      # - name: Set default host
-      #   shell: bash
-      #   run: rustup set default-host ${{ matrix.target }}
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -55,7 +52,12 @@ jobs:
           prefix-key: "lele"
 
       - name: Build client
-        run: cross build --locked --release --target ${{ matrix.target }} --manifest-path binaries/geph5-client/Cargo.toml
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+            cross build --locked --release --target "${{ matrix.target }}" --manifest-path binaries/geph5-client/Cargo.toml
+          else
+            cargo build --locked --release --target "${{ matrix.target }}" --manifest-path binaries/geph5-client/Cargo.toml
+          fi
 
       - name: Move client binaries to artifacts directory
         shell: bash
