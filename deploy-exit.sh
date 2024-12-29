@@ -44,21 +44,13 @@ echo -e "\033[1mGenerating signing secret\033[0m"
 dd if=/dev/random of=/etc/geph5-exit/signing.secret bs=1 count=32 2>/dev/null
 chmod 600 /etc/geph5-exit/signing.secret
 
+# Perform speed test to calculate total_ratelimit
+echo -e "\033[1mPerforming speed test to determine total_ratelimit\033[0m"
+speed_test_output=$(curl -w "%{speed_download}" -o /dev/null -s https://artifacts.geph.io/100mb.test)
+speed_kps=$(printf "%.0f\n" "$(echo "$speed_test_output / 1024" | bc -l)") # Convert bytes/sec to KB/sec and round
+
 # Check if the configuration file already exists
 if [ ! -f /etc/geph5-exit/config.yaml ]; then
-  echo -e "\033[1mGenerating random port numbers\033[0m"
-  c2e_port=$((10000 + RANDOM % 55535))
-  b2e_port=$((10000 + RANDOM % 55535))
-
-  echo -e "\033[1mGetting country and city using ip-api.com\033[0m"
-  location_data=$(curl -s 'http://ip-api.com/json/')
-  country=$(echo "$location_data" | jq -r '.countryCode')
-  city=$(echo "$location_data" | jq -r '.city')
-
-  echo -e "\033[1mGenerating signing secret\033[0m"
-  dd if=/dev/random of=/etc/geph5-exit/signing.secret bs=1 count=32 2>/dev/null
-  chmod 600 /etc/geph5-exit/signing.secret
-
   echo -e "\033[1mCreating configuration file\033[0m"
   cat > /etc/geph5-exit/config.yaml <<EOL
 broker:
@@ -69,11 +61,11 @@ b2e_listen: 0.0.0.0:$b2e_port
 country: $country
 city: $city
 signing_secret: /etc/geph5-exit/signing.secret
+total_ratelimit: $speed_kps
 EOL
 else
   echo -e "\033[1mConfiguration file already exists. Skipping creation.\033[0m"
 fi
-
 
 echo -e "\033[1mCreating systemd service file\033[0m"
 cat > /etc/systemd/system/geph5-exit.service <<EOL
