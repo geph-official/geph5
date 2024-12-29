@@ -44,6 +44,7 @@ impl EyeballDialer {
             .map(|(idx, addr)| async move {
                 if idx > 0 {
                     smol::Timer::after(Duration::from_millis(200 * idx as u64)).await;
+                    tracing::debug!(idx, addr, "eyeballed to non-ideal");
                 }
                 if addr.is_ipv6() {
                     if let Some(my_addr) = my_addr {
