@@ -8,10 +8,6 @@ fi
 
 echo -e "\033[1mSetting up sysctl\033[0m"
 tee /etc/sysctl.conf << EOF
-net.core.rmem_default=262144
-net.core.wmem_default=262144
-net.core.rmem_max=262144000
-net.core.wmem_max=262144000
 net.ipv4.tcp_congestion_control=bbr
 net.core.default_qdisc = fq
 net.ipv4.tcp_slow_start_after_idle = 0
