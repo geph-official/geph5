@@ -70,13 +70,13 @@ jobs:
 
       - name: Install cargo-bundle
         if: matrix.os == 'macos-latest'
-        run: cargo install cargo-bundle --locked --version "=0.6.0"
+        run: cargo install cargo-bundle --locked --version "=0.6.0"  --force
 
       - name: Create macOS .app bundle
         if: matrix.os == 'macos-latest'
         run: |
           cd binaries/geph5-client-gui
-          cargo bundle --release --target ${{ matrix.target }} --force
+          cargo bundle --release --target ${{ matrix.target }}
 
       - name: Create macOS .app zip
         if: matrix.os == 'macos-latest'
