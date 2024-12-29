@@ -102,28 +102,36 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
             let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
                 r"
 WITH selected_bridges AS (
-    SELECT DISTINCT ON (bn.pool) 
-        bn.listen, 
-        bn.cookie, 
-        bn.pool, 
-        bn.expiry, 
-        COALESCE(bgd.delay_ms, 0) AS delay, 
-        COALESCE(bgd.is_plus, false) AS is_plus
-    FROM 
-        bridges_new bn
-    LEFT JOIN 
-        bridge_group_delays bgd 
-    ON 
-        bn.pool = bgd.pool
+    SELECT DISTINCT ON (bn.pool)
+        bn.listen,
+        bn.cookie,
+        bn.pool,
+        bn.expiry,
+        COALESCE(bgd.delay_ms, 0)     AS delay,
+        COALESCE(bgd.is_plus, false)  AS is_plus
+    FROM bridges_new bn
+    LEFT JOIN bridge_group_delays bgd 
+           ON bn.pool = bgd.pool
     ORDER BY 
-        bn.pool, 
+        bn.pool,
         ENCODE(DIGEST(bn.listen || $1, 'sha256'), 'hex')
+),
+updated AS (
+    UPDATE bridges_new bn2
+       SET alloc_count = alloc_count + 1
+      FROM selected_bridges sb
+     WHERE bn2.listen = sb.listen
+    RETURNING bn2.listen, bn2.alloc_count
 )
-UPDATE bridges_new
-SET alloc_count = alloc_count + 1
-FROM selected_bridges
-WHERE bridges_new.listen = selected_bridges.listen
-RETURNING bridges_new.listen, bridges_new.alloc_count;
+SELECT 
+    sb.listen,
+    sb.cookie,
+    sb.pool,
+    sb.expiry,
+    sb.delay,
+    sb.is_plus
+FROM selected_bridges sb
+JOIN updated u ON u.listen = sb.listen;
 
         ",
             )
