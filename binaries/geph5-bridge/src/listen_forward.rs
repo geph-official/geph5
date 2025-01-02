@@ -196,7 +196,7 @@ impl SinglePool {
                             tracing::error!(dest = display(dest), "remote_once error: {}", err);
                         }
                     }
-                    smol::Timer::after(Duration::from_secs(1)).await;
+                    smol::Timer::after(Duration::from_secs(30)).await;
                 }
             });
             tasks.push(task);
