@@ -15,6 +15,7 @@ pub struct B2eMetadata {
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ObfsProtocol {
     Sosistab3(String),
+    None,
 }
 
 /// The RPC protocol that bridges expose, called by the broker.

@@ -7,13 +7,23 @@ use std::{
 use futures_lite::FutureExt as _;
 use futures_util::AsyncReadExt;
 use picomux::PicoMux;
-use sillad::dialer::Dialer;
+use sillad::dialer::{Dialer, DialerExt};
 
 use crate::command::Command;
 
-pub async fn client_main(connect: SocketAddr) -> anyhow::Result<()> {
+pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyhow::Result<()> {
     let start = Instant::now();
-    let wire = sillad::tcp::TcpDialer { dest_addr: connect }.dial().await?;
+    let wire = if let Some(sosistab3) = sosistab3 {
+        sillad_sosistab3::dialer::SosistabDialer {
+            inner: sillad::tcp::TcpDialer { dest_addr: connect },
+            cookie: sillad_sosistab3::Cookie::new(&sosistab3),
+        }
+        .dynamic()
+    } else {
+        sillad::tcp::TcpDialer { dest_addr: connect }.dynamic()
+    }
+    .dial()
+    .await?;
     eprintln!("wire dialed in {:?}", start.elapsed());
     let (read, write) = wire.split();
     let mux = Arc::new(PicoMux::new(read, write));

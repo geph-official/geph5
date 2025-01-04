@@ -4,20 +4,32 @@ use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt};
 use picomux::{PicoMux, Stream};
 use rand::RngCore;
 
-use sillad::{listener::Listener, tcp::TcpPipe, Pipe};
+use sillad::{listener::Listener, Pipe};
 
 use crate::command::Command;
 
-pub async fn server_main(listen: SocketAddr) -> anyhow::Result<()> {
-    let mut listener = sillad::tcp::TcpListener::bind(listen).await?;
-    loop {
-        let wire = listener.accept().await?;
-        smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))
-            .detach();
+pub async fn server_main(listen: SocketAddr, sosistab3: Option<String>) -> anyhow::Result<()> {
+    if let Some(sosistab3) = sosistab3 {
+        let mut listener = sillad_sosistab3::listener::SosistabListener::new(
+            sillad::tcp::TcpListener::bind(listen).await?,
+            sillad_sosistab3::Cookie::new(&sosistab3),
+        );
+        loop {
+            let wire = listener.accept().await?;
+            smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))
+                .detach();
+        }
+    } else {
+        let mut listener = sillad::tcp::TcpListener::bind(listen).await?;
+        loop {
+            let wire = listener.accept().await?;
+            smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))
+                .detach();
+        }
     }
 }
 
-async fn once_wire(wire: TcpPipe) -> anyhow::Result<()> {
+async fn once_wire(wire: impl Pipe) -> anyhow::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let wire_count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     eprintln!("accepted wire {wire_count} from {:?}", wire.remote_addr());

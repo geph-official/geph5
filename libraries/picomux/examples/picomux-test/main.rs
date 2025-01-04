@@ -32,6 +32,9 @@ struct ServerCmd {
     /// address to listen on (e.g., 127.0.0.1:8080)
     #[argh(option, long = "listen")]
     listen: SocketAddr,
+    /// sosistab3 cookie for obfuscation
+    #[argh(option, long = "sosistab3")]
+    sosistab3: Option<String>,
 }
 
 /// Start the client with a connection address.
@@ -41,6 +44,9 @@ struct ClientCmd {
     /// address to connect to (e.g., 127.0.0.1:8080)
     #[argh(option, long = "connect")]
     connect: SocketAddr,
+    /// sosistab3 cookie for obfuscation
+    #[argh(option, long = "sosistab3")]
+    sosistab3: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -48,7 +54,7 @@ fn main() -> anyhow::Result<()> {
     let picomux_test: PicomuxTest = argh::from_env();
 
     match picomux_test.subcommand {
-        Subcommand::Server(cmd) => smolscale::block_on(server_main(cmd.listen)),
-        Subcommand::Client(cmd) => smolscale::block_on(client_main(cmd.connect)),
+        Subcommand::Server(cmd) => smolscale::block_on(server_main(cmd.listen, cmd.sosistab3)),
+        Subcommand::Client(cmd) => smolscale::block_on(client_main(cmd.connect, cmd.sosistab3)),
     }
 }
