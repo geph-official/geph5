@@ -102,14 +102,14 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
                 .build()
         });
 
-    // shuffle
-    let key = format!(
-        "{key}-{}",
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() / 3600
-    );
+    // // shuffle
+    // let key = format!(
+    //     "{key}-{}",
+    //     SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() / 3600
+    // );
 
     CACHE
-        .try_get_with(key.clone(), async {
+        .try_get_with(key.to_string(), async {
             let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
                 r"
 WITH selected_bridges AS (
