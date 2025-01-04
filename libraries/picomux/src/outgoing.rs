@@ -39,7 +39,7 @@ impl Outgoing {
                 if let Some(err) = self.err.get() {
                     return Some(Err(anyhow::anyhow!("{:?}", err)));
                 }
-                if self.inner.queue.is_empty() {
+                if self.inner.queue.len() < 10 {
                     Some(anyhow::Ok(()))
                 } else {
                     None
