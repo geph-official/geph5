@@ -17,6 +17,7 @@ pub async fn b2e_process(
         ObfsProtocol::Sosistab3(cookie) => {
             b2e_inner(SosistabListener::new(listener, Cookie::new(&cookie))).await
         }
+        ObfsProtocol::None => b2e_inner(listener).await,
     }
 }
 
