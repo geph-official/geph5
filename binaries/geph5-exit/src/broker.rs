@@ -85,6 +85,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
         Some(broker) => {
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
+            let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
             loop {
                 let upload = async {
                     let free_exits = client
@@ -102,18 +103,15 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                         ACCEPT_FREE.store(accept_free, Ordering::Relaxed);
                     }
 
-                    let mut diff = TOTAL_BYTE_COUNT.swap(0, Ordering::Relaxed);
-                    tracing::debug!(diff, "uploaded a diff");
-                    while diff > 100_000_000 {
-                        client
-                            .incr_stat(
-                                format!("{server_name}.throughput"),
-                                diff.min(100_000_000) as _,
-                            )
-                            .await?;
-                        diff = diff.saturating_sub(100_000_000)
-                    }
-
+                    let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+                    let diff = byte_count
+                        .saturating_sub(last_byte_count)
+                        .min(i32::MAX as u64);
+                    last_byte_count = byte_count;
+                    tracing::debug!(diff, last_byte_count, "uploaded a diff");
+                    client
+                        .incr_stat(format!("{server_name}.throughput"), diff as _)
+                        .await?;
                     let load = get_load();
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
@@ -156,7 +154,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
                 }
-                smol::Timer::after(Duration::from_secs(1)).await;
+                smol::Timer::after(Duration::from_millis(500)).await;
             }
         }
         None => {
