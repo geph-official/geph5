@@ -4,16 +4,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_lite::FutureExt as _;
+use futures_lite::{AsyncWriteExt, FutureExt as _};
 use futures_util::AsyncReadExt;
-use picomux::PicoMux;
+use picomux::{LivenessConfig, PicoMux};
+use rand::RngCore;
 use sillad::dialer::{Dialer, DialerExt};
 
 use crate::command::Command;
 
 pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyhow::Result<()> {
     let start = Instant::now();
-    let wire = if let Some(sosistab3) = sosistab3 {
+    let mut wire = if let Some(sosistab3) = sosistab3 {
         sillad_sosistab3::dialer::SosistabDialer {
             inner: sillad::tcp::TcpDialer { dest_addr: connect },
             cookie: sillad_sosistab3::Cookie::new(&sosistab3),
@@ -25,8 +26,21 @@ pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyh
     .dial()
     .await?;
     eprintln!("wire dialed in {:?}", start.elapsed());
+
+    // loop {
+    //     let mut buf = b"aaaaaaaaaaaaaaaaaaaaaaa".to_vec();
+
+    //     wire.write_all(&buf).await?;
+    // }
+
     let (read, write) = wire.split();
-    let mux = Arc::new(PicoMux::new(read, write));
+    let mut mux = PicoMux::new(read, write);
+    mux.set_liveness(LivenessConfig {
+        ping_interval: Duration::from_secs(1),
+        timeout: Duration::from_secs(1000),
+    });
+    let mux = Arc::new(mux);
+
     let start_ping = ping_once(mux.clone()).await?;
     eprintln!("unloaded ping: {:?}", start_ping);
     loop {
@@ -47,7 +61,7 @@ pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyh
 
 async fn ping_once(mux: Arc<PicoMux>) -> anyhow::Result<Duration> {
     let start = Instant::now();
-    const COUNT: u32 = 5;
+    const COUNT: u32 = 1;
     for _ in 0..COUNT {
         let stream = mux.open(&serde_json::to_vec(&Command::Source(1))?).await?;
         futures_util::io::copy(stream, &mut futures_util::io::sink()).await?;

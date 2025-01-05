@@ -29,10 +29,16 @@ pub async fn server_main(listen: SocketAddr, sosistab3: Option<String>) -> anyho
     }
 }
 
-async fn once_wire(wire: impl Pipe) -> anyhow::Result<()> {
+async fn once_wire(mut wire: impl Pipe) -> anyhow::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let wire_count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     eprintln!("accepted wire {wire_count} from {:?}", wire.remote_addr());
+    // loop {
+    //     let mut buf = [0u8; 1024];
+    //     wire.read_exact(&mut buf).await?;
+    //     eprintln!("gotten 1024 garbages");
+    // }
+
     let (read_wire, write_wire) = wire.split();
     let mux = PicoMux::new(read_wire, write_wire);
     for stream_count in 0u64.. {
