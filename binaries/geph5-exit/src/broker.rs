@@ -104,14 +104,18 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                     }
 
                     let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                    let diff = byte_count
-                        .saturating_sub(last_byte_count)
-                        .min(i32::MAX as u64);
+                    let mut diff = byte_count.saturating_sub(last_byte_count);
                     last_byte_count = byte_count;
                     tracing::debug!(diff, last_byte_count, "uploaded a diff");
-                    client
-                        .incr_stat(format!("{server_name}.throughput"), diff as _)
-                        .await?;
+                    while diff > 0 {
+                        client
+                            .incr_stat(
+                                format!("{server_name}.throughput"),
+                                diff.min(100_000_000) as _,
+                            )
+                            .await?;
+                        diff = diff.saturating_sub(100_000_000);
+                    }
                     let load = get_load();
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
