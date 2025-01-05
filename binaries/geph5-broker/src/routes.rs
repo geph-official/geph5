@@ -64,7 +64,10 @@ pub async fn bridge_to_leaf_route(
                 .timeout(Duration::from_secs(1))
                 .await
                 .context("timeout")??;
-            let plain_route = RouteDescriptor::Tcp(plain_addr);
+            let plain_route = RouteDescriptor::Delay {
+                milliseconds: 500,
+                lower: RouteDescriptor::Tcp(plain_addr).into(),
+            };
 
             let both_route = RouteDescriptor::Race(vec![plain_route, sosis_route]);
 
