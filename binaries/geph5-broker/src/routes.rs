@@ -1,4 +1,5 @@
 use anyhow::Context;
+use axum::routing::Route;
 use geph5_broker_protocol::{BridgeDescriptor, RouteDescriptor};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
 use moka::future::Cache;
@@ -35,7 +36,8 @@ pub async fn bridge_to_leaf_route(
             };
             let cookie = format!("exit-cookie-{}", rand::random::<u128>());
             let control_client = BridgeControlClient(DialerTransport(dialer));
-            let forwarded_listen = control_client
+
+            let sosistab_addr = control_client
                 .tcp_forward(
                     exit_b2e,
                     B2eMetadata {
@@ -46,17 +48,33 @@ pub async fn bridge_to_leaf_route(
                 .timeout(Duration::from_secs(1))
                 .await
                 .context("timeout")??;
-            let no_delay_route = RouteDescriptor::Sosistab3 {
+            let sosis_route = RouteDescriptor::Sosistab3 {
                 cookie,
-                lower: RouteDescriptor::Tcp(forwarded_listen).into(),
+                lower: RouteDescriptor::Tcp(sosistab_addr).into(),
             };
+
+            let plain_addr = control_client
+                .tcp_forward(
+                    exit_b2e,
+                    B2eMetadata {
+                        protocol: ObfsProtocol::None,
+                        expiry: SystemTime::now() + Duration::from_secs(86400),
+                    },
+                )
+                .timeout(Duration::from_secs(1))
+                .await
+                .context("timeout")??;
+            let plain_route = RouteDescriptor::Tcp(plain_addr);
+
+            let both_route = RouteDescriptor::Race(vec![plain_route, sosis_route]);
+
             anyhow::Ok(if delay_ms > 0 {
                 RouteDescriptor::Delay {
                     milliseconds: delay_ms,
-                    lower: no_delay_route.into(),
+                    lower: both_route.into(),
                 }
             } else {
-                no_delay_route
+                both_route
             })
         })
         .await
