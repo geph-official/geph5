@@ -29,7 +29,7 @@ mod schedlag;
 
 #[cfg(target_env = "musl")]
 #[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use crate::ratelimit::update_load_loop;
 
