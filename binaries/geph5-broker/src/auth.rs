@@ -64,7 +64,6 @@ pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<(i32, Accoun
             .bind(token)
             .fetch_optional(POSTGRES.deref())
             .await?;
-
     if let Some((user_id,)) = user_id {
         let expiry = get_subscription_expiry(user_id).await?;
         tracing::debug!(user_id, expiry = debug(expiry), "valid auth token");
@@ -110,6 +109,18 @@ pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
         INSERT INTO auth_logs (id, last_login)
         VALUES ($1, $2)
         "#,
+    )
+    .bind(user_id)
+    .bind(now)
+    .execute(POSTGRES.deref())
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO last_login (id, login_time)
+VALUES ($1, $2)
+ON CONFLICT (id) 
+DO UPDATE SET login_time = EXCLUDED.login_time;
+"#,
     )
     .bind(user_id)
     .bind(now)
