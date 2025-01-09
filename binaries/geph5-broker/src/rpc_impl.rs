@@ -44,10 +44,15 @@ impl RpcService for WrappedBrokerService {
         method: &str,
         params: Vec<serde_json::Value>,
     ) -> Option<Result<serde_json::Value, ServerError>> {
+        let start = Instant::now();
+        let resp = self.0.respond(method, params).await?;
         if let Some(client) = STATSD_CLIENT.as_ref() {
             client.count(&format!("broker.{method}"), 1).unwrap();
+            client
+                .time(&format!("broker_resptime.{method}"), start.elapsed())
+                .unwrap();
         }
-        self.0.respond(method, params).await
+        Some(resp)
     }
 }
 
