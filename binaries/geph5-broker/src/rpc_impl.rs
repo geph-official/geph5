@@ -272,11 +272,8 @@ impl BrokerProtocol for BrokerImpl {
         )
         .await
         {
-            match route {
-                Ok(route) => routes.push(route),
-                Err(err) => {
-                    tracing::warn!(err = debug(err), "could not communicate")
-                }
+            if let Ok(route) = route {
+                routes.push(route)
             }
         }
 

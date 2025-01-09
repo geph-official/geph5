@@ -42,6 +42,12 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
             .fetch_one(&*POSTGRES)
             .await?;
             client.gauge("broker.daily_logins", daily_logins as f64)?;
+            let (weekly_logins,): (i64,) = sqlx::query_as(
+                "select count(id) from last_login where login_time > NOW() - INTERVAL '7 days'",
+            )
+            .fetch_one(&*POSTGRES)
+            .await?;
+            client.gauge("broker.weekly_logins", weekly_logins as f64)?;
         }
         async_io::Timer::after(Duration::from_secs(5)).await;
     }
