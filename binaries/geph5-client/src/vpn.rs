@@ -2,8 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
-use crossbeam_queue::{ArrayQueue, SegQueue};
-use dashmap::DashMap;
+use crossbeam_queue::ArrayQueue;
 
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
@@ -15,7 +14,7 @@ mod dummy;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use dummy::*;
 
-use std::{net::Ipv4Addr, time::Instant};
+use std::time::Instant;
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -26,8 +25,6 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::*;
 
-use rand::Rng;
-use simple_dns::{Packet, QTYPE};
 use smol::future::FutureExt;
 
 #[cfg(target_os = "macos")]
@@ -38,7 +35,7 @@ pub use macos::*;
 use crate::{
     client::CtxField,
     client_inner::open_conn,
-    spoof_dns::{fake_dns_allocate, fake_dns_respond},
+    spoof_dns::fake_dns_respond,
     taskpool::add_task,
     Config,
 };

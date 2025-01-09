@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, net::SocketAddr, sync::OnceLock, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -6,7 +6,7 @@ use anyhow::Context;
 use ed25519_dalek::VerifyingKey;
 use futures_util::TryFutureExt as _;
 use geph5_broker_protocol::{
-    AccountLevel, AvailabilityData, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use moka::sync::Cache;
@@ -14,7 +14,7 @@ use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sillad::{
-    dialer::{Dialer, DialerExt, DynDialer, FailingDialer},
+    dialer::{DialerExt, DynDialer, FailingDialer},
     tcp::TcpDialer,
 };
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
@@ -50,22 +50,10 @@ pub enum ExitConstraint {
     CountryCity(CountryCode, String),
 }
 
-static IP_INFO: OnceLock<serde_json::Value> = OnceLock::new();
-
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
 pub async fn get_dialer(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
-    let ipinfo_refresh = smolscale::spawn(async {
-        if IP_INFO.get().is_none() {
-            let resp = reqwest::get("https://ipinfo.io").await?;
-            let val: serde_json::Value = serde_json::from_slice(&resp.bytes().await?)?;
-            tracing::info!("obtained IP info: {:?}", val);
-            let _ = IP_INFO.set(val);
-        }
-        anyhow::Ok(())
-    });
-
     let mut country_constraint = None;
     let mut city_constraint = None;
     let mut hostname_constraint = None;
@@ -195,104 +183,92 @@ pub async fn get_dialer(
         crate::BridgeMode::ForceDirect => direct_dialer.dynamic(),
     };
 
-    if let Err(err) = ipinfo_refresh.await {
-        tracing::warn!(err = debug(err), "could not refresh the ipinfo");
-    }
-
-    if IP_INFO.get().is_some() && rand::random::<f64>() < 0.1 {
-        smolscale::spawn(
-            reachability_test(ctx.clone(), route_to_flat_dialers(&bridge_routes))
-                .inspect_err(|e| tracing::warn!(err = debug(e), "reachability test failed to run")),
-        )
-        .detach();
-    }
-
     Ok((*pubkey, exit.clone(), final_dialer))
 }
 
-async fn reachability_test(
-    ctx: AnyCtx<Config>,
-    dialers: BTreeMap<String, DynDialer>,
-) -> anyhow::Result<()> {
-    let nfo = IP_INFO.get().unwrap();
-    let country = nfo["country"].as_str().context("country code not found")?;
-    let asn = nfo["org"]
-        .as_str()
-        .context("no org")?
-        .split_ascii_whitespace()
-        .next()
-        .unwrap();
+// async fn reachability_test(
+//     ctx: AnyCtx<Config>,
+//     dialers: BTreeMap<String, DynDialer>,
+// ) -> anyhow::Result<()> {
+//     let nfo = IP_INFO.get().unwrap();
+//     let country = nfo["country"].as_str().context("country code not found")?;
+//     let asn = nfo["org"]
+//         .as_str()
+//         .context("no org")?
+//         .split_ascii_whitespace()
+//         .next()
+//         .unwrap();
 
-    for (name, dialer) in dialers {
-        tracing::debug!(name = display(&name), "doing a reachability test");
-        let ctx = ctx.clone();
-        smolscale::spawn(async move {
-            let broker = broker_client(&ctx).context("could not get broker client")?;
-            let success = if let Err(err) = dialer.timeout(Duration::from_secs(10)).dial().await {
-                tracing::warn!(
-                    name = display(&name),
-                    err = debug(err),
-                    "could not reach something"
-                );
-                false
-            } else {
-                true
-            };
-            broker
-                .upload_available(AvailabilityData {
-                    listen: name,
-                    country: country.to_string(),
-                    asn: asn.to_string(),
-                    success,
-                })
-                .await?;
-            anyhow::Ok(())
-        })
-        .detach();
-    }
+//     for (name, dialer) in dialers {
+//         tracing::debug!(name = display(&name), "doing a reachability test");
+//         let ctx = ctx.clone();
+//         smolscale::spawn(async move {
+//             let broker = broker_client(&ctx).context("could not get broker client")?;
+//             let success = if let Err(err) = dialer.timeout(Duration::from_secs(10)).dial().await {
+//                 tracing::warn!(
+//                     name = display(&name),
+//                     err = debug(err),
+//                     "could not reach something"
+//                 );
+//                 false
+//             } else {
+//                 true
+//             };
+//             broker
+//                 .upload_available(AvailabilityData {
+//                     listen: name,
+//                     country: country.to_string(),
+//                     asn: asn.to_string(),
+//                     success,
+//                 })
+//                 .await?;
+//             anyhow::Ok(())
+//         })
+//         .detach();
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-fn route_to_flat_dialers(route: &RouteDescriptor) -> BTreeMap<String, DynDialer> {
-    match route {
-        RouteDescriptor::Tcp(socket_addr) => std::iter::once((
-            socket_addr.ip().to_string(),
-            TcpDialer {
-                dest_addr: *socket_addr,
-            }
-            .dynamic(),
-        ))
-        .collect(),
-        RouteDescriptor::Sosistab3 { cookie, lower } => route_to_flat_dialers(lower)
-            .into_iter()
-            .map(|(k, inner)| {
-                (
-                    k,
-                    SosistabDialer {
-                        inner,
-                        cookie: Cookie::new(cookie),
-                    }
-                    .dynamic(),
-                )
-            })
-            .collect(),
-        RouteDescriptor::Race(vec) | RouteDescriptor::Fallback(vec) => vec
-            .iter()
-            .flat_map(|v| route_to_flat_dialers(v).into_iter())
-            .collect(),
-        RouteDescriptor::Timeout {
-            milliseconds: _,
-            lower,
-        }
-        | RouteDescriptor::Delay {
-            milliseconds: _,
-            lower,
-        } => route_to_flat_dialers(lower),
+// fn route_to_flat_dialers(route: &RouteDescriptor) -> BTreeMap<String, DynDialer> {
+//     match route {
+//         RouteDescriptor::Tcp(socket_addr) => std::iter::once((
+//             socket_addr.ip().to_string(),
+//             TcpDialer {
+//                 dest_addr: *socket_addr,
+//             }
+//             .dynamic(),
+//         ))
+//         .collect(),
+//         RouteDescriptor::Sosistab3 { cookie, lower } => route_to_flat_dialers(lower)
+//             .into_iter()
+//             .map(|(k, inner)| {
+//                 (
+//                     k,
+//                     SosistabDialer {
+//                         inner,
+//                         cookie: Cookie::new(cookie),
+//                     }
+//                     .dynamic(),
+//                 )
+//             })
+//             .collect(),
+//         RouteDescriptor::Race(vec) | RouteDescriptor::Fallback(vec) => vec
+//             .iter()
+//             .flat_map(|v| route_to_flat_dialers(v).into_iter())
+//             .collect(),
+//         RouteDescriptor::Timeout {
+//             milliseconds: _,
+//             lower,
+//         }
+//         | RouteDescriptor::Delay {
+//             milliseconds: _,
+//             lower,
+//         } => route_to_flat_dialers(lower),
 
-        _ => BTreeMap::new(),
-    }
-}
+//         _ => BTreeMap::new(),
+//     }
+// }
 
 fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
     match route {
