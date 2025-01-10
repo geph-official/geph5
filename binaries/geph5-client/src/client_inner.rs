@@ -116,7 +116,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 1;
+pub static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
@@ -241,8 +241,8 @@ async fn proxy_loop(
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
-        ping_interval: Duration::from_secs(600),
-        timeout: Duration::from_secs(10),
+        ping_interval: Duration::from_secs(1800),
+        timeout: Duration::from_secs(3),
     });
     let mux = Arc::new(mux);
 
