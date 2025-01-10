@@ -188,10 +188,6 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
         if let Ok(new_sess_metadata) = serde_json::from_str::<serde_json::Value>(&metadata) {
             sess_metadata = Arc::new(new_sess_metadata);
-            tracing::debug!(
-                sess_metadata = display(&sess_metadata),
-                "registering session-specific metadata"
-            );
             continue;
         }
         let sess_metadata = sess_metadata.clone();
