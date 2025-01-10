@@ -5,7 +5,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
-    thread::available_parallelism,
     time::{Duration, SystemTime},
 };
 

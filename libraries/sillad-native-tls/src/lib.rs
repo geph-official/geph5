@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
 
 use async_native_tls::{TlsAcceptor, TlsConnector, TlsStream};
 use async_trait::async_trait;

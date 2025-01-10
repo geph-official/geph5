@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use futures_concurrency::{
     future::RaceOk,
-    prelude::{ConcurrentStream, IntoConcurrentStream},
+    prelude::ConcurrentStream,
 };
 use ipnet::Ipv6Net;
 use rand::Rng;
@@ -148,7 +148,7 @@ pub async fn configure_ipv6_routing() -> anyhow::Result<()> {
 }
 
 async fn detect_ipv6_interface() -> anyhow::Result<String> {
-    let output = Command::new("ip").args(&["-6", "route"]).output().await?;
+    let output = Command::new("ip").args(["-6", "route"]).output().await?;
 
     let stdout = String::from_utf8(output.stdout)?;
 
