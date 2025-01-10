@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
     str::FromStr,
     sync::{Arc, LazyLock, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::Context;
@@ -115,7 +115,6 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
     Ok(addr)
 }
 
-/// A udp-socket-efficient DNS responder.   
 pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Result<Bytes> {
     if let Ok(packet) = Packet::parse(&req) {
         for q in packet.questions.iter() {
@@ -123,56 +122,84 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
             filter.check_host(&qname).await?;
         }
     }
-    let (send_resp, recv_resp) = oneshot::channel();
-    DNS_RESPONDER
-        .send((req, send_resp))
-        .await
-        .ok()
-        .context("could not send")?;
-    Ok(recv_resp.await?)
+
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder()
+            .pool_max_idle_per_host(1024)
+            .build()
+            .unwrap()
+    });
+
+    let start = Instant::now();
+    let resp = CLIENT
+        .post("https://cloudflare-dns.com/dns-query")
+        .body(req)
+        .header("content-type", "application/dns-message")
+        .send()
+        .await?;
+    tracing::trace!(elapsed = debug(start.elapsed()), "dns-over-https completed");
+
+    Ok(resp.bytes().await?)
 }
 
-static DNS_RESPONDER: LazyLock<Sender<(Bytes, oneshot::Sender<Bytes>)>> = LazyLock::new(|| {
-    let (send_req, recv_req) = smol::channel::bounded(1);
-    for _ in 0..500 {
-        smolscale::spawn(dns_respond_loop(recv_req.clone())).detach();
-    }
-    send_req
-});
+// /// A udp-socket-efficient DNS responder.
+// pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Result<Bytes> {
+//     if let Ok(packet) = Packet::parse(&req) {
+//         for q in packet.questions.iter() {
+//             let qname = q.qname.to_string();
+//             filter.check_host(&qname).await?;
+//         }
+//     }
+//     let (send_resp, recv_resp) = oneshot::channel();
+//     DNS_RESPONDER
+//         .send((req, send_resp))
+//         .await
+//         .ok()
+//         .context("could not send")?;
+//     Ok(recv_resp.await?)
+// }
 
-async fn dns_respond_loop(recv_req: Receiver<(Bytes, oneshot::Sender<Bytes>)>) {
-    let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-    socket.connect("8.8.8.8:53").await.unwrap();
-    let outstanding_reqs = Mutex::new(HashMap::new());
-    let upload = async {
-        loop {
-            let (req, send_resp) = recv_req.recv().await.unwrap();
-            if let Ok(packet) = Packet::parse(&req) {
-                outstanding_reqs
-                    .lock()
-                    .unwrap()
-                    .insert(packet.id(), send_resp);
-                let _ = socket.send(&req).await;
-            }
-        }
-    };
-    let download = async {
-        let mut buf = [0u8; 65536];
-        loop {
-            let n = socket.recv(&mut buf).await;
-            match n {
-                Err(err) => tracing::error!(err = debug(err), "cannot receive"),
-                Ok(n) => {
-                    if let Ok(packet) = Packet::parse(&buf[..n]) {
-                        if let Some(resp) = outstanding_reqs.lock().unwrap().remove(&packet.id()) {
-                            let _ = resp.send(Bytes::copy_from_slice(&buf[..n]));
-                        } else {
-                            tracing::warn!(id = packet.id(), "DNS response with mismatching ID")
-                        }
-                    }
-                }
-            }
-        }
-    };
-    upload.race(download).await
-}
+// static DNS_RESPONDER: LazyLock<Sender<(Bytes, oneshot::Sender<Bytes>)>> = LazyLock::new(|| {
+//     let (send_req, recv_req) = smol::channel::bounded(1);
+//     for _ in 0..500 {
+//         smolscale::spawn(dns_respond_loop(recv_req.clone())).detach();
+//     }
+//     send_req
+// });
+
+// async fn dns_respond_loop(recv_req: Receiver<(Bytes, oneshot::Sender<Bytes>)>) {
+//     let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
+//     socket.connect("8.8.8.8:53").await.unwrap();
+//     let outstanding_reqs = Mutex::new(HashMap::new());
+//     let upload = async {
+//         loop {
+//             let (req, send_resp) = recv_req.recv().await.unwrap();
+//             if let Ok(packet) = Packet::parse(&req) {
+//                 outstanding_reqs
+//                     .lock()
+//                     .unwrap()
+//                     .insert(packet.id(), send_resp);
+//                 let _ = socket.send(&req).await;
+//             }
+//         }
+//     };
+//     let download = async {
+//         let mut buf = [0u8; 65536];
+//         loop {
+//             let n = socket.recv(&mut buf).await;
+//             match n {
+//                 Err(err) => tracing::error!(err = debug(err), "cannot receive"),
+//                 Ok(n) => {
+//                     if let Ok(packet) = Packet::parse(&buf[..n]) {
+//                         if let Some(resp) = outstanding_reqs.lock().unwrap().remove(&packet.id()) {
+//                             let _ = resp.send(Bytes::copy_from_slice(&buf[..n]));
+//                         } else {
+//                             tracing::warn!(id = packet.id(), "DNS response with mismatching ID")
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     };
+//     upload.race(download).await
+// }
