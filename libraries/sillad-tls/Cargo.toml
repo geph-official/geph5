@@ -1,8 +1,0 @@
-[package]
-name = "sillad-tls"
-edition = "2021"
-version = "0.2.11"
-repository.workspace = true
-license.workspace = true
-
-[dependencies]

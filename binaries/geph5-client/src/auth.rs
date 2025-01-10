@@ -57,7 +57,7 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
             tracing::warn!(err = debug(err), "failed to refresh conn token");
             smol::Timer::after(Duration::from_secs(10)).await;
         } else {
-            let sleep_secs = rand::thread_rng().gen_range(3600..86400);
+            let sleep_secs = rand::thread_rng().gen_range(400..800);
             smol::Timer::after(Duration::from_secs(sleep_secs)).await;
         }
     }

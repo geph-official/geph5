@@ -16,7 +16,6 @@ use simple_dns::Packet;
 use smol::{
     channel::{Receiver, Sender},
     future::FutureExt as _,
-    lock::Semaphore,
     net::UdpSocket,
 };
 

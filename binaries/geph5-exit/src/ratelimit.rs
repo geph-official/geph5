@@ -130,7 +130,7 @@ impl RateLimiter {
         }
         let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
 
-        let bytes = bytes as f32 * (multiplier.max(1.0));
+        let bytes = (bytes as f32 * (multiplier.max(1.0))).min(100000.0);
         if let Some(inner) = &self.inner {
             let mut delay: f32 = 0.005;
             while inner

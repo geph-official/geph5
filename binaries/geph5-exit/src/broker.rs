@@ -104,12 +104,18 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                     }
 
                     let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                    let diff = byte_count.saturating_sub(last_byte_count);
+                    let mut diff = byte_count.saturating_sub(last_byte_count);
                     last_byte_count = byte_count;
                     tracing::debug!(diff, last_byte_count, "uploaded a diff");
-                    client
-                        .incr_stat(format!("{server_name}.throughput"), diff as _)
-                        .await?;
+                    while diff > 0 {
+                        client
+                            .incr_stat(
+                                format!("{server_name}.throughput"),
+                                diff.min(100_000_000) as _,
+                            )
+                            .await?;
+                        diff = diff.saturating_sub(100_000_000);
+                    }
                     let load = get_load();
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
@@ -152,7 +158,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
                 }
-                smol::Timer::after(Duration::from_secs(1)).await;
+                smol::Timer::after(Duration::from_millis(500)).await;
             }
         }
         None => {

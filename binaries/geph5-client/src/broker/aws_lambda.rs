@@ -28,7 +28,6 @@ impl RpcTransport for AwsLambdaTransport {
             .with_webpki_roots()
             .https_only()
             .enable_http1()
-            .enable_http2()
             .build();
 
         // Create a hyper-based HTTP client that uses this TLS connector.

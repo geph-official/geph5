@@ -40,7 +40,7 @@ pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
 }
 
 pub fn fake_dns_respond(ctx: &AnyCtx<Config>, pkt: &[u8]) -> anyhow::Result<Bytes> {
-    let pkt = Packet::parse(&pkt)?;
+    let pkt = Packet::parse(pkt)?;
     tracing::trace!(pkt = debug(&pkt), "got DNS packet");
     let mut answers = vec![];
     for question in pkt.questions.iter() {
@@ -50,7 +50,7 @@ pub fn fake_dns_respond(ctx: &AnyCtx<Config>, pkt: &[u8]) -> anyhow::Result<Byte
                 simple_dns::CLASS::IN,
                 1,
                 simple_dns::rdata::RData::A(
-                    fake_dns_allocate(&ctx, &question.qname.to_string()).into(),
+                    fake_dns_allocate(ctx, &question.qname.to_string()).into(),
                 ),
             ));
         }
