@@ -159,18 +159,17 @@ async fn dns_respond_loop(recv_req: Receiver<(Bytes, oneshot::Sender<Bytes>)>) {
     let download = async {
         let mut buf = [0u8; 65536];
         loop {
-            let n = socket.recv(&mut buf).await.unwrap();
-            if let Ok(packet) = Packet::parse(&buf[..n]) {
-                if let Some(resp) = outstanding_reqs.lock().unwrap().remove(&packet.id()) {
-                    // tracing::debug!(
-                    //     id = packet.id(),
-                    //     bytes = hex::encode(&buf[..n]),
-                    //     packet = debug(packet),
-                    //     "DNS response with CORRECT ID"
-                    // );
-                    let _ = resp.send(Bytes::copy_from_slice(&buf[..n]));
-                } else {
-                    tracing::warn!(id = packet.id(), "DNS response with mismatching ID")
+            let n = socket.recv(&mut buf).await;
+            match n {
+                Err(err) => tracing::error!(err = debug(err), "cannot receive"),
+                Ok(n) => {
+                    if let Ok(packet) = Packet::parse(&buf[..n]) {
+                        if let Some(resp) = outstanding_reqs.lock().unwrap().remove(&packet.id()) {
+                            let _ = resp.send(Bytes::copy_from_slice(&buf[..n]));
+                        } else {
+                            tracing::warn!(id = packet.id(), "DNS response with mismatching ID")
+                        }
+                    }
                 }
             }
         }
