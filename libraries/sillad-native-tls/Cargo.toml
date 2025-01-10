@@ -1,0 +1,12 @@
+[package]
+name = "sillad-native-tls"
+edition = "2021"
+version = "0.2.11"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+async-native-tls = "0.5.0"
+async-trait = "0.1.84"
+futures-lite = "2.5.0"
+sillad = { version = "0.2", path = "../sillad" }
