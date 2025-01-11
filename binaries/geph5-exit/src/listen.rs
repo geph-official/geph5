@@ -67,10 +67,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
             tracing::warn!(err = debug(err), "rejected a direct connection");
             continue;
         }
-        smolscale::spawn(
-            handle_client(c2e_raw).map_err(|e| tracing::warn!("client died suddenly with {e}")),
-        )
-        .detach()
+        smolscale::spawn(handle_client(c2e_raw)).detach()
     }
 }
 
