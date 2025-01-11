@@ -29,7 +29,10 @@ impl BrokerRpcTransport {
     pub fn new(url: &str) -> Self {
         Self {
             url: url.to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::ClientBuilder::new()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap(),
         }
     }
 }
