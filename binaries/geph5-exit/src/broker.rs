@@ -161,7 +161,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
                 }
-                smol::Timer::after(Duration::from_millis(500)).await;
+                smol::Timer::after(Duration::from_millis(2000)).await;
             }
         }
         None => {
