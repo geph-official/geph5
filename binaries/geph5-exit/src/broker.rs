@@ -114,10 +114,10 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                         client
                             .incr_stat(
                                 format!("{server_name}.throughput"),
-                                diff.min(100_000_000) as _,
+                                diff.min(1_000_000_000) as _,
                             )
                             .await?;
-                        diff = diff.saturating_sub(100_000_000);
+                        diff = diff.saturating_sub(1_000_000_000);
                     }
                     let load = get_load();
                     client
