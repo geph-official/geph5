@@ -33,6 +33,7 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
                 loop {
                     let refresh = refresh.clone();
                     let fresh = async {
+                        tracing::debug!("about to refresh RefreshCell...");
                         let new_value = refresh().await;
                         tracing::debug!(
                             interval = debug(interval),
