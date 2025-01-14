@@ -127,25 +127,13 @@ pub async fn proxy_stream(
 }
 
 async fn proxy_dns(stream: picomux::Stream, filter: FilterOptions) -> anyhow::Result<()> {
-    let (read_stream, write_stream) = stream.split();
-    let mut read_stream = BufReader::with_capacity(600, read_stream);
-    let write_stream = Arc::new(smol::lock::Mutex::new(BufWriter::with_capacity(
-        600,
-        write_stream,
-    )));
+    let (mut read_stream, write_stream) = stream.split();
+    let write_stream = Arc::new(smol::lock::Mutex::new(write_stream));
     let mut len_buf = [0; 2];
     loop {
-        read_stream
-            .read_exact(&mut len_buf)
-            .timeout(Duration::from_secs(60))
-            .await
-            .context("timeout")??;
+        read_stream.read_exact(&mut len_buf).await?;
         let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
-        read_stream
-            .read_exact(&mut packet_buf)
-            .timeout(Duration::from_secs(60))
-            .await
-            .context("timeout")??;
+        read_stream.read_exact(&mut packet_buf).await?;
         let write_stream = write_stream.clone();
         smolscale::spawn(async move {
             let response = raw_dns_respond(packet_buf.into(), filter).await?;

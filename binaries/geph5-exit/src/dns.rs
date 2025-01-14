@@ -123,12 +123,8 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
         }
     }
 
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-        reqwest::Client::builder()
-            .pool_max_idle_per_host(1024)
-            .build()
-            .unwrap()
-    });
+    static CLIENT: LazyLock<reqwest::Client> =
+        LazyLock::new(|| reqwest::Client::builder().build().unwrap());
 
     let start = Instant::now();
     let resp = CLIENT
