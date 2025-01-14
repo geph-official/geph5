@@ -221,8 +221,9 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                         })
                 };
                 if let Err(err) = once.await {
-                    tracing::warn!(err = debug(err), "individual client thread failed");
-                    smol::Timer::after(Duration::from_millis(100)).await;
+                    let wait_time = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0..10.0));
+                    tracing::warn!(instance, err = debug(err), wait_time=debug(wait_time), "individual client thread failed");
+                    smol::Timer::after(wait_time).await;
                 }
             }
         })
