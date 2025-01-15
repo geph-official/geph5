@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     net::SocketAddr,
     str::FromStr,
     sync::{Arc, LazyLock, Mutex},
@@ -118,8 +119,10 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
 pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Result<Bytes> {
     if let Ok(packet) = Packet::parse(&req) {
         for q in packet.questions.iter() {
-            let qname = q.qname.to_string();
-            filter.check_host(&qname).await?;
+            use std::fmt::Write;
+            let mut qname_str = String::new();
+            write!(&mut qname_str, "{}", q.qname)?;
+            filter.check_host(&qname_str).await?;
         }
     }
 
