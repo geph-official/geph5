@@ -1,9 +1,8 @@
 use std::{
-    collections::HashMap,
     fmt::Debug,
     net::SocketAddr,
     str::FromStr,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 
@@ -14,11 +13,6 @@ use globset::{Glob, GlobSet};
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use simple_dns::Packet;
-use smol::{
-    channel::{Receiver, Sender},
-    future::FutureExt as _,
-    net::UdpSocket,
-};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Copy, Default)]
 pub struct FilterOptions {

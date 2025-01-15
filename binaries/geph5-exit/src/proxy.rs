@@ -7,7 +7,7 @@ use anyhow::Context;
 
 use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
 
-use smol::{future::FutureExt as _, io::BufWriter, net::UdpSocket};
+use smol::{future::FutureExt as _, net::UdpSocket};
 
 use crate::{
     allow::proxy_allowed,

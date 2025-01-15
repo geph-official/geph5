@@ -132,20 +132,17 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 let mut sleep_secs: f64 = rand::random();
                 smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
                 loop {
-                    let result = get_dialer(&ctx).timeout(Duration::from_secs(20)).await;
+                    let result = get_dialer(&ctx).await;
                     match result {
-                        Some(Ok(res)) => {
+                        Ok(res) => {
                             tracing::debug!("obtained a fresh, fresh dialer!");
                             break res;
                         }
-                        Some(Err(err)) => {
-                            tracing::error!(err = debug(err), "failed to get dialer");
+                        Err(err) => {
                             sleep_secs =
                                 rand::thread_rng().gen_range(sleep_secs..=(sleep_secs * 1.5));
+                            tracing::error!(err = debug(err), sleep_secs, "failed to get dialer");
                             smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-                        }
-                        None => {
-                            tracing::error!("dialer refresh timeout");
                         }
                     }
                 }
@@ -167,7 +164,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                 let once = async {
                     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
                     let (authed_pipe, exit) = async {
-                        let (pubkey, exit, raw_dialer) = dialer.get().await;
+                        let (pubkey, exit, raw_dialer) = dialer.get();
                         let start = Instant::now();
                         let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
                         tracing::debug!(
