@@ -31,6 +31,8 @@ impl BrokerRpcTransport {
             url: url.to_string(),
             client: reqwest::ClientBuilder::new()
                 .timeout(Duration::from_secs(10))
+                .http1_only()
+                .pool_max_idle_per_host(0)
                 .build()
                 .unwrap(),
         }
