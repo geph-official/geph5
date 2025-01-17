@@ -70,7 +70,7 @@ pub async fn bridge_to_leaf_route(
                     .await
                     .context("timeout")??;
                 let plain_route = RouteDescriptor::Delay {
-                    milliseconds: 500,
+                    milliseconds: 0,
                     lower: RouteDescriptor::Tcp(plain_addr).into(),
                 };
 
