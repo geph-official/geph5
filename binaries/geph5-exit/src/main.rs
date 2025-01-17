@@ -86,7 +86,7 @@ fn default_total_ratelimit() -> u32 {
 }
 
 fn default_task_limit() -> usize {
-    1_000_000
+    10_000_000
 }
 
 fn default_free_port_whitelist() -> Vec<u16> {
