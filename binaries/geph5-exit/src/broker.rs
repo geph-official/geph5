@@ -22,19 +22,12 @@ pub static ACCEPT_FREE: AtomicBool = AtomicBool::new(false);
 
 pub struct BrokerRpcTransport {
     url: String,
-    client: reqwest::Client,
 }
 
 impl BrokerRpcTransport {
     pub fn new(url: &str) -> Self {
         Self {
             url: url.to_string(),
-            client: reqwest::ClientBuilder::new()
-                .timeout(Duration::from_secs(10))
-                .http1_only()
-                .pool_max_idle_per_host(0)
-                .build()
-                .unwrap(),
         }
     }
 }
@@ -44,13 +37,19 @@ impl RpcTransport for BrokerRpcTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
         tracing::debug!(method = req.method, "calling broker");
-        let resp = self
-            .client
+        let client = reqwest::ClientBuilder::new()
+            .timeout(Duration::from_secs(10))
+            .http1_only()
+            .pool_max_idle_per_host(0)
+            .build()
+            .unwrap();
+        let resp = client
             .request(Method::POST, &self.url)
             .header("content-type", "application/json")
             .body(serde_json::to_vec(&req).unwrap())
             .send()
-            .await?;
+            .await
+            .inspect_err(|e| tracing::warn!(err = debug(e), "contacting broker failed"))?;
         Ok(serde_json::from_slice(&resp.bytes().await?)?)
     }
 }
