@@ -76,21 +76,21 @@ impl Listener for TcpListener {
 fn set_tcp_options(conn: &Async<TcpStream>) -> std::io::Result<()> {
     conn.get_ref().set_nodelay(true)?;
 
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    unsafe {
-        use std::os::fd::AsRawFd;
-        let lowat: libc::c_int = 32768;
-        let ret = libc::setsockopt(
-            conn.as_raw_fd(),
-            libc::IPPROTO_TCP,
-            libc::TCP_NOTSENT_LOWAT,
-            &lowat as *const _ as *const libc::c_void,
-            std::mem::size_of_val(&lowat) as libc::socklen_t,
-        );
-        if ret != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-    }
+    // #[cfg(any(target_os = "linux", target_os = "android"))]
+    // unsafe {
+    //     use std::os::fd::AsRawFd;
+    //     let lowat: libc::c_int = 32768;
+    //     let ret = libc::setsockopt(
+    //         conn.as_raw_fd(),
+    //         libc::IPPROTO_TCP,
+    //         libc::TCP_NOTSENT_LOWAT,
+    //         &lowat as *const _ as *const libc::c_void,
+    //         std::mem::size_of_val(&lowat) as libc::socklen_t,
+    //     );
+    //     if ret != 0 {
+    //         return Err(std::io::Error::last_os_error());
+    //     }
+    // }
     Ok(())
 }
 

@@ -98,7 +98,7 @@ async fn listen_loop<P: Pipe>(
                             x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
                         let eph_pk: x25519_dalek::PublicKey = (&eph_sk).into();
                         // we generate a whole lot of random padding
-                        let padding_len: u64 = rand::thread_rng().gen_range(0..=8192);
+                        let padding_len: u64 = rand::thread_rng().gen_range(0..=1024);
                         let padding = vec![0; padding_len as usize]
                             .tap_mut(|v| rand::thread_rng().fill_bytes(v));
                         let padding_hash = blake3::hash(&padding);

@@ -1,6 +1,6 @@
+mod bdp;
 mod buffer_table;
 mod frame;
-
 mod outgoing;
 
 use std::{
@@ -21,6 +21,7 @@ use anyhow::Context;
 
 use async_task::Task;
 
+use bdp::BwEstimate;
 use buffer_table::BufferTable;
 use bytes::Bytes;
 use frame::{Frame, CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
@@ -42,7 +43,7 @@ use tap::Tap;
 use crate::frame::{Header, PingInfo};
 
 const INIT_WINDOW: usize = 10;
-const MAX_WINDOW: usize = 500;
+const MAX_WINDOW: usize = 1500;
 const MSS: usize = 8192;
 
 #[derive(Clone, Copy, Debug)]
@@ -214,8 +215,9 @@ async fn picomux_inner(
                 let mut remote_window = INIT_WINDOW;
                 let mut target_remote_window = MAX_WINDOW;
                 let mut last_window_adjust = Instant::now();
+                let mut bw_estimate = BwEstimate::new();
                 loop {
-                    let min_quantum = (target_remote_window / 10).clamp(3, 50);
+                    let min_quantum = (target_remote_window / 10).clamp(1, 500);
                     let frame = buffer_recv.recv().await;
                     if frame.header.command == CMD_FIN {
                         anyhow::bail!("received remote FIN");
@@ -228,28 +230,37 @@ async fn picomux_inner(
                         target_remote_window,
                         "queue delay measured"
                     );
+                    bw_estimate.sample(frame.body.len());
                     write_incoming
                         .write_all(&frame.body)
                         .await
                         .context("could not write to incoming")?;
                     remote_window -= 1;
 
-                    // adjust the target remote window once per window
-                    if last_window_adjust.elapsed().as_millis() > 250 {
-                        last_window_adjust = Instant::now();
-                        if queue_delay.as_millis() > 50 {
-                            target_remote_window = (target_remote_window / 2).max(3);
-                        } else {
-                            target_remote_window = (target_remote_window + 1).min(MAX_WINDOW);
-                        }
-                        tracing::debug!(
-                            stream_id,
-                            queue_delay = debug(queue_delay),
-                            remote_window,
-                            target_remote_window,
-                            "adjusting window"
-                        )
-                    }
+                    // assume the delay is 500ms
+                    target_remote_window = ((bw_estimate.read() / MSS as f64 / 2.0) as usize)
+                        .clamp(INIT_WINDOW, MAX_WINDOW);
+                    tracing::debug!(
+                        target_remote_window,
+                        "setting target remote send window based on bw"
+                    );
+
+                    // // adjust the target remote window once per window
+                    // if last_window_adjust.elapsed().as_millis() > 250 {
+                    //     last_window_adjust = Instant::now();
+                    //     if queue_delay.as_millis() > 50 {
+                    //         target_remote_window = (target_remote_window / 2).max(3);
+                    //     } else {
+                    //         target_remote_window = (target_remote_window + 1).min(MAX_WINDOW);
+                    //     }
+                    //     tracing::debug!(
+                    //         stream_id,
+                    //         queue_delay = debug(queue_delay),
+                    //         remote_window,
+                    //         target_remote_window,
+                    //         "adjusting window"
+                    //     )
+                    // }
 
                     if remote_window + min_quantum <= target_remote_window {
                         let quantum = target_remote_window - remote_window;
@@ -402,7 +413,7 @@ async fn picomux_inner(
             loop {
                 let frame = Frame::read(&mut inner_read).await?;
                 let stream_id = frame.header.stream_id;
-                tracing::debug!(
+                tracing::trace!(
                     command = frame.header.command,
                     stream_id,
                     body_len = frame.header.body_len,

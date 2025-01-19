@@ -67,6 +67,8 @@ impl BufferTable {
     /// Waits until the send window for the given stream is at least 1, then decrement it by 1.
     pub async fn wait_send_window(&self, stream_id: u32) {
         let semaph = if let Some(inner) = self.inner.get(&stream_id) {
+            let before = inner.1.permits();
+            tracing::debug!(stream_id, before, "decrementing send window");
             inner.1.clone()
         } else {
             futures_util::future::pending().await
@@ -77,6 +79,13 @@ impl BufferTable {
     /// Increases the send window for the given stream.
     pub fn incr_send_window(&self, stream_id: u32, amount: u16) {
         if let Some(inner) = self.inner.get(&stream_id) {
+            let before = inner.1.permits();
+            tracing::debug!(
+                stream_id,
+                before,
+                after = display(amount as usize + before),
+                "increasing send window"
+            );
             inner.1.release(amount as _);
         }
     }

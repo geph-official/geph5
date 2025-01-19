@@ -39,7 +39,7 @@ impl Outgoing {
                 if let Some(err) = self.err.get() {
                     return Some(Err(anyhow::anyhow!("{:?}", err)));
                 }
-                if self.inner.queue.is_empty() {
+                if self.inner.queue.len() < 10 {
                     Some(anyhow::Ok(()))
                 } else {
                     None
@@ -51,7 +51,7 @@ impl Outgoing {
 
     /// Infallibly, non-blockingly enqueues a frame to be sent to the outgoing writer.
     pub fn enqueue(&self, outgoing: Frame) {
-        tracing::debug!(
+        tracing::trace!(
             command = outgoing.header.command,
             stream_id = outgoing.header.stream_id,
             body_len = outgoing.header.body_len,
