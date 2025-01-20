@@ -45,9 +45,10 @@ pub async fn proxy_stream(
         "tcp" => {
             let start = Instant::now();
             let dest_tcp = dialer
-                .connect(dest_addrs)
+                .connect(dest_addrs.clone())
+                .timeout(Duration::from_secs(5))
                 .await
-                .inspect_err(|err| tracing::warn!(err = debug(err), dest_host, "fail to dial"))?;
+                .context(format!("timeout in TCP dial to {:?}", dest_addrs))??;
             tracing::trace!(
                 protocol,
                 dest_host = display(dest_host),
@@ -87,13 +88,13 @@ pub async fn proxy_stream(
                         .read_exact(&mut len_buf)
                         .timeout(Duration::from_secs(60))
                         .await
-                        .context("timeout")??;
+                        .context("timeout in udp up")??;
                     let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
                     read_stream
                         .read_exact(&mut packet_buf)
                         .timeout(Duration::from_secs(60))
                         .await
-                        .context("timeout")??;
+                        .context("timeout in udp up")??;
                     ratelimit.wait(packet_buf.len()).await;
                     udp_socket.send(&packet_buf).await?;
                 }
@@ -106,7 +107,7 @@ pub async fn proxy_stream(
                         .recv(&mut buf[2..])
                         .timeout(Duration::from_secs(60))
                         .await
-                        .context("timeout")??;
+                        .context("timeout in udp down")??;
                     ratelimit.wait(len).await;
 
                     // Store the length of the data in the first two bytes
