@@ -4,12 +4,13 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use futures_intrusive::sync::ManualResetEvent;
 use parking_lot::Mutex;
 use smol::{channel::Sender, future::FutureExt};
 use smolscale::immortal::Immortal;
 
 pub struct RefreshCell<T: Clone> {
-    inner: Arc<Mutex<T>>,
+    inner: Arc<Mutex<Option<T>>>,
     last_refresh_start: Arc<Mutex<SystemTime>>,
     _task: Immortal,
     interval: Duration,
@@ -21,17 +22,18 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
         interval: Duration,
         refresh: impl Fn() -> Fut + Send + Sync + 'static,
     ) -> Self {
-        let inner = Arc::new(Mutex::new(refresh().await));
+        let inner = Arc::new(Mutex::new(None));
         let last_refresh_start = Arc::new(Mutex::new(SystemTime::now()));
         let inner2 = inner.clone();
         let refresh = Arc::new(move || refresh().boxed());
         let (force_refresh, recv_force_refresh) = smol::channel::unbounded();
+        let ready_event = Arc::new(ManualResetEvent::new(false));
         let task = {
             let refresh = refresh.clone();
             let recv_force_refresh = recv_force_refresh.clone();
             let last_refresh_start = last_refresh_start.clone();
+            let ready_event = ready_event.clone();
             Immortal::spawn(async move {
-                smol::Timer::after(interval).await;
                 loop {
                     *last_refresh_start.lock() = SystemTime::now();
                     let refresh = refresh.clone();
@@ -43,7 +45,8 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
                             "RefreshCell refreshed properly"
                         );
                         let mut inner = inner2.lock();
-                        *inner = new_value;
+                        *inner = Some(new_value);
+                        ready_event.set();
                         true
                     };
                     let timeout = async {
@@ -73,6 +76,7 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
                 }
             })
         };
+        ready_event.wait().await;
         Self {
             inner,
             _task: task,
@@ -95,6 +99,6 @@ impl<T: Clone + Send + 'static> RefreshCell<T> {
                 *last_refresh_start = SystemTime::now();
             }
         }
-        self.inner.lock().clone()
+        self.inner.lock().clone().unwrap()
     }
 }
