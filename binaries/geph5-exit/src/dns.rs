@@ -120,6 +120,10 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
             .build()
     });
 
+    if let Ok(addr) = SocketAddr::from_str(name) {
+        return Ok(vec![addr]);
+    }
+
     // Split into "host:port"
     let (host, port_str) = name
         .rsplit_once(":")
@@ -178,8 +182,8 @@ fn parse_dns_response(packet_data: &[u8], port: u16) -> anyhow::Result<Vec<Socke
     let packet = Packet::parse(packet_data)?;
     let mut addrs = Vec::new();
 
-    for answer in packet.answers {
-        match answer.rdata {
+    for answer in packet.answers.iter() {
+        match &answer.rdata {
             RData::A(ipv4) => addrs.push(SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::from_bits(ipv4.address)),
                 port,
@@ -193,7 +197,7 @@ fn parse_dns_response(packet_data: &[u8], port: u16) -> anyhow::Result<Vec<Socke
     }
 
     if addrs.is_empty() {
-        anyhow::bail!("No A or AAAA records found in DNS response");
+        anyhow::bail!("No A or AAAA records found in DNS response: {:?}", packet);
     }
 
     Ok(addrs)
@@ -269,7 +273,7 @@ mod tests {
     fn resolve_google() {
         smolscale::block_on(async move {
             let res = dns_resolve(
-                "google.com:443",
+                "xkcd.com:443",
                 super::FilterOptions {
                     nsfw: false,
                     ads: false,
