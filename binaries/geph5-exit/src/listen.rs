@@ -197,8 +197,8 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
                 stream,
                 is_free,
             )
-            .race(new_task_until_death(Duration::from_secs(30)))
-            .map_err(|e| tracing::debug!(err = debug(e), "stream died with")),
+            .race(new_task_until_death(Duration::from_secs(1)))
+            .map_err(|e| tracing::trace!(err = debug(e), "stream died with")),
         )
         .detach();
     }
