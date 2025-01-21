@@ -15,6 +15,7 @@ use tap::Tap;
 use crate::{
     ratelimit::{get_load, TOTAL_BYTE_COUNT},
     schedlag::SCHEDULER_LAG_SECS,
+    tasklimit::get_task_count,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -124,6 +125,10 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                     let load = get_load();
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
+                        .await?;
+                    let task_count = get_task_count();
+                    client
+                        .set_stat(format!("{server_name}.task_count"), task_count as _)
                         .await?;
                     client
                         .set_stat(
