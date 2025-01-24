@@ -16,9 +16,6 @@ jobs:
           - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
             dir: gnu
-          # - os: windows-latest
-          #   target: i686-pc-windows-msvc
-          #   dir: windows
           - os: macos-latest
             target: x86_64-apple-darwin
             dir: macos
@@ -66,17 +63,17 @@ jobs:
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
 
       - name: Install cargo-bundle
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: matrix.os == 'macos-latest'
         run: cargo install cargo-bundle --locked --version "=0.6.0" --force
 
       - name: Create macOS .app bundle
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: matrix.os == 'macos-latest'
         run: |
           cd binaries/geph5-client-gui
           cargo bundle --release --target ${{ matrix.target }}
 
       - name: Create macOS .app zip
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: matrix.os == 'macos-latest'
         run: |
           cd target/${{ matrix.target }}/release/bundle/osx/
           zip -r "geph5-client-gui.app.zip" "Geph5.app"
@@ -116,13 +113,13 @@ jobs:
         with:
           key: x86_64-unknown-linux-musl-bridge-exit
 
-      - name: Build bridge, exit, and broker
+      - name: Build bridge and exit and broker
         run: |
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-bridge/Cargo.toml
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-broker/Cargo.toml
 
-      - name: Move bridge/exit/broker binaries to artifacts directory
+      - name: Move bridge and exit binaries to artifacts directory
         run: |
           mkdir -p artifacts/musl
           mv target/x86_64-unknown-linux-musl/release/geph5-bridge artifacts/musl/
@@ -135,56 +132,6 @@ jobs:
           name: musl-latest
           path: artifacts/musl
 
-  # build-windows-gui:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Install Rust
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: stable
-  #         override: true
-  #         target: i686-pc-windows-msvc
-  #
-  #     - name: Set default host
-  #       shell: bash
-  #       run: rustup set default-host i686-pc-windows-msvc
-  #
-  #     - name: Cache cargo build
-  #       uses: Swatinem/rust-cache@v2
-  #       with:
-  #         key: i686-pc-windows-msvc-gui
-  #
-  #     - name: Build Windows GUI client
-  #       run: |
-  #         cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client/Cargo.toml --all-features
-  #         cargo build --locked --release --target i686-pc-windows-msvc --manifest-path binaries/geph5-client-gui/Cargo.toml
-  #
-  #     - name: Build Windows installer
-  #       shell: bash
-  #       run: |
-  #         choco install innosetup
-  #         cp target/i686-pc-windows-msvc/release/geph5-client-gui packaging/windows
-  #         cp target/i686-pc-windows-msvc/release/geph5-client packaging/windows
-  #         cp binaries/geph5-client/windows-lib/* packaging/windows
-  #         iscc packaging/windows/setup.iss
-  #
-  #     - name: Move Windows GUI artifacts
-  #       shell: bash
-  #       run: |
-  #         mkdir -p artifacts/windows-gui
-  #         cp packaging/windows/Output/* artifacts/windows-gui/
-  #         cp target/i686-pc-windows-msvc/release/geph5-client-gui artifacts/windows-gui/
-  #
-  #     - name: Upload Windows GUI artifact
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: windows-gui-latest
-  #         path: artifacts/windows-gui
-
   upload:
     if: github.ref == 'refs/heads/master'
     needs: [build, build-bridge-exit]
@@ -196,8 +143,6 @@ jobs:
           - dir: musl
           - dir: musl-arm64
           - dir: macos
-          # - dir: windows
-          # - dir: windows-gui
 
     steps:
       - name: Download all artifacts
@@ -207,27 +152,17 @@ jobs:
 
       - name: Install rclone
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rclone
+          curl https://rclone.org/install.sh | sudo bash
 
-      - name: Configure rclone
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Configure rclone for R2
         run: |
-          mkdir -p ~/.config/rclone
-          echo "[r2]
-          type = s3
-          provider = Cloudflare
-          env_auth = false
-          access_key_id = ${R2_ACCESS_KEY_ID}
-          secret_access_key = ${R2_SECRET_ACCESS_KEY}
-          endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
-          " > ~/.config/rclone/rclone.conf
+          echo "[r2]" > rclone.conf
+          echo "type = s3" >> rclone.conf
+          echo "provider = Cloudflare" >> rclone.conf
+          echo "access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}" >> rclone.conf
+          echo "secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}" >> rclone.conf
+          echo "endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com" >> rclone.conf
 
-      - name: Upload to Cloudflare R2
+      - name: Upload artifacts to R2
         run: |
-          rclone copy \
-            "artifacts/${{ matrix.dir }}-latest" \
-            "r2:geph5/${{ matrix.dir }}-latest" \
-            --recursive
+          rclone copy ./artifacts/${{ matrix.dir }} r2:geph5/${{ matrix.dir }} --config rclone.conf --progress
