@@ -217,13 +217,13 @@ jobs:
         run: |
           mkdir -p ~/.config/rclone
           echo "[r2]
-type = s3
-provider = Cloudflare
-env_auth = false
-access_key_id = ${R2_ACCESS_KEY_ID}
-secret_access_key = ${R2_SECRET_ACCESS_KEY}
-endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
-" > ~/.config/rclone/rclone.conf
+          type = s3
+          provider = Cloudflare
+          env_auth = false
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
+          " > ~/.config/rclone/rclone.conf
 
       - name: Upload to Cloudflare R2
         run: |
