@@ -211,6 +211,7 @@ jobs:
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set region apac
           aws configure set output json
+          aws configure set default.s3.max_attempts 100
 
       - name: Upload to Cloudflare R2
         run: |
