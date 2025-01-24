@@ -67,8 +67,8 @@ impl BridgeControlProtocol for State {
 }
 
 async fn random_tcp_listener() -> TcpListener {
-    let rando = rand::thread_rng().gen_range(2048u16..65535);
     loop {
+        let rando = rand::thread_rng().gen_range(2048u16..65535);
         match TcpListener::bind(format!("0.0.0.0:{rando}").parse().unwrap()).await {
             Ok(listener) => return listener,
             Err(err) => {
