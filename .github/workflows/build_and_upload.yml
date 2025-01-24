@@ -66,17 +66,17 @@ jobs:
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
 
       - name: Install cargo-bundle
-        if: matrix.os == 'macos-latest'
-        run: cargo install cargo-bundle --locked --version "=0.6.0"  --force
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: cargo install cargo-bundle --locked --version "=0.6.0" --force
 
       - name: Create macOS .app bundle
-        if: matrix.os == 'macos-latest'
+        if: ${{ matrix.os == 'macos-latest' }}
         run: |
           cd binaries/geph5-client-gui
           cargo bundle --release --target ${{ matrix.target }}
 
       - name: Create macOS .app zip
-        if: matrix.os == 'macos-latest'
+        if: ${{ matrix.os == 'macos-latest' }}
         run: |
           cd target/${{ matrix.target }}/release/bundle/osx/
           zip -r "geph5-client-gui.app.zip" "Geph5.app"
@@ -116,13 +116,13 @@ jobs:
         with:
           key: x86_64-unknown-linux-musl-bridge-exit
 
-      - name: Build bridge and exit and broker
+      - name: Build bridge, exit, and broker
         run: |
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-bridge/Cargo.toml
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-exit/Cargo.toml
           cargo build --locked --release --target x86_64-unknown-linux-musl --manifest-path binaries/geph5-broker/Cargo.toml
 
-      - name: Move bridge and exit binaries to artifacts directory
+      - name: Move bridge/exit/broker binaries to artifacts directory
         run: |
           mkdir -p artifacts/musl
           mv target/x86_64-unknown-linux-musl/release/geph5-bridge artifacts/musl/
@@ -211,6 +211,9 @@ jobs:
           sudo apt-get install -y rclone
 
       - name: Configure rclone
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           mkdir -p ~/.config/rclone
           echo "[r2]
@@ -221,9 +224,6 @@ access_key_id = ${R2_ACCESS_KEY_ID}
 secret_access_key = ${R2_SECRET_ACCESS_KEY}
 endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
 " > ~/.config/rclone/rclone.conf
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Upload to Cloudflare R2
         run: |
