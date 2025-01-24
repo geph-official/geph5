@@ -77,7 +77,10 @@ pub async fn bridge_to_leaf_route(
                         milliseconds: 0,
                         lower: RouteDescriptor::Tcp(plain_addr).into(),
                     };
-                    RouteDescriptor::Race(vec![plain_route, sosis_route])
+                    RouteDescriptor::Delay {
+                        milliseconds: 500,
+                        lower: RouteDescriptor::Race(vec![plain_route, sosis_route]).into(),
+                    }
                 } else {
                     sosis_route
                 };
