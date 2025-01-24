@@ -165,4 +165,4 @@ jobs:
 
       - name: Upload artifacts to R2
         run: |
-          rclone copy ./artifacts/${{ matrix.dir }} r2:geph5/${{ matrix.dir }} --config rclone.conf --progress
+          rclone sync ./artifacts/${{ matrix.dir }}/ r2:geph5/${{ matrix.dir }}/ --config rclone.conf --progress
