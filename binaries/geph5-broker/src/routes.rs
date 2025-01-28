@@ -39,10 +39,7 @@ pub async fn bridge_to_leaf_route(
                     },
                     cookie,
                 };
-                // let cookie = format!(
-                //     "exit-cookie-{}---{{\"obfs_timing\": false, \"obfs_lengths\": true}}",
-                //     rand::random::<u128>()
-                // );
+
                 let cookie = format!("exit-cookie-{}", rand::random::<u128>());
                 let control_client = BridgeControlClient(DialerTransport(dialer));
 

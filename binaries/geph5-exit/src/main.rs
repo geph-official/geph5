@@ -2,6 +2,7 @@ mod asn;
 mod dns;
 mod ipv6;
 mod tasklimit;
+mod watchdog;
 
 use clap::Parser;
 use ed25519_dalek::SigningKey;

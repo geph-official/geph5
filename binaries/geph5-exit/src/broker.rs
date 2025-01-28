@@ -16,6 +16,7 @@ use crate::{
     ratelimit::{get_load, TOTAL_BYTE_COUNT},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
+    watchdog::kick_watchdog,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -167,6 +168,8 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 };
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
+                } else {
+                    kick_watchdog();
                 }
                 smol::Timer::after(Duration::from_millis(2000)).await;
             }
