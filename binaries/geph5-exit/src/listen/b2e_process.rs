@@ -3,6 +3,8 @@ use std::io::ErrorKind;
 use async_trait::async_trait;
 use futures_util::TryFutureExt;
 use geph5_misc_rpc::bridge::{B2eMetadata, ObfsProtocol};
+use sillad::listener::{DynListener, ListenerExt};
+use sillad_conntest::ConnTestListener;
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use tachyonix::Receiver;
 
@@ -13,11 +15,20 @@ pub async fn b2e_process(
     recv: Receiver<picomux::Stream>,
 ) -> anyhow::Result<()> {
     let listener = ReceiverListener(recv);
-    match b2e_metadata.protocol {
+    b2e_inner(create_listener(b2e_metadata.protocol, listener)).await?;
+    Ok(())
+}
+
+fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListener {
+    match protocol {
         ObfsProtocol::Sosistab3(cookie) => {
-            b2e_inner(SosistabListener::new(listener, Cookie::new(&cookie))).await
+            SosistabListener::new(bottom, Cookie::new(&cookie)).dynamic()
         }
-        ObfsProtocol::None => b2e_inner(listener).await,
+        ObfsProtocol::ConnTest(obfs_protocol) => {
+            let inner = create_listener(*obfs_protocol, bottom);
+            ConnTestListener::new(inner).dynamic()
+        }
+        ObfsProtocol::None => bottom.dynamic(),
     }
 }
 

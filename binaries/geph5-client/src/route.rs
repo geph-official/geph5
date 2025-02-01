@@ -17,6 +17,7 @@ use sillad::{
     dialer::{DialerExt, DynDialer, FailingDialer},
     tcp::TcpDialer,
 };
+use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
 use crate::{
@@ -309,6 +310,15 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
         } => route_to_dialer(lower)
             .delay(Duration::from_millis((*milliseconds).into()))
             .dynamic(),
+        RouteDescriptor::ConnTest { ping_count, lower } => {
+            let lower = route_to_dialer(lower);
+            ConnTestDialer {
+                inner: lower,
+                ping_count: *ping_count as _,
+            }
+            .dynamic()
+        }
+
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
     }
 }

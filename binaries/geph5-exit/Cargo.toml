@@ -8,6 +8,7 @@ license = "MPL-2.0"
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
+sillad-conntest = { path = "../../libraries/sillad-conntest" }
 picomux = { path = "../../libraries/picomux" }
 async-trait = "0.1.80"
 nanorpc = "0.1.12"

@@ -21,6 +21,10 @@ pub enum RouteDescriptor {
         milliseconds: u32,
         lower: Box<RouteDescriptor>,
     },
+    ConnTest {
+        ping_count: u32,
+        lower: Box<RouteDescriptor>,
+    },
 
     #[serde(untagged)]
     Other(serde_json::Value),
