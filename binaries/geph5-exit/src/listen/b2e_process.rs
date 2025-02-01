@@ -14,6 +14,7 @@ pub async fn b2e_process(
     b2e_metadata: B2eMetadata,
     recv: Receiver<picomux::Stream>,
 ) -> anyhow::Result<()> {
+    tracing::debug!("b2e_process called with {:?}", b2e_metadata);
     let listener = ReceiverListener(recv);
     b2e_inner(create_listener(b2e_metadata.protocol, listener)).await?;
     Ok(())
