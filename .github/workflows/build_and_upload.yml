@@ -205,13 +205,24 @@ jobs:
         with:
           path: artifacts
 
-      - name: Set up AWS configuration
+      - name: Install rclone
         run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws configure set region apac
-          aws configure set output json
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region = auto
+          endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
+          acl = private
+          EOF
 
       - name: Upload to Cloudflare R2
         run: |
-          aws s3 cp ./artifacts/${{ matrix.dir }}-latest s3://geph5/${{ matrix.dir }}-latest --recursive --endpoint-url=https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
+          rclone copy ./artifacts/${{ matrix.dir }}-latest r2:geph5/${{ matrix.dir }}-latest

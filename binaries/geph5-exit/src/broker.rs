@@ -15,6 +15,8 @@ use tap::Tap;
 use crate::{
     ratelimit::{get_load, TOTAL_BYTE_COUNT},
     schedlag::SCHEDULER_LAG_SECS,
+    tasklimit::get_task_count,
+    watchdog::kick_watchdog,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -42,13 +44,15 @@ impl RpcTransport for BrokerRpcTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
         tracing::debug!(method = req.method, "calling broker");
+
         let resp = self
             .client
             .request(Method::POST, &self.url)
             .header("content-type", "application/json")
             .body(serde_json::to_vec(&req).unwrap())
             .send()
-            .await?;
+            .await
+            .inspect_err(|e| tracing::warn!(err = debug(e), "contacting broker failed"))?;
         Ok(serde_json::from_slice(&resp.bytes().await?)?)
     }
 }
@@ -123,6 +127,10 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
                         .await?;
+                    let task_count = get_task_count();
+                    client
+                        .set_stat(format!("{server_name}.task_count"), task_count as _)
+                        .await?;
                     client
                         .set_stat(
                             format!("{server_name}.schedlag"),
@@ -160,6 +168,8 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 };
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
+                } else {
+                    kick_watchdog();
                 }
                 smol::Timer::after(Duration::from_millis(2000)).await;
             }

@@ -39,6 +39,7 @@ pub async fn bridge_to_leaf_route(
                     },
                     cookie,
                 };
+
                 let cookie = format!("exit-cookie-{}", rand::random::<u128>());
                 let control_client = BridgeControlClient(DialerTransport(dialer));
 
@@ -58,31 +59,37 @@ pub async fn bridge_to_leaf_route(
                     lower: RouteDescriptor::Tcp(sosistab_addr).into(),
                 };
 
-                let plain_addr = control_client
-                    .tcp_forward(
-                        exit_b2e,
-                        B2eMetadata {
-                            protocol: ObfsProtocol::None,
-                            expiry: SystemTime::now() + Duration::from_secs(86400),
-                        },
-                    )
-                    .timeout(Duration::from_secs(1))
-                    .await
-                    .context("timeout")??;
-                let plain_route = RouteDescriptor::Delay {
-                    milliseconds: 500,
-                    lower: RouteDescriptor::Tcp(plain_addr).into(),
+                let final_route = if bridge.pool.contains("ovh") {
+                    let plain_addr = control_client
+                        .tcp_forward(
+                            exit_b2e,
+                            B2eMetadata {
+                                protocol: ObfsProtocol::None,
+                                expiry: SystemTime::now() + Duration::from_secs(86400),
+                            },
+                        )
+                        .timeout(Duration::from_secs(1))
+                        .await
+                        .context("timeout")??;
+                    let plain_route = RouteDescriptor::Delay {
+                        milliseconds: 0,
+                        lower: RouteDescriptor::Tcp(plain_addr).into(),
+                    };
+                    RouteDescriptor::Delay {
+                        milliseconds: 500,
+                        lower: RouteDescriptor::Race(vec![plain_route, sosis_route]).into(),
+                    }
+                } else {
+                    sosis_route
                 };
-
-                let both_route = RouteDescriptor::Race(vec![plain_route, sosis_route]);
 
                 anyhow::Ok(if delay_ms > 0 {
                     RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: both_route.into(),
+                        lower: final_route.into(),
                     }
                 } else {
-                    both_route
+                    final_route
                 })
             }
             .map_err(Arc::new),

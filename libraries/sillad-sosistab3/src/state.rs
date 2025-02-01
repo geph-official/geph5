@@ -3,6 +3,7 @@ use std::io::Write;
 use arrayref::array_ref;
 use blake3::derive_key;
 use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, Key, KeyInit};
+use rand::Rng;
 use smallvec::{SmallVec, ToSmallVec};
 
 use crate::ObfsParams;
@@ -65,7 +66,30 @@ impl State {
 
     /// Encrypts a hunk of data.
     pub fn encrypt(&mut self, bts: &[u8], output: &mut Vec<u8>) {
-        let mut length = (bts.len() as i32).to_le_bytes();
+        let orig_len = self.encrypt_inner(bts, output, false);
+        let overhead = orig_len - bts.len();
+        if self.obfs_params.obfs_lengths {
+            // only add padding if the length is shorter than 2000 bytes
+            if orig_len < 2000 {
+                let desired_len =
+                    (orig_len + overhead).next_power_of_two() + rand::thread_rng().gen_range(0..10);
+                let padding_inner_len = desired_len - orig_len - overhead;
+                let lala = [0u8; 2000];
+                let padding_len = self.encrypt_inner(&lala[..padding_inner_len], output, true);
+                assert_eq!(orig_len + padding_len, desired_len)
+            }
+        }
+    }
+
+    fn encrypt_inner(&mut self, bts: &[u8], output: &mut Vec<u8>, is_padding: bool) -> usize {
+        let mut tally = 0;
+
+        let length = if is_padding {
+            -(bts.len() as i32)
+        } else {
+            bts.len() as i32
+        };
+        let mut length = length.to_le_bytes();
 
         // Pad the nonce to 96 bits (12 bytes)
         let nonce = self.send_nonce();
@@ -77,6 +101,7 @@ impl State {
             .expect("encryption failure!");
 
         // Append the encrypted length and its tag to the output
+        tally += length.len() + tag_length.len();
         output.extend_from_slice(&length);
         output.extend_from_slice(tag_length.as_slice());
 
@@ -98,8 +123,10 @@ impl State {
         );
 
         // Append the encrypted body and its tag to the output
+        tally += self.send_buf.len() + tag_body.len();
         output.extend_from_slice(&self.send_buf);
         output.extend_from_slice(tag_body.as_slice());
+        tally
     }
 
     fn recv_nonce(&self, offset: u64) -> [u8; 12] {
@@ -195,13 +222,27 @@ mod tests {
         let secret = EphemeralSecret::random_from_rng(OsRng);
         let shared_secret = x25519_dalek::PublicKey::from(&secret).as_bytes().to_vec();
 
-        let mut state = State::new(&shared_secret, false, ObfsParams::default());
+        let mut state = State::new(
+            &shared_secret,
+            false,
+            ObfsParams {
+                obfs_lengths: true,
+                obfs_timing: true,
+            },
+        );
 
         let data = b"Hello, world!";
         let mut encrypted_data = vec![];
         state.encrypt(data, &mut encrypted_data);
 
-        let mut state = State::new(&shared_secret, true, ObfsParams::default());
+        let mut state = State::new(
+            &shared_secret,
+            true,
+            ObfsParams {
+                obfs_lengths: true,
+                obfs_timing: true,
+            },
+        );
         let mut decrypted_data = vec![];
         state.decrypt(&encrypted_data, &mut decrypted_data).unwrap();
 

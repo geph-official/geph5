@@ -15,6 +15,7 @@ license = "ISC"
 
 [profile.release]
 panic = "abort"
+debug = 1
 
 [profile.dev]
 panic = "abort"
