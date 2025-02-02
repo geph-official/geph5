@@ -189,21 +189,26 @@ jobs:
     if: github.ref == 'refs/heads/master'
     needs: [build, build-bridge-exit]
     runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        include:
-          - dir: gnu
-          - dir: musl
-          - dir: musl-arm64
-          - dir: macos
-          # - dir: windows
-          # - dir: windows-gui
+    # strategy:
+    #   matrix:
+    #     include:
+    #       - dir: gnu
+    #       - dir: musl
+    #       - dir: musl-arm64
+    #       - dir: macos
+    #       # - dir: windows
+    #       # - dir: windows-gui
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Move some stuff
+        run: |
+          mv artifacts/musl-latest-bridge/* artifacts/musl-latest/
+          rm artifacts/musl-latest-bridge
 
       - name: Install rclone
         run: |
@@ -225,4 +230,4 @@ jobs:
 
       - name: Upload to Cloudflare R2
         run: |
-          rclone copy ./artifacts/${{ matrix.dir }}-latest r2:geph5/${{ matrix.dir }}-latest
+          rclone copy ./artifacts/ r2:geph5/
