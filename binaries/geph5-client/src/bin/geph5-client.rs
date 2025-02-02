@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
         )
         .with(
             EnvFilter::builder()
-                .with_default_directive("geph5_client=debug,sillad_conntest".parse()?)
+                .with_default_directive("geph5_client=debug".parse()?)
                 .from_env_lossy(),
         )
         .init();
