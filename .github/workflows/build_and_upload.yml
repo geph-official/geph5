@@ -208,7 +208,7 @@ jobs:
       - name: Move some stuff
         run: |
           mv artifacts/musl-latest-bridge/* artifacts/musl-latest/
-          unlink artifacts/musl-latest-bridge
+          rmdir artifacts/musl-latest-bridge
 
       - name: Install rclone
         run: |
