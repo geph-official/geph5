@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_io::Timer;
 use async_task::Task;
@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures_lite::FutureExt as _;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use rand::{Rng, RngCore};
-use sillad::{dialer::Dialer, listener::Listener};
+use sillad::{dialer::Dialer, listener::Listener, Pipe};
 
 /// Wraps an underlying dialer with a connection quality test.
 pub struct ConnTestDialer<D: Dialer> {
@@ -20,7 +20,8 @@ impl<D: Dialer> Dialer for ConnTestDialer<D> {
 
     async fn dial(&self) -> std::io::Result<Self::P> {
         let mut pipe = self.inner.dial().await?;
-        for _ in 0..self.ping_count {
+        for index in 0..self.ping_count {
+            let start = Instant::now();
             // Pick a random payload size (nonzero)
             let size = rand::rng().random_range(1..50000u16);
             // Tell the server the payload size.
@@ -32,6 +33,14 @@ impl<D: Dialer> Dialer for ConnTestDialer<D> {
             // Read back the echoed payload.
             let mut echo = vec![0u8; size as usize];
             pipe.read_exact(&mut echo).await?;
+            let remote_addr = pipe.remote_addr();
+            tracing::debug!(
+                elapsed = debug(start.elapsed()),
+                total_count = self.ping_count,
+                index,
+                remote_addr = debug(remote_addr),
+                "ping completed"
+            );
             if buf != echo {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,

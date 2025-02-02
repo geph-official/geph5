@@ -19,6 +19,17 @@ pub async fn bridge_to_leaf_route(
     delay_ms: u32,
     exit_b2e: SocketAddr,
 ) -> anyhow::Result<RouteDescriptor> {
+    let test = bridge_to_leaf_route_inner(bridge.clone(), delay_ms, exit_b2e, true).await?;
+    let no_test = bridge_to_leaf_route_inner(bridge, delay_ms, exit_b2e, true).await?;
+    Ok(RouteDescriptor::Fallback(vec![test, no_test]))
+}
+
+async fn bridge_to_leaf_route_inner(
+    bridge: BridgeDescriptor,
+    delay_ms: u32,
+    exit_b2e: SocketAddr,
+    conn_test: bool,
+) -> anyhow::Result<RouteDescriptor> {
     static CACHE: Lazy<
         Cache<(SocketAddr, SocketAddr), Result<RouteDescriptor, Arc<anyhow::Error>>>,
     > = Lazy::new(|| {
@@ -28,6 +39,14 @@ pub async fn bridge_to_leaf_route(
     });
 
     let cookie = Cookie::new(&bridge.control_cookie);
+
+    let wrap = |s: ObfsProtocol| {
+        if conn_test {
+            ObfsProtocol::ConnTest(s.into())
+        } else {
+            s
+        }
+    };
 
     CACHE
         .get_with(
@@ -47,7 +66,7 @@ pub async fn bridge_to_leaf_route(
                     .tcp_forward(
                         exit_b2e,
                         B2eMetadata {
-                            protocol: ObfsProtocol::Sosistab3(cookie.clone()),
+                            protocol: wrap(ObfsProtocol::Sosistab3(cookie.clone())),
                             expiry: SystemTime::now() + Duration::from_secs(86400),
                         },
                     )
@@ -64,7 +83,7 @@ pub async fn bridge_to_leaf_route(
                         .tcp_forward(
                             exit_b2e,
                             B2eMetadata {
-                                protocol: ObfsProtocol::None,
+                                protocol: wrap(ObfsProtocol::None),
                                 expiry: SystemTime::now() + Duration::from_secs(86400),
                             },
                         )
@@ -91,15 +110,6 @@ pub async fn bridge_to_leaf_route(
                 } else {
                     final_route
                 };
-
-                // add a conn test
-                let final_route = RouteDescriptor::Fallback(vec![
-                    RouteDescriptor::ConnTest {
-                        ping_count: 3,
-                        lower: final_route.clone().into(),
-                    },
-                    final_route,
-                ]);
 
                 anyhow::Ok(final_route)
             }

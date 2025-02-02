@@ -3094,6 +3094,7 @@ dependencies = [
  "smolscale",
  "sqlx",
  "stdcode",
+ "tap",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -6589,6 +6590,7 @@ dependencies = [
  "sillad",
  "smolscale",
  "tachyonix",
+ "tracing",
 ]
 
 [[package]]
