@@ -83,14 +83,25 @@ pub async fn bridge_to_leaf_route(
                     sosis_route
                 };
 
-                anyhow::Ok(if delay_ms > 0 {
+                let final_route = if delay_ms > 0 {
                     RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: final_route.into(),
                     }
                 } else {
                     final_route
-                })
+                };
+
+                // add a conn test
+                let final_route = RouteDescriptor::Fallback(vec![
+                    RouteDescriptor::ConnTest {
+                        ping_count: 3,
+                        lower: final_route.clone().into(),
+                    },
+                    final_route,
+                ]);
+
+                anyhow::Ok(final_route)
             }
             .map_err(Arc::new),
         )
