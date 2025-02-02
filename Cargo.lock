@@ -3103,7 +3103,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3342,7 +3342,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "anyhow",
  "async-task",
@@ -6579,7 +6579,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-conntest"
-version = "0.2.29"
+version = "0.2.30"
 dependencies = [
  "async-io 2.4.0",
  "async-task",
