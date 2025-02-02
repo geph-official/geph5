@@ -32,7 +32,7 @@ async fn bridge_to_leaf_route_inner(
     conn_test: bool,
 ) -> anyhow::Result<RouteDescriptor> {
     static CACHE: Lazy<
-        Cache<(SocketAddr, SocketAddr), Result<RouteDescriptor, Arc<anyhow::Error>>>,
+        Cache<(SocketAddr, SocketAddr, bool), Result<RouteDescriptor, Arc<anyhow::Error>>>,
     > = Lazy::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(60))
@@ -51,7 +51,7 @@ async fn bridge_to_leaf_route_inner(
 
     CACHE
         .get_with(
-            (bridge.control_listen, exit_b2e),
+            (bridge.control_listen, exit_b2e, conn_test),
             async {
                 let dialer = SosistabDialer {
                     inner: TcpDialer {
