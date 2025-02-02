@@ -57,7 +57,7 @@ impl<D: Dialer> Dialer for ConnTestDialer<D> {
 /// Wraps an underlying listener with a connection quality test.
 pub struct ConnTestListener<L: Listener> {
     recv_conn: tachyonix::Receiver<L::P>,
-    _task: Task<std::io::Result<()>>,
+    _task: Task<()>,
 }
 
 impl<L: Listener> ConnTestListener<L> {
@@ -71,8 +71,8 @@ impl<L: Listener> ConnTestListener<L> {
                 let mut conn = match listener.accept().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to accept connection: {:?}", e);
-                        continue;
+                        tracing::warn!("Failed to accept connection: {:?}", e);
+                        return;
                     }
                 };
                 let send_conn = send_conn.clone();
@@ -102,9 +102,6 @@ impl<L: Listener> ConnTestListener<L> {
                 })
                 .detach();
             }
-            // This point is never reached.
-            #[allow(unreachable_code)]
-            Ok(())
         });
         Self {
             recv_conn,
