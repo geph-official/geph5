@@ -112,6 +112,15 @@ async fn bridge_to_leaf_route_inner(
                     final_route
                 };
 
+                let final_route = if conn_test {
+                    RouteDescriptor::ConnTest {
+                        ping_count: 3,
+                        lower: final_route.into(),
+                    }
+                } else {
+                    final_route
+                };
+
                 anyhow::Ok(final_route)
             }
             .map_err(Arc::new),
