@@ -192,8 +192,8 @@ pub async fn get_dialer(
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
     tracing::debug!(
-        bridge_routes = debug(&bridge_routes),
-        "bridge routes obtained too"
+        "bridge routes obtained: {}",
+        serde_yaml::to_string(&bridge_routes)?
     );
 
     let bridge_dialer = route_to_dialer(&bridge_routes);
