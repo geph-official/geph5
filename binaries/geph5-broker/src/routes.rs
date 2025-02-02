@@ -19,9 +19,10 @@ pub async fn bridge_to_leaf_route(
     delay_ms: u32,
     exit_b2e: SocketAddr,
 ) -> anyhow::Result<RouteDescriptor> {
-    let test = bridge_to_leaf_route_inner(bridge.clone(), delay_ms, exit_b2e, true).await?;
+    // let test = bridge_to_leaf_route_inner(bridge.clone(), delay_ms, exit_b2e, true).await?;
     let no_test = bridge_to_leaf_route_inner(bridge, delay_ms, exit_b2e, true).await?;
-    Ok(RouteDescriptor::Fallback(vec![no_test]))
+    // Ok(RouteDescriptor::Fallback(vec![no_test]))
+    Ok(no_test)
 }
 
 async fn bridge_to_leaf_route_inner(
