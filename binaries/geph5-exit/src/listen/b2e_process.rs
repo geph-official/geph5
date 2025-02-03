@@ -8,7 +8,7 @@ use sillad_conntest::ConnTestListener;
 use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use tachyonix::Receiver;
 
-use super::handle_client;
+use super::{handle_client, tls::dummy_tls_config};
 
 pub async fn b2e_process(
     b2e_metadata: B2eMetadata,
@@ -30,6 +30,10 @@ fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListe
             ConnTestListener::new(inner).dynamic()
         }
         ObfsProtocol::None => bottom.dynamic(),
+        ObfsProtocol::PlainTls(obfs_protocol) => {
+            let inner = create_listener(*obfs_protocol, bottom);
+            sillad_native_tls::TlsListener::new(inner, dummy_tls_config()).dynamic()
+        }
     }
 }
 

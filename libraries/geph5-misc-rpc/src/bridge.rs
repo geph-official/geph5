@@ -17,6 +17,7 @@ pub enum ObfsProtocol {
     Sosistab3(String),
     None,
     ConnTest(Box<Self>),
+    PlainTls(Box<Self>),
 }
 
 /// The RPC protocol that bridges expose, called by the broker.

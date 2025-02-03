@@ -6,6 +6,7 @@ use std::{
 use anyctx::AnyCtx;
 use anyhow::Context;
 
+use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
 use futures_util::TryFutureExt as _;
 use geph5_broker_protocol::{
@@ -342,5 +343,19 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
         }
 
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
+        RouteDescriptor::PlainTls { sni_domain, lower } => {
+            let lower = route_to_dialer(lower);
+            sillad_native_tls::TlsDialer::new(
+                lower,
+                TlsConnector::new()
+                    .use_sni(sni_domain.is_some())
+                    .danger_accept_invalid_certs(true)
+                    .danger_accept_invalid_hostnames(true)
+                    .min_protocol_version(None)
+                    .max_protocol_version(None),
+                sni_domain.clone().unwrap_or_default(),
+            )
+            .dynamic()
+        }
     }
 }

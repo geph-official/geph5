@@ -19,6 +19,7 @@ use tachyonix::Sender;
 
 use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
+mod tls;
 
 use crate::{
     asn::ip_to_asn_country,
