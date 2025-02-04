@@ -41,20 +41,9 @@ async fn bridge_to_leaf_route_inner(
 
     let cookie = Cookie::new(&bridge.control_cookie);
 
-    let wrap_protocol = |s: ObfsProtocol| {
+    let wrap = |s: ObfsProtocol| {
         if conn_test {
             ObfsProtocol::ConnTest(s.into())
-        } else {
-            s
-        }
-    };
-
-    let wrap_descriptor = |s: RouteDescriptor| {
-        if conn_test {
-            RouteDescriptor::ConnTest {
-                ping_count: 2,
-                lower: s.into(),
-            }
         } else {
             s
         }
@@ -78,32 +67,38 @@ async fn bridge_to_leaf_route_inner(
                     .tcp_forward(
                         exit_b2e,
                         B2eMetadata {
-                            protocol: wrap_protocol(ObfsProtocol::Sosistab3Direct(cookie.clone())),
+                            protocol: wrap(ObfsProtocol::Sosistab3(cookie.clone())),
                             expiry: SystemTime::now() + Duration::from_secs(86400),
                         },
                     )
                     .timeout(Duration::from_secs(1))
                     .await
                     .context("timeout")??;
-                let sosis_route = wrap_descriptor(RouteDescriptor::Sosistab3 {
+                let sosis_route = RouteDescriptor::Sosistab3 {
                     cookie,
                     lower: RouteDescriptor::Tcp(sosistab_addr).into(),
-                });
+                };
 
                 let final_route = if bridge.pool.contains("ovh") {
                     let plain_addr = control_client
                         .tcp_forward(
                             exit_b2e,
                             B2eMetadata {
-                                protocol: wrap_protocol(ObfsProtocol::None),
+                                protocol: wrap(ObfsProtocol::None),
                                 expiry: SystemTime::now() + Duration::from_secs(86400),
                             },
                         )
                         .timeout(Duration::from_secs(1))
                         .await
                         .context("timeout")??;
-                    let plain_route = wrap_descriptor(RouteDescriptor::Tcp(plain_addr));
-                    RouteDescriptor::Race(vec![plain_route, sosis_route])
+                    let plain_route = RouteDescriptor::Delay {
+                        milliseconds: 0,
+                        lower: RouteDescriptor::Tcp(plain_addr).into(),
+                    };
+                    RouteDescriptor::Delay {
+                        milliseconds: 500,
+                        lower: RouteDescriptor::Race(vec![plain_route, sosis_route]).into(),
+                    }
                 } else {
                     sosis_route
                 };
@@ -111,6 +106,15 @@ async fn bridge_to_leaf_route_inner(
                 let final_route = if delay_ms > 0 {
                     RouteDescriptor::Delay {
                         milliseconds: delay_ms,
+                        lower: final_route.into(),
+                    }
+                } else {
+                    final_route
+                };
+
+                let final_route = if conn_test {
+                    RouteDescriptor::ConnTest {
+                        ping_count: 3,
                         lower: final_route.into(),
                     }
                 } else {
