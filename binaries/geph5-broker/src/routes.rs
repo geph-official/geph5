@@ -78,7 +78,7 @@ async fn bridge_to_leaf_route_inner(
                     .tcp_forward(
                         exit_b2e,
                         B2eMetadata {
-                            protocol: wrap_protocol(ObfsProtocol::Sosistab3Direct(cookie.clone())),
+                            protocol: wrap_protocol(ObfsProtocol::Sosistab3(cookie.clone())),
                             expiry: SystemTime::now() + Duration::from_secs(86400),
                         },
                     )
