@@ -38,24 +38,24 @@ pub async fn bridge_to_leaf_route(
                     ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3(gencookie()).into()),
                 )
                 .await?;
-                let obfs_tls = bridge_to_leaf_route_inner(
-                    bridge.clone(),
-                    exit_b2e,
-                    ObfsProtocol::ConnTest(
-                        ObfsProtocol::Sosistab3New(
-                            gencookie(),
-                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-                        )
-                        .into(),
-                    ),
-                )
-                .await?;
+                // let obfs_tls = bridge_to_leaf_route_inner(
+                //     bridge.clone(),
+                //     exit_b2e,
+                //     ObfsProtocol::ConnTest(
+                //         ObfsProtocol::Sosistab3New(
+                //             gencookie(),
+                //             ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                //         )
+                //         .into(),
+                //     ),
+                // )
+                // .await?;
                 let new_route = RouteDescriptor::Race(vec![
                     only_obfs,
-                    RouteDescriptor::Delay {
-                        milliseconds: 500,
-                        lower: obfs_tls.into(),
-                    },
+                    // RouteDescriptor::Delay {
+                    //     milliseconds: 500,
+                    //     lower: obfs_tls.into(),
+                    // },
                 ]);
 
                 let legacy_route =
