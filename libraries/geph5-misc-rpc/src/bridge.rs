@@ -14,10 +14,11 @@ pub struct B2eMetadata {
 /// Initialization information for an obfuscation session.
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ObfsProtocol {
-    Sosistab3(String),
+    Sosistab3Direct(String),
     None,
     ConnTest(Box<Self>),
     PlainTls(Box<Self>),
+    Sosistab3(String, Box<Self>),
 }
 
 /// The RPC protocol that bridges expose, called by the broker.

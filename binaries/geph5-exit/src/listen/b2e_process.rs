@@ -22,7 +22,7 @@ pub async fn b2e_process(
 
 fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListener {
     match protocol {
-        ObfsProtocol::Sosistab3(cookie) => {
+        ObfsProtocol::Sosistab3Direct(cookie) => {
             SosistabListener::new(bottom, Cookie::new(&cookie)).dynamic()
         }
         ObfsProtocol::ConnTest(obfs_protocol) => {
@@ -33,6 +33,10 @@ fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListe
         ObfsProtocol::PlainTls(obfs_protocol) => {
             let inner = create_listener(*obfs_protocol, bottom);
             sillad_native_tls::TlsListener::new(inner, dummy_tls_config()).dynamic()
+        }
+        ObfsProtocol::Sosistab3(cookie, obfs_protocol) => {
+            let inner = create_listener(*obfs_protocol, bottom);
+            SosistabListener::new(inner, Cookie::new(&cookie)).dynamic()
         }
     }
 }
