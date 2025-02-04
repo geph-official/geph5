@@ -11,3 +11,4 @@ async-trait = "0.1.84"
 futures-lite = "2.5.0"
 sillad = { version = "0.2", path = "../sillad" }
 native-tls={version="0.2", features=["vendored"]}
+tracing = "0.1.41"

@@ -6622,6 +6622,7 @@ dependencies = [
  "futures-lite 2.6.0",
  "native-tls",
  "sillad",
+ "tracing",
 ]
 
 [[package]]

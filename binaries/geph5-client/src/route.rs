@@ -353,7 +353,9 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
                     .danger_accept_invalid_hostnames(true)
                     .min_protocol_version(None)
                     .max_protocol_version(None),
-                sni_domain.clone().unwrap_or_default(),
+                sni_domain
+                    .clone()
+                    .unwrap_or_else(|| "example.com".to_string()),
             )
             .dynamic()
         }

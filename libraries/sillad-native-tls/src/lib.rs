@@ -87,6 +87,7 @@ where
             .connector
             .connect(&self.domain, stream)
             .await
+            .inspect_err(|e| tracing::warn!(err = display(e), "TLS connection failed"))
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
         Ok(TlsPipe {
             inner: tls_stream,
