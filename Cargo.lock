@@ -6618,10 +6618,13 @@ name = "sillad-native-tls"
 version = "0.2.11"
 dependencies = [
  "async-native-tls",
+ "async-task",
  "async-trait",
  "futures-lite 2.6.0",
  "native-tls",
  "sillad",
+ "smolscale",
+ "tachyonix",
  "tracing",
 ]
 

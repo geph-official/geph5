@@ -32,12 +32,12 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit_b2e),
             async {
-                // let only_obfs = bridge_to_leaf_route_inner(
-                //     bridge.clone(),
-                //     exit_b2e,
-                //     ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3(gencookie()).into()),
-                // )
-                // .await?;
+                let only_obfs = bridge_to_leaf_route_inner(
+                    bridge.clone(),
+                    exit_b2e,
+                    ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3(gencookie()).into()),
+                )
+                .await?;
                 let obfs_tls = bridge_to_leaf_route_inner(
                     bridge.clone(),
                     exit_b2e,
@@ -50,20 +50,20 @@ pub async fn bridge_to_leaf_route(
                     ),
                 )
                 .await?;
-                // let new_route = RouteDescriptor::Race(vec![
-                //     only_obfs,
-                //     RouteDescriptor::Delay {
-                //         milliseconds: 500,
-                //         lower: obfs_tls.into(),
-                //     },
-                // ]);
+                let new_route = RouteDescriptor::Race(vec![
+                    only_obfs,
+                    RouteDescriptor::Delay {
+                        milliseconds: 500,
+                        lower: obfs_tls.into(),
+                    },
+                ]);
 
                 let legacy_route =
                     bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
                         .await?;
                 anyhow::Ok(RouteDescriptor::Delay {
                     milliseconds: delay_ms,
-                    lower: RouteDescriptor::Fallback(vec![obfs_tls, legacy_route]).into(),
+                    lower: RouteDescriptor::Fallback(vec![new_route, legacy_route]).into(),
                 })
             }
             .map_err(Arc::new),

@@ -12,3 +12,6 @@ futures-lite = "2.5.0"
 sillad = { version = "0.2", path = "../sillad" }
 native-tls={version="0.2", features=["vendored"]}
 tracing = "0.1.41"
+tachyonix = "0.3.1"
+smolscale = "0.4.11"
+async-task = "4.7.1"

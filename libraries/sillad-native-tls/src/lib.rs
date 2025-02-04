@@ -87,8 +87,15 @@ where
             .connector
             .connect(&self.domain, stream)
             .await
-            .inspect_err(|e| tracing::warn!(err = display(e), "TLS connection failed"))
+            .inspect_err(|e| {
+                tracing::warn!(
+                    err = display(e),
+                    addr = debug(&remote_addr),
+                    "TLS connection failed"
+                )
+            })
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+        tracing::warn!(addr = debug(&remote_addr), "TLS connection SUCCESS");
         Ok(TlsPipe {
             inner: tls_stream,
             remote_addr,
@@ -96,36 +103,81 @@ where
     }
 }
 
-/// TlsListener wraps a Listener to accept TLS connections.
+/// TlsListener wraps a Listener to accept TLS connections concurrently.
 pub struct TlsListener<L: Listener> {
-    inner: L,
-    acceptor: TlsAcceptor,
+    // Channel that will yield successful TLS connections.
+    incoming: tachyonix::Receiver<TlsPipe<L::P>>,
+    // Keep the background task alive (cancels on drop).
+    _accept_task: async_task::Task<()>,
 }
 
-impl<L: Listener> TlsListener<L> {
-    pub fn new(inner: L, acceptor: TlsAcceptor) -> Self {
-        Self { inner, acceptor }
+impl<L: Listener> TlsListener<L>
+where
+    L::P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    pub fn new(mut inner: L, acceptor: TlsAcceptor) -> Self {
+        // Create a channel to send successfully negotiated TLS connections.
+        let (tx, rx) = tachyonix::channel(1);
+
+        let acceptor_clone = acceptor.clone();
+        let accept_task = smolscale::spawn(async move {
+            loop {
+                // Pull the next raw connection from the underlying listener.
+                let raw_conn = match inner.accept().await {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        // Underlying listener failure: log and break out of the loop.
+                        eprintln!("Underlying listener error: {:?}", err);
+                        break;
+                    }
+                };
+
+                // For each raw connection, spawn a task to perform the TLS handshake.
+                let tx2 = tx.clone();
+                let acceptor2 = acceptor_clone.clone();
+                let remote_addr = raw_conn.remote_addr().map(|s| s.to_string());
+                smolscale::spawn(async move {
+                    match acceptor2.accept(raw_conn).await {
+                        Ok(tls_stream) => {
+                            let pipe = TlsPipe {
+                                inner: tls_stream,
+                                remote_addr,
+                            };
+                            let _ = tx2.send(pipe).await;
+                        }
+                        Err(e) => {
+                            // Handshake failure: log but do not send an error.
+                            eprintln!("TLS handshake error (ignored): {:?}", e);
+                        }
+                    }
+                })
+                .detach();
+            }
+        });
+
+        TlsListener {
+            incoming: rx,
+            _accept_task: accept_task,
+        }
     }
 }
 
 #[async_trait]
 impl<L: Listener> Listener for TlsListener<L>
 where
-    L::P: AsyncRead + AsyncWrite + Unpin + Send,
+    L::P: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     type P = TlsPipe<L::P>;
 
     async fn accept(&mut self) -> std::io::Result<Self::P> {
-        let stream = self.inner.accept().await?;
-        let remote_addr = stream.remote_addr().map(|s| s.to_string());
-        let tls_stream = self
-            .acceptor
-            .accept(stream)
-            .await
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
-        Ok(TlsPipe {
-            inner: tls_stream,
-            remote_addr,
-        })
+        // If a TLS connection is available, return it.
+        // If the channel is closed (due to an underlying listener failure), return an error.
+        match self.incoming.recv().await {
+            Ok(pipe) => Ok(pipe),
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Underlying listener failure",
+            )),
+        }
     }
 }
