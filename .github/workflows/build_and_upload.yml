@@ -230,4 +230,4 @@ jobs:
 
       - name: Upload to Cloudflare R2
         run: |
-          rclone copy ./artifacts/ r2:geph5/
+          rclone copy -P ./artifacts/ r2:geph5/
