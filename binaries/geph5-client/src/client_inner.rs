@@ -19,17 +19,14 @@ use std::{
     convert::Infallible,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::{deprioritize_route, get_dialer}, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::vpn_whitelist, ConnInfo
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::vpn_whitelist, ConnInfo
 };
 
 use super::Config;
@@ -172,21 +169,11 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                             protocol = raw_pipe.protocol(),
                             "dial completed"
                         );
-                        let died = AtomicBool::new(true);
-                        let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
-                        scopeguard::defer!({
-                            if died.load(Ordering::SeqCst) {
-                                tracing::debug!(
-                                    addr = display(addr),
-                                    "deprioritizing route due to failed auth"
-                                );
-                                deprioritize_route(addr);
-                            }
-                        });
+
                         let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
                             .await
                             .context("could not client auth")?;
-                        died.store(false, Ordering::SeqCst);
+
                         tracing::debug!(
                             elapsed = debug(start.elapsed()),
                             "authentication done, starting mux system"
@@ -209,13 +196,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                     proxy_loop(ctx.clone(), authed_pipe, instance)
                         .await
                         .context(format!("inner connection to {addr} failed"))
-                        .inspect_err(|_| {
-                            tracing::debug!(
-                                addr = display(addr),
-                                "deprioritizing route due to failed dial"
-                            );
-                            deprioritize_route(addr);
-                        })
+
                 };
                 if let Err(err) = once.await {
                     let wait_time = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0..10.0));

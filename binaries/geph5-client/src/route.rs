@@ -1,7 +1,4 @@
-use std::{
-    net::SocketAddr,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -13,8 +10,6 @@ use geph5_broker_protocol::{
     AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
-use moka::sync::Cache;
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -29,25 +24,8 @@ use crate::{
     auth::get_connect_token,
     broker::broker_client,
     client::{Config, CtxField},
-    client_inner::CONCURRENCY,
     vpn::vpn_whitelist,
 };
-
-static ROUTE_SHITLIST: Lazy<Cache<SocketAddr, usize>> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_live(Duration::from_secs(60))
-        .build()
-});
-
-fn shitlist_delay(addr: SocketAddr) -> Duration {
-    let recent_deaths = ROUTE_SHITLIST.get(&addr).unwrap_or_default() as f64 / CONCURRENCY as f64;
-    Duration::from_secs_f64((recent_deaths - 1.0).max(0.0).powi(2) / 10.0)
-}
-
-/// Deprioritizes routes with this address.
-pub fn deprioritize_route(addr: SocketAddr) {
-    ROUTE_SHITLIST.insert(addr, ROUTE_SHITLIST.get_with(addr, || 1) + 1)
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -182,8 +160,7 @@ pub async fn get_dialer(
     let exit_c2e = exit.c2e_listen;
     let direct_dialer = TcpDialer {
         dest_addr: exit_c2e,
-    }
-    .dyn_delay(move || shitlist_delay(exit_c2e));
+    };
 
     tracing::debug!(token = debug(&conn_token), sig = debug(&sig), "CONN TOKEN");
 
@@ -299,9 +276,7 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Tcp(addr) => {
             vpn_whitelist(addr.ip());
             let addr = *addr;
-            TcpDialer { dest_addr: addr }
-                .dyn_delay(move || shitlist_delay(addr))
-                .dynamic()
+            TcpDialer { dest_addr: addr }.dynamic()
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
             let inner = route_to_dialer(lower);
