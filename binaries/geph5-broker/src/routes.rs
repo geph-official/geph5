@@ -2,15 +2,17 @@ use anyhow::Context;
 use futures_util::TryFutureExt;
 use geph5_broker_protocol::{BridgeDescriptor, RouteDescriptor};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
+
 use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
-use once_cell::sync::Lazy;
+
+use rand::RngCore;
 use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 use smol_timeout2::TimeoutExt;
 use std::{
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Duration, SystemTime},
 };
 
@@ -19,108 +21,113 @@ pub async fn bridge_to_leaf_route(
     delay_ms: u32,
     exit_b2e: SocketAddr,
 ) -> anyhow::Result<RouteDescriptor> {
-    let test = bridge_to_leaf_route_inner(bridge.clone(), delay_ms, exit_b2e, true).await?;
-    let no_test = bridge_to_leaf_route_inner(bridge, delay_ms, exit_b2e, false).await?;
-    Ok(RouteDescriptor::Fallback(vec![test, no_test]))
-    // Ok(no_test)
-}
-
-async fn bridge_to_leaf_route_inner(
-    bridge: BridgeDescriptor,
-    delay_ms: u32,
-    exit_b2e: SocketAddr,
-    conn_test: bool,
-) -> anyhow::Result<RouteDescriptor> {
-    static CACHE: Lazy<
-        Cache<(SocketAddr, SocketAddr, bool), Result<RouteDescriptor, Arc<anyhow::Error>>>,
-    > = Lazy::new(|| {
+    static CACHE: LazyLock<
+        Cache<(BridgeDescriptor, SocketAddr), Result<RouteDescriptor, Arc<anyhow::Error>>>,
+    > = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(60))
             .build()
     });
-
-    let cookie = Cookie::new(&bridge.control_cookie);
-
-    let wrap_protocol = |s: ObfsProtocol| {
-        if conn_test {
-            ObfsProtocol::ConnTest(s.into())
-        } else {
-            s
-        }
-    };
-
-    let wrap_descriptor = |s: RouteDescriptor| {
-        if conn_test {
-            RouteDescriptor::ConnTest {
-                ping_count: 2,
-                lower: s.into(),
-            }
-        } else {
-            s
-        }
-    };
-
     CACHE
         .get_with(
-            (bridge.control_listen, exit_b2e, conn_test),
+            (bridge.clone(), exit_b2e),
             async {
-                let dialer = SosistabDialer {
-                    inner: TcpDialer {
-                        dest_addr: bridge.control_listen,
-                    },
-                    cookie,
-                };
-
-                let cookie = format!("exit-cookie-{}", rand::random::<u128>());
-                let control_client = BridgeControlClient(DialerTransport(dialer));
-
-                let sosistab_addr = control_client
-                    .tcp_forward(
-                        exit_b2e,
-                        B2eMetadata {
-                            protocol: wrap_protocol(ObfsProtocol::Sosistab3(cookie.clone())),
-                            expiry: SystemTime::now() + Duration::from_secs(86400),
-                        },
-                    )
-                    .timeout(Duration::from_secs(1))
-                    .await
-                    .context("timeout")??;
-                let sosis_route = wrap_descriptor(RouteDescriptor::Sosistab3 {
-                    cookie,
-                    lower: RouteDescriptor::Tcp(sosistab_addr).into(),
-                });
-
-                let final_route = if bridge.pool.contains("ovh") {
-                    let plain_addr = control_client
-                        .tcp_forward(
-                            exit_b2e,
-                            B2eMetadata {
-                                protocol: wrap_protocol(ObfsProtocol::None),
-                                expiry: SystemTime::now() + Duration::from_secs(86400),
-                            },
+                let only_obfs = bridge_to_leaf_route_inner(
+                    bridge.clone(),
+                    exit_b2e,
+                    ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3(gencookie()).into()),
+                )
+                .await?;
+                let obfs_tls = bridge_to_leaf_route_inner(
+                    bridge.clone(),
+                    exit_b2e,
+                    ObfsProtocol::ConnTest(
+                        ObfsProtocol::Sosistab3New(
+                            gencookie(),
+                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
                         )
-                        .timeout(Duration::from_secs(1))
-                        .await
-                        .context("timeout")??;
-                    let plain_route = wrap_descriptor(RouteDescriptor::Tcp(plain_addr));
-                    RouteDescriptor::Race(vec![plain_route, sosis_route])
-                } else {
-                    sosis_route
-                };
-
-                let final_route = if delay_ms > 0 {
+                        .into(),
+                    ),
+                )
+                .await?;
+                let new_route = RouteDescriptor::Race(vec![
+                    only_obfs,
                     RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: final_route.into(),
-                    }
-                } else {
-                    final_route
-                };
+                        milliseconds: 500,
+                        lower: obfs_tls.into(),
+                    },
+                ]);
 
-                anyhow::Ok(final_route)
+                let legacy_route =
+                    bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
+                        .await?;
+                anyhow::Ok(RouteDescriptor::Delay {
+                    milliseconds: delay_ms,
+                    lower: RouteDescriptor::Fallback(vec![new_route, legacy_route]).into(),
+                })
             }
             .map_err(Arc::new),
         )
         .await
         .map_err(|e| anyhow::anyhow!(e))
+}
+
+fn gencookie() -> String {
+    let mut b = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut b);
+    hex::encode(b)
+}
+
+async fn bridge_to_leaf_route_inner(
+    bridge: BridgeDescriptor,
+    exit_b2e: SocketAddr,
+    protocol: ObfsProtocol,
+) -> anyhow::Result<RouteDescriptor> {
+    let cookie = Cookie::new(&bridge.control_cookie);
+
+    let control_dialer = SosistabDialer {
+        inner: TcpDialer {
+            dest_addr: bridge.control_listen,
+        },
+        cookie,
+    };
+
+    let control_client = BridgeControlClient(DialerTransport(control_dialer));
+
+    let sosistab_addr = control_client
+        .tcp_forward(
+            exit_b2e,
+            B2eMetadata {
+                protocol: protocol.clone(),
+                expiry: SystemTime::now() + Duration::from_secs(86400),
+            },
+        )
+        .timeout(Duration::from_secs(1))
+        .await
+        .context("timeout")??;
+    let final_route = protocol_to_descriptor(protocol, sosistab_addr);
+
+    anyhow::Ok(final_route)
+}
+
+fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDescriptor {
+    match protocol {
+        ObfsProtocol::Sosistab3(cookie) => RouteDescriptor::Sosistab3 {
+            cookie,
+            lower: RouteDescriptor::Tcp(addr).into(),
+        },
+        ObfsProtocol::None => RouteDescriptor::Tcp(addr),
+        ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
+            ping_count: 2,
+            lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
+        ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
+            sni_domain: None,
+            lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
+        ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
+            cookie,
+            lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
+    }
 }
