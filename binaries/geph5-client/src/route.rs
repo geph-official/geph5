@@ -24,7 +24,7 @@ use crate::{
     auth::get_connect_token,
     broker::broker_client,
     client::{Config, CtxField},
-    vpn::vpn_whitelist,
+    vpn::smart_vpn_whitelist,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -75,7 +75,7 @@ pub async fn get_dialer(
                 .await?
                 .choose(&mut rand::thread_rng())
                 .context("could not resolve destination for direct exit connection")?;
-            vpn_whitelist(dest_addr.ip());
+            smart_vpn_whitelist(ctx, dest_addr.ip());
             return Ok((
                 pubkey,
                 ExitDescriptor {
@@ -155,7 +155,7 @@ pub async fn get_dialer(
     };
 
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
-    vpn_whitelist(exit.c2e_listen.ip());
+    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
 
     let exit_c2e = exit.c2e_listen;
     let direct_dialer = TcpDialer {
@@ -171,10 +171,10 @@ pub async fn get_dialer(
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
     tracing::debug!(
         "bridge routes obtained: {}",
-        serde_yaml::to_string(&bridge_routes)?
+        serde_yaml::to_string(&serde_json::to_value(&bridge_routes)?)?
     );
 
-    let bridge_dialer = route_to_dialer(&bridge_routes);
+    let bridge_dialer = route_to_dialer(ctx, &bridge_routes);
 
     let final_dialer = match ctx.init().bridge_mode {
         crate::BridgeMode::Auto => direct_dialer
@@ -271,15 +271,15 @@ pub async fn get_dialer(
 //     }
 // }
 
-fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
+fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
     match route {
         RouteDescriptor::Tcp(addr) => {
-            vpn_whitelist(addr.ip());
+            smart_vpn_whitelist(ctx, addr.ip());
             let addr = *addr;
             TcpDialer { dest_addr: addr }.dynamic()
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
-            let inner = route_to_dialer(lower);
+            let inner = route_to_dialer(ctx, lower);
             SosistabDialer {
                 inner,
                 cookie: Cookie::new(cookie),
@@ -288,28 +288,28 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
         }
         RouteDescriptor::Race(inside) => inside
             .iter()
-            .map(route_to_dialer)
+            .map(|s| route_to_dialer(ctx, s))
             .reduce(|a, b| a.race(b).dynamic())
             .unwrap_or_else(|| FailingDialer.dynamic()),
         RouteDescriptor::Fallback(a) => a
             .iter()
-            .map(route_to_dialer)
+            .map(|s| route_to_dialer(ctx, s))
             .reduce(|a, b| a.fallback(b).dynamic())
             .unwrap_or_else(|| FailingDialer.dynamic()),
         RouteDescriptor::Timeout {
             milliseconds,
             lower,
-        } => route_to_dialer(lower)
+        } => route_to_dialer(ctx, lower)
             .timeout(Duration::from_millis(*milliseconds as _))
             .dynamic(),
         RouteDescriptor::Delay {
             milliseconds,
             lower,
-        } => route_to_dialer(lower)
+        } => route_to_dialer(ctx, lower)
             .delay(Duration::from_millis((*milliseconds).into()))
             .dynamic(),
         RouteDescriptor::ConnTest { ping_count, lower } => {
-            let lower = route_to_dialer(lower);
+            let lower = route_to_dialer(ctx, lower);
             ConnTestDialer {
                 inner: lower,
                 ping_count: *ping_count as _,
@@ -319,7 +319,7 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
 
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {
-            let lower = route_to_dialer(lower);
+            let lower = route_to_dialer(ctx, lower);
             sillad_native_tls::TlsDialer::new(
                 lower,
                 TlsConnector::new()

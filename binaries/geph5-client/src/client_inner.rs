@@ -26,7 +26,7 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::vpn_whitelist, ConnInfo
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::smart_vpn_whitelist, ConnInfo
 };
 
 use super::Config;
@@ -54,7 +54,7 @@ pub async fn open_conn(
         if whitelist_host(ctx, dest_host) {
             let addrs = smol::net::resolve(&dest_addr).await?;
             for addr in addrs.iter() {
-                vpn_whitelist(addr.ip());
+                smart_vpn_whitelist(ctx, addr.ip());
             }
             tracing::debug!(
                 dest_addr = debug(dest_addr),
@@ -113,7 +113,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 6;
+pub static CONCURRENCY: usize = 2;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
