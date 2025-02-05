@@ -103,7 +103,7 @@ where
     }
 }
 
-/// TlsListener wraps a Listener to accept TLS connections concurrently.
+/// TlsListener wraps a Listener to accept TLS connections .
 pub struct TlsListener<L: Listener> {
     // Channel that will yield successful TLS connections.
     incoming: tachyonix::Receiver<TlsPipe<L::P>>,

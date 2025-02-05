@@ -4617,11 +4617,12 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "anyhow",
  "blake3",
  "blind-rsa-signatures",
+ "hex",
  "rand 0.8.5",
  "rayon",
  "serde",

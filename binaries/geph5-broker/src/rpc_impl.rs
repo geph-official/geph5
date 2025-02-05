@@ -255,7 +255,7 @@ impl BrokerProtocol for BrokerImpl {
         };
 
         let mut routes = vec![];
-        for route in join_all(
+        for route in (join_all(
             raw_descriptors
                 .into_iter()
                 .map(|(desc, delay_ms, _is_plus)| {
@@ -270,11 +270,11 @@ impl BrokerProtocol for BrokerImpl {
                     })
                 }),
         )
-        .await
+        .await)
+            .into_iter()
+            .flatten()
         {
-            if let Ok(route) = route {
-                routes.push(route)
-            }
+            routes.push(route)
         }
 
         Ok(RouteDescriptor::Race(routes))

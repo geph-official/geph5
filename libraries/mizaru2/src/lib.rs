@@ -238,6 +238,12 @@ impl ClientToken {
     }
 }
 
+impl std::fmt::Display for ClientToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// A random, blinded client token.
 pub struct BlindedClientToken(Vec<u8>);
