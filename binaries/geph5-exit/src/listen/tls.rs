@@ -1,5 +1,5 @@
-use async_native_tls::{Identity, TlsAcceptor};
-use rcgen::{generate_simple_self_signed, KeyPair};
+use async_native_tls::TlsAcceptor;
+use rcgen::KeyPair;
 
 pub fn dummy_tls_config() -> TlsAcceptor {
     // let subject_alt_names = (0..10)

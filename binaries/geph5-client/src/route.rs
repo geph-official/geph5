@@ -1,16 +1,15 @@
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use anyctx::AnyCtx;
 use anyhow::Context;
 
 use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
-use futures_util::TryFutureExt as _;
+
 use geph5_broker_protocol::{
     AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
-use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sillad::{
@@ -21,10 +20,7 @@ use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
 use crate::{
-    auth::get_connect_token,
-    broker::broker_client,
-    client::{Config, CtxField},
-    vpn::smart_vpn_whitelist,
+    auth::get_connect_token, broker::broker_client, client::Config, vpn::smart_vpn_whitelist,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -35,21 +31,6 @@ pub enum ExitConstraint {
     Hostname(String),
     Country(CountryCode),
     CountryCity(CountryCode, String),
-}
-
-type DialerWithInfo = (VerifyingKey, ExitDescriptor, DynDialer);
-
-pub async fn get_cached_dialer(ctx: &AnyCtx<Config>) -> anyhow::Result<DialerWithInfo> {
-    static LAST_DIALER: CtxField<Mutex<Option<(DialerWithInfo, SystemTime)>>> =
-        |_| Mutex::new(None);
-    if let Some(last_time) = ctx.get(LAST_DIALER).lock().as_ref().map(|s| s.1) {
-        if let Ok(elapsed) = last_time.elapsed() {
-            if elapsed < Duration::from_secs(60) {
-                return Ok(ctx.get(LAST_DIALER).lock().as_ref().unwrap().0.clone());
-            }
-        }
-    }
-    todo!()
 }
 
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.

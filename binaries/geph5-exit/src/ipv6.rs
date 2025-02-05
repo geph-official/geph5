@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
-use futures_concurrency::{future::RaceOk, prelude::ConcurrentStream};
+use futures_concurrency::future::RaceOk;
 use ipnet::Ipv6Net;
 use rand::Rng;
 use smol::{net::TcpStream, process::Command, Async};
