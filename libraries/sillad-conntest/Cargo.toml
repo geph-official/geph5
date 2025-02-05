@@ -1,9 +1,11 @@
 [package]
 name = "sillad-conntest"
 edition = "2021"
-version.workspace = true
+description = "A connection-testing protocol within the sillad framework"
+version = "0.2.0"
 repository.workspace = true
 license.workspace = true
+
 
 [dependencies]
 async-io = "2.4.0"
