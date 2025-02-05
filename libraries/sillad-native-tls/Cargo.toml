@@ -2,6 +2,7 @@
 name = "sillad-native-tls"
 edition = "2021"
 version = "0.2.11"
+description = "A native-tls wrapper within the sillad framework"
 repository.workspace = true
 license.workspace = true
 
