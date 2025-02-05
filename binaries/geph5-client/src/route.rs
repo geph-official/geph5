@@ -162,7 +162,7 @@ pub async fn get_dialer(
         dest_addr: exit_c2e,
     };
 
-    tracing::debug!(token = debug(&conn_token), "CONN TOKEN");
+    tracing::debug!(token = display(&conn_token), "CONN TOKEN");
 
     // also get bridges
     let bridge_routes = broker
