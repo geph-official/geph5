@@ -72,7 +72,8 @@ impl<L: Listener> ConnTestListener<L> {
                     Ok(c) => c,
                     Err(e) => {
                         tracing::warn!("Failed to accept connection: {:?}", e);
-                        return;
+                        async_io::Timer::after(Duration::from_secs(1)).await;
+                        continue;
                     }
                 };
                 let send_conn = send_conn.clone();
