@@ -41,7 +41,8 @@ pub async fn listen_main() -> anyhow::Result<()> {
 }
 
 async fn c2e_loop() -> anyhow::Result<()> {
-    let mut listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
+    let listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
+    let mut listener = sillad_conntest::ConnTestListener::new(listener);
     loop {
         let c2e_raw = match listener.accept().await {
             Ok(conn) => conn,

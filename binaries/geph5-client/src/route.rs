@@ -139,8 +139,11 @@ pub async fn get_dialer(
     smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
 
     let exit_c2e = exit.c2e_listen;
-    let direct_dialer = TcpDialer {
-        dest_addr: exit_c2e,
+    let direct_dialer = ConnTestDialer {
+        ping_count: 2,
+        inner: TcpDialer {
+            dest_addr: exit_c2e,
+        },
     };
 
     tracing::debug!(token = display(&conn_token), "CONN TOKEN");
