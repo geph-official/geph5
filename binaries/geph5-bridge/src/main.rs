@@ -5,6 +5,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
+    thread::available_parallelism,
     time::{Duration, SystemTime},
 };
 
@@ -27,33 +28,38 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
-    // smolscale::permanently_single_threaded();
-    // if std::env::var("GEPH5_BRIDGE_CHILD").is_err() {
-    //     for _ in 0..available_parallelism().unwrap().get() {
-    //         std::thread::spawn(|| {
-    //             std::env::set_var("GEPH5_BRIDGE_CHILD", "1");
-    //             let current_exe = std::env::current_exe().unwrap();
+    if std::env::var("GEPH5_BRIDGE_POOL")
+        .unwrap()
+        .contains("yaofan")
+    {
+        smolscale::permanently_single_threaded();
+        if std::env::var("GEPH5_BRIDGE_CHILD").is_err() {
+            for _ in 0..available_parallelism().unwrap().get() {
+                std::thread::spawn(|| {
+                    std::env::set_var("GEPH5_BRIDGE_CHILD", "1");
+                    let current_exe = std::env::current_exe().unwrap();
 
-    //             // Collect the current command-line arguments
-    //             let args: Vec<String> = std::env::args().collect();
+                    // Collect the current command-line arguments
+                    let args: Vec<String> = std::env::args().collect();
 
-    //             // Trim the first argument which is the current binary's path
-    //             let args_to_pass = &args[1..];
+                    // Trim the first argument which is the current binary's path
+                    let args_to_pass = &args[1..];
 
-    //             // Spawn a new process with the same command
-    //             let mut child = std::process::Command::new(current_exe)
-    //                 .args(args_to_pass)
-    //                 .spawn()
-    //                 .unwrap();
+                    // Spawn a new process with the same command
+                    let mut child = std::process::Command::new(current_exe)
+                        .args(args_to_pass)
+                        .spawn()
+                        .unwrap();
 
-    //             // Wait for the spawned process to finish
-    //             child.wait().unwrap();
-    //         });
-    //     }
-    //     loop {
-    //         std::thread::park();
-    //     }
-    // }
+                    // Wait for the spawned process to finish
+                    child.wait().unwrap();
+                });
+            }
+            loop {
+                std::thread::park();
+            }
+        }
+    }
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
