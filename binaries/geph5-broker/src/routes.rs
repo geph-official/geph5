@@ -21,11 +21,15 @@ pub async fn bridge_to_leaf_route(
     delay_ms: u32,
     exit_b2e: SocketAddr,
 ) -> anyhow::Result<RouteDescriptor> {
+    // for cache coherence
+    let mut bridge = bridge;
+    bridge.expiry = 0;
+
     static CACHE: LazyLock<
         Cache<(BridgeDescriptor, SocketAddr), Result<RouteDescriptor, Arc<anyhow::Error>>>,
     > = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(60))
+            .time_to_live(Duration::from_secs(120))
             .build()
     });
     CACHE
