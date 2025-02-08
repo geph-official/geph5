@@ -67,7 +67,11 @@ pub async fn get_dialer(
                     load: 0.0,
                     expiry: 0,
                 },
-                TcpDialer { dest_addr }.dynamic(),
+                ConnTestDialer {
+                    ping_count: 1,
+                    inner: TcpDialer { dest_addr },
+                }
+                .dynamic(),
             ));
         }
         ExitConstraint::Country(country) => country_constraint = Some(*country),
