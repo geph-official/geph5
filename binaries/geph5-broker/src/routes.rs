@@ -32,10 +32,10 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit_b2e),
             async {
-                let only_obfs = bridge_to_leaf_route_inner(
+                let only_test = bridge_to_leaf_route_inner(
                     bridge.clone(),
                     exit_b2e,
-                    ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3(gencookie()).into()),
+                    ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
                 )
                 .await?;
                 let obfs_tls = bridge_to_leaf_route_inner(
@@ -51,7 +51,7 @@ pub async fn bridge_to_leaf_route(
                 )
                 .await?;
                 let new_route = RouteDescriptor::Race(vec![
-                    only_obfs,
+                    only_test,
                     RouteDescriptor::Delay {
                         milliseconds: 500,
                         lower: obfs_tls.into(),
