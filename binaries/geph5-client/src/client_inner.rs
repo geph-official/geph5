@@ -26,7 +26,7 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::smart_vpn_whitelist, ConnInfo
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::smart_vpn_whitelist, ConnInfo
 };
 
 use super::Config;
@@ -120,48 +120,20 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
 
-    let dialer = Arc::new(RefreshCell::create(Duration::from_secs(600), {
-        let ctx = ctx.clone();
-        move || {
-            let ctx = ctx.clone();
-            async move {
-                // jitter here to avoid thundering herd effects
-                let mut sleep_secs: f64 = rand::random();
-                smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-                loop {
-                    let result = get_dialer(&ctx).await;
-                    match result {
-                        Ok(res) => {
-                            tracing::debug!("obtained a fresh, fresh dialer!");
-                            break res;
-                        }
-                        Err(err) => {
-                            sleep_secs =
-                                rand::thread_rng().gen_range(sleep_secs..=(sleep_secs * 1.5));
-                            tracing::error!(err = debug(err), sleep_secs, "failed to get dialer");
-                            smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-                        }
-                    }
-                }
-            }
-        }
-    })
-    .await);
-
     let start = Instant::now();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
 
     #[allow(unreachable_code)]
     let instance_thread = |instance| {
-        let dialer = dialer.clone();
+
         let ctx = ctx.clone();
         smolscale::spawn(async move {
             loop {
                 let once = async {
                     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
                     let (authed_pipe, exit) = async {
-                        let (pubkey, exit, raw_dialer) = dialer.get();
+                        let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
                         let start = Instant::now();
                         let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
                         tracing::debug!(
@@ -203,6 +175,17 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                     tracing::warn!(instance, err = debug(err), wait_time=debug(wait_time), "individual client thread failed");
                     smol::Timer::after(wait_time).await;
                 }
+            }
+        })
+    };
+
+    let _refresh = {
+            let ctx = ctx.clone();
+            smolscale::spawn(async move {
+            loop {
+                let sleep_secs = rand::thread_rng().gen_range(300..3600);
+                smol::Timer::after(Duration::from_secs(sleep_secs)).await;
+                let _ = get_dialer(&ctx).await;
             }
         })
     };

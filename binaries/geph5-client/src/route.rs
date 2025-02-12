@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -18,9 +18,14 @@ use sillad::{
 };
 use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use smol::lock::Semaphore;
+use smol_timeout2::TimeoutExt as _;
 
 use crate::{
-    auth::get_connect_token, broker::broker_client, client::Config, vpn::smart_vpn_whitelist,
+    auth::get_connect_token,
+    broker::broker_client,
+    client::{Config, CtxField},
+    vpn::smart_vpn_whitelist,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -35,6 +40,43 @@ pub enum ExitConstraint {
 
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
 pub async fn get_dialer(
+    ctx: &AnyCtx<Config>,
+) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
+    static SEMAPH: CtxField<
+        smol::lock::Mutex<Option<(VerifyingKey, ExitDescriptor, DynDialer, SystemTime)>>,
+    > = |_| smol::lock::Mutex::new(None);
+    let mut cached_value = ctx.get(SEMAPH).lock().await;
+
+    if let Some(inner) = cached_value.clone() {
+        if inner.3.elapsed()? < Duration::from_secs(10) {
+            tracing::debug!("returning very recently cached dialer");
+            return Ok((inner.0, inner.1, inner.2));
+        }
+    }
+
+    let res = get_dialer_inner(ctx)
+        .timeout(Duration::from_secs(5))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("get_dialer_inner timed out"))
+        .and_then(|x| x);
+    match res {
+        Ok(val) => {
+            *cached_value = Some((val.0, val.1.clone(), val.2.clone(), SystemTime::now()));
+            Ok((val.0, val.1, val.2))
+        }
+        Err(err) => {
+            tracing::warn!("failed to get dialer: {:?}", err);
+            if let Some(val) = cached_value.clone() {
+                tracing::warn!("returning stale value instead");
+                Ok((val.0, val.1, val.2))
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+async fn get_dialer_inner(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
     let mut country_constraint = None;
