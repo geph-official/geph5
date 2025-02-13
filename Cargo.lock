@@ -324,7 +324,7 @@ dependencies = [
  "argh_shared",
  "proc-macro2",
  "quote",
- "syn 2.0.92",
+ "syn 2.0.96",
 ]
 
 [[package]]
