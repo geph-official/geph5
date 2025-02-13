@@ -19,6 +19,7 @@ use tachyonix::Sender;
 
 use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
+mod tls;
 
 use crate::{
     asn::ip_to_asn_country,
@@ -40,7 +41,8 @@ pub async fn listen_main() -> anyhow::Result<()> {
 }
 
 async fn c2e_loop() -> anyhow::Result<()> {
-    let mut listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
+    let listener = TcpListener::bind(CONFIG_FILE.wait().c2e_listen).await?;
+    let mut listener = sillad_conntest::ConnTestListener::new(listener);
     loop {
         let c2e_raw = match listener.accept().await {
             Ok(conn) => conn,
@@ -54,7 +56,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
             let remote_addr: SocketAddr = c2e_raw.remote_addr().unwrap().parse()?;
             if let SocketAddr::V4(remote_addr) = remote_addr {
                 let (asn, country) = ip_to_asn_country(*remote_addr.ip()).await?;
-                tracing::debug!(asn, country, remote_addr = display(remote_addr), "got ASN");
+                tracing::trace!(asn, country, remote_addr = display(remote_addr), "got ASN");
                 if CONFIG_FILE.wait().country_blacklist.contains(&country) {
                     anyhow::bail!(
                         "rejected connection from {remote_addr}/AS{asn} in blacklisted country {country}"
@@ -67,10 +69,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
             tracing::warn!(err = debug(err), "rejected a direct connection");
             continue;
         }
-        smolscale::spawn(
-            handle_client(c2e_raw).map_err(|e| tracing::warn!("client died suddenly with {e}")),
-        )
-        .detach()
+        smolscale::spawn(handle_client(c2e_raw)).detach()
     }
 }
 
@@ -188,10 +187,6 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
         if let Ok(new_sess_metadata) = serde_json::from_str::<serde_json::Value>(&metadata) {
             sess_metadata = Arc::new(new_sess_metadata);
-            tracing::debug!(
-                sess_metadata = display(&sess_metadata),
-                "registering session-specific metadata"
-            );
             continue;
         }
         let sess_metadata = sess_metadata.clone();
@@ -204,8 +199,8 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
                 stream,
                 is_free,
             )
-            .race(new_task_until_death(Duration::from_secs(30)))
-            .map_err(|e| tracing::trace!(metadata = display(metadata), "stream died with {e}")),
+            .race(new_task_until_death(Duration::from_secs(1)))
+            .map_err(|e| tracing::trace!(err = debug(e), "stream died with")),
         )
         .detach();
     }

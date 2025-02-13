@@ -21,7 +21,7 @@ use crate::{client_inner::open_conn, spoof_dns::fake_dns_respond, Config};
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
-pub fn vpn_whitelist(addr: IpAddr) {
+pub(super) fn vpn_whitelist(addr: IpAddr) {
     WHITELIST.entry(addr).or_insert_with(|| {
         tracing::warn!(addr = display(addr), "*** WHITELIST ***");
         SingleWhitelister::new(addr)

@@ -19,17 +19,14 @@ use std::{
     convert::Infallible,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, refresh_cell::RefreshCell, route::{deprioritize_route, get_dialer}, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::vpn_whitelist, ConnInfo
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::smart_vpn_whitelist, ConnInfo
 };
 
 use super::Config;
@@ -57,7 +54,7 @@ pub async fn open_conn(
         if whitelist_host(ctx, dest_host) {
             let addrs = smol::net::resolve(&dest_addr).await?;
             for addr in addrs.iter() {
-                vpn_whitelist(addr.ip());
+                smart_vpn_whitelist(ctx, addr.ip());
             }
             tracing::debug!(
                 dest_addr = debug(dest_addr),
@@ -116,43 +113,12 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 6;
+pub static CONCURRENCY: usize = 8;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
-
-    let dialer = Arc::new(RefreshCell::create(Duration::from_secs(600), {
-        let ctx = ctx.clone();
-        move || {
-            let ctx = ctx.clone();
-            async move {
-                // jitter here to avoid thundering herd effects
-                let mut sleep_secs: f64 = rand::random();
-                smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-                loop {
-                    let result = get_dialer(&ctx).timeout(Duration::from_secs(20)).await;
-                    match result {
-                        Some(Ok(res)) => {
-                            tracing::debug!("obtained a fresh, fresh dialer!");
-                            break res;
-                        }
-                        Some(Err(err)) => {
-                            tracing::error!(err = debug(err), "failed to get dialer");
-                            sleep_secs =
-                                rand::thread_rng().gen_range(sleep_secs..=(sleep_secs * 1.5));
-                            smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-                        }
-                        None => {
-                            tracing::error!("dialer refresh timeout");
-                        }
-                    }
-                }
-            }
-        }
-    })
-    .await);
 
     let start = Instant::now();
 
@@ -160,14 +126,14 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
 
     #[allow(unreachable_code)]
     let instance_thread = |instance| {
-        let dialer = dialer.clone();
+
         let ctx = ctx.clone();
         smolscale::spawn(async move {
             loop {
                 let once = async {
                     *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
                     let (authed_pipe, exit) = async {
-                        let (pubkey, exit, raw_dialer) = dialer.get().await;
+                        let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
                         let start = Instant::now();
                         let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
                         tracing::debug!(
@@ -175,21 +141,11 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                             protocol = raw_pipe.protocol(),
                             "dial completed"
                         );
-                        let died = AtomicBool::new(true);
-                        let addr: SocketAddr = raw_pipe.remote_addr().unwrap_or("").parse()?;
-                        scopeguard::defer!({
-                            if died.load(Ordering::SeqCst) {
-                                tracing::debug!(
-                                    addr = display(addr),
-                                    "deprioritizing route due to failed auth"
-                                );
-                                deprioritize_route(addr);
-                            }
-                        });
+
                         let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
                             .await
                             .context("could not client auth")?;
-                        died.store(false, Ordering::SeqCst);
+
                         tracing::debug!(
                             elapsed = debug(start.elapsed()),
                             "authentication done, starting mux system"
@@ -212,18 +168,24 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                     proxy_loop(ctx.clone(), authed_pipe, instance)
                         .await
                         .context(format!("inner connection to {addr} failed"))
-                        .inspect_err(|_| {
-                            tracing::debug!(
-                                addr = display(addr),
-                                "deprioritizing route due to failed dial"
-                            );
-                            deprioritize_route(addr);
-                        })
+
                 };
                 if let Err(err) = once.await {
-                    tracing::warn!(err = debug(err), "individual client thread failed");
-                    smol::Timer::after(Duration::from_millis(100)).await;
+                    let wait_time = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0..10.0));
+                    tracing::warn!(instance, err = debug(err), wait_time=debug(wait_time), "individual client thread failed");
+                    smol::Timer::after(wait_time).await;
                 }
+            }
+        })
+    };
+
+    let _refresh = {
+            let ctx = ctx.clone();
+            smolscale::spawn(async move {
+            loop {
+                let sleep_secs = rand::thread_rng().gen_range(300..3600);
+                smol::Timer::after(Duration::from_secs(sleep_secs)).await;
+                let _ = get_dialer(&ctx).await;
             }
         })
     };

@@ -8,6 +8,8 @@ license = "MPL-2.0"
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
+sillad-conntest = { path = "../../libraries/sillad-conntest" }
+sillad-native-tls = { path = "../../libraries/sillad-native-tls" }
 picomux = { path = "../../libraries/picomux" }
 async-trait = "0.1.80"
 nanorpc = "0.1.12"
@@ -63,4 +65,7 @@ ipnet = "2.10.1"
 socket2 = "0.5.8"
 serde_with = "3.12.0"
 futures-concurrency = "7.6.2"
-mimalloc = "0.1.43"
+async-native-tls = "0.5.0"
+rcgen = "0.13.2"
+time = "0.3.37"
+native-tls = "0.2.13"

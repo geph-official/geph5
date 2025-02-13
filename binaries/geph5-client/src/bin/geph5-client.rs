@@ -17,7 +17,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()

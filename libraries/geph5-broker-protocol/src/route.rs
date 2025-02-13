@@ -11,6 +11,10 @@ pub enum RouteDescriptor {
         cookie: String,
         lower: Box<RouteDescriptor>,
     },
+    PlainTls {
+        sni_domain: Option<String>,
+        lower: Box<RouteDescriptor>,
+    },
     Race(Vec<RouteDescriptor>),
     Fallback(Vec<RouteDescriptor>),
     Timeout {
@@ -19,6 +23,10 @@ pub enum RouteDescriptor {
     },
     Delay {
         milliseconds: u32,
+        lower: Box<RouteDescriptor>,
+    },
+    ConnTest {
+        ping_count: u32,
         lower: Box<RouteDescriptor>,
     },
 

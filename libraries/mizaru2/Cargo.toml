@@ -2,7 +2,7 @@
 name = "mizaru2"
 edition = "2021"
 description = "Mizaru2"
-version = "0.2.11"
+version = "0.2.12"
 repository.workspace = true
 license.workspace = true
 
@@ -14,3 +14,4 @@ stdcode = "0.1.14"
 serde = { version = "1.0.204", features = ["derive", "rc"] }
 anyhow = "1.0.86"
 rayon = "1.10.0"
+hex = "0.4.3"

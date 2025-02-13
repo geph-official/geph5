@@ -16,4 +16,4 @@ pub(super) async fn packet_shuffle(
     todo!()
 }
 
-pub fn vpn_whitelist(addr: IpAddr) {}
+pub(super) fn vpn_whitelist(addr: IpAddr) {}

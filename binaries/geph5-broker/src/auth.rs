@@ -104,16 +104,16 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
 pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
     let now = Utc::now().naive_utc();
 
-    sqlx::query(
-        r#"
-        INSERT INTO auth_logs (id, last_login)
-        VALUES ($1, $2)
-        "#,
-    )
-    .bind(user_id)
-    .bind(now)
-    .execute(POSTGRES.deref())
-    .await?;
+    // sqlx::query(
+    //     r#"
+    //     INSERT INTO auth_logs (id, last_login)
+    //     VALUES ($1, $2)
+    //     "#,
+    // )
+    // .bind(user_id)
+    // .bind(now)
+    // .execute(POSTGRES.deref())
+    // .await?;
 
     sqlx::query(
         r#"INSERT INTO last_login (id, login_time)

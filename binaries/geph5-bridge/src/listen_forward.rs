@@ -18,6 +18,7 @@ use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlSe
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{PicoMux, Stream};
+use rand::Rng;
 use sillad::{dialer::Dialer, listener::Listener, tcp::TcpListener, Pipe};
 use smol::future::FutureExt as _;
 use smol::io::AsyncWriteExt;
@@ -52,9 +53,7 @@ impl BridgeControlProtocol for State {
 
         MAPPING
             .get_with((b2e_dest, metadata.clone()), async {
-                let listener = TcpListener::bind("0.0.0.0:0".parse().unwrap())
-                    .await
-                    .unwrap();
+                let listener = random_tcp_listener().await;
                 let addr = listener
                     .local_addr()
                     .await
@@ -64,6 +63,19 @@ impl BridgeControlProtocol for State {
             })
             .await
             .0
+    }
+}
+
+async fn random_tcp_listener() -> TcpListener {
+    loop {
+        let rando = rand::thread_rng().gen_range(2048u16..65535);
+        match TcpListener::bind(format!("0.0.0.0:{rando}").parse().unwrap()).await {
+            Ok(listener) => return listener,
+            Err(err) => {
+                smol::Timer::after(Duration::from_millis(100)).await;
+                tracing::warn!(rando, err = debug(err), "retrying a bind...")
+            }
+        }
     }
 }
 

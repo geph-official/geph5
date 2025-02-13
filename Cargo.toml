@@ -4,7 +4,7 @@ members = ["libraries/*", "binaries/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.28"
+version = "0.2.31"
 repository = "https://github.com/geph-official/geph5"
 license = "ISC"
 
@@ -15,6 +15,7 @@ license = "ISC"
 
 [profile.release]
 panic = "abort"
+debug = 1
 
 [profile.dev]
 panic = "abort"

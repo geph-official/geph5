@@ -1,6 +1,6 @@
 [package]
 name = "picomux"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 repository = "https://github.com/geph-official/geph5"
 license = "ISC"

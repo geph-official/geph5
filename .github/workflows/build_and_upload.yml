@@ -83,7 +83,7 @@ jobs:
           mv "geph5-client-gui.app.zip" ../../../../../artifacts/${{ matrix.dir }}/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.dir }}-latest
           path: artifacts/${{ matrix.dir }}
@@ -130,9 +130,9 @@ jobs:
           mv target/x86_64-unknown-linux-musl/release/geph5-exit artifacts/musl/
 
       - name: Upload bridge and exit artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: musl-latest
+          name: musl-latest-bridge
           path: artifacts/musl
 
   # build-windows-gui:
@@ -180,7 +180,7 @@ jobs:
   #         cp target/i686-pc-windows-msvc/release/geph5-client-gui artifacts/windows-gui/
   #
   #     - name: Upload Windows GUI artifact
-  #       uses: actions/upload-artifact@v3
+  #       uses: actions/upload-artifact@v4
   #       with:
   #         name: windows-gui-latest
   #         path: artifacts/windows-gui
@@ -189,29 +189,45 @@ jobs:
     if: github.ref == 'refs/heads/master'
     needs: [build, build-bridge-exit]
     runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        include:
-          - dir: gnu
-          - dir: musl
-          - dir: musl-arm64
-          - dir: macos
-          # - dir: windows
-          # - dir: windows-gui
+    # strategy:
+    #   matrix:
+    #     include:
+    #       - dir: gnu
+    #       - dir: musl
+    #       - dir: musl-arm64
+    #       - dir: macos
+    #       # - dir: windows
+    #       # - dir: windows-gui
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Set up AWS configuration
+      - name: Move some stuff
         run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws configure set region apac
-          aws configure set output json
+          mv artifacts/musl-latest-bridge/* artifacts/musl-latest/
+          rmdir artifacts/musl-latest-bridge
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region = auto
+          endpoint = https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
+          acl = private
+          EOF
 
       - name: Upload to Cloudflare R2
         run: |
-          aws s3 cp ./artifacts/${{ matrix.dir }}-latest s3://geph5/${{ matrix.dir }}-latest --recursive --endpoint-url=https://b5e397a549f0e6543dba8e1d83ca9924.r2.cloudflarestorage.com
+          rclone copy -P ./artifacts/ r2:geph5/

@@ -1,44 +1,32 @@
-use std::{net::SocketAddr, time::Duration};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
 
+use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
-use futures_util::TryFutureExt as _;
+
 use geph5_broker_protocol::{
     AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
-use moka::sync::Cache;
-use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sillad::{
     dialer::{DialerExt, DynDialer, FailingDialer},
     tcp::TcpDialer,
 };
+use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use smol::lock::Semaphore;
+use smol_timeout2::TimeoutExt as _;
 
 use crate::{
-    auth::get_connect_token, broker::broker_client, client::Config, client_inner::CONCURRENCY,
-    vpn::vpn_whitelist,
+    auth::get_connect_token,
+    broker::broker_client,
+    client::{Config, CtxField},
+    vpn::smart_vpn_whitelist,
 };
-
-static ROUTE_SHITLIST: Lazy<Cache<SocketAddr, usize>> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_live(Duration::from_secs(60))
-        .build()
-});
-
-fn shitlist_delay(addr: SocketAddr) -> Duration {
-    let recent_deaths = ROUTE_SHITLIST.get(&addr).unwrap_or_default() as f64 / CONCURRENCY as f64;
-    Duration::from_secs_f64((recent_deaths - 1.0).max(0.0).powi(2) / 10.0)
-}
-
-/// Deprioritizes routes with this address.
-pub fn deprioritize_route(addr: SocketAddr) {
-    ROUTE_SHITLIST.insert(addr, ROUTE_SHITLIST.get_with(addr, || 1) + 1)
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +40,43 @@ pub enum ExitConstraint {
 
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
 pub async fn get_dialer(
+    ctx: &AnyCtx<Config>,
+) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
+    static SEMAPH: CtxField<
+        smol::lock::Mutex<Option<(VerifyingKey, ExitDescriptor, DynDialer, SystemTime)>>,
+    > = |_| smol::lock::Mutex::new(None);
+    let mut cached_value = ctx.get(SEMAPH).lock().await;
+
+    if let Some(inner) = cached_value.clone() {
+        if inner.3.elapsed()? < Duration::from_secs(10) {
+            tracing::debug!("returning very recently cached dialer");
+            return Ok((inner.0, inner.1, inner.2));
+        }
+    }
+
+    let res = get_dialer_inner(ctx)
+        .timeout(Duration::from_secs(5))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("get_dialer_inner timed out"))
+        .and_then(|x| x);
+    match res {
+        Ok(val) => {
+            *cached_value = Some((val.0, val.1.clone(), val.2.clone(), SystemTime::now()));
+            Ok((val.0, val.1, val.2))
+        }
+        Err(err) => {
+            tracing::warn!("failed to get dialer: {:?}", err);
+            if let Some(val) = cached_value.clone() {
+                tracing::warn!("returning stale value instead");
+                Ok((val.0, val.1, val.2))
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+async fn get_dialer_inner(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
     let mut country_constraint = None;
@@ -73,7 +98,7 @@ pub async fn get_dialer(
                 .await?
                 .choose(&mut rand::thread_rng())
                 .context("could not resolve destination for direct exit connection")?;
-            vpn_whitelist(dest_addr.ip());
+            smart_vpn_whitelist(ctx, dest_addr.ip());
             return Ok((
                 pubkey,
                 ExitDescriptor {
@@ -84,7 +109,11 @@ pub async fn get_dialer(
                     load: 0.0,
                     expiry: 0,
                 },
-                TcpDialer { dest_addr }.dynamic(),
+                ConnTestDialer {
+                    ping_count: 1,
+                    inner: TcpDialer { dest_addr },
+                }
+                .dynamic(),
             ));
         }
         ExitConstraint::Country(country) => country_constraint = Some(*country),
@@ -153,15 +182,17 @@ pub async fn get_dialer(
     };
 
     tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
-    vpn_whitelist(exit.c2e_listen.ip());
+    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
 
     let exit_c2e = exit.c2e_listen;
-    let direct_dialer = TcpDialer {
-        dest_addr: exit_c2e,
-    }
-    .dyn_delay(move || shitlist_delay(exit_c2e));
+    let direct_dialer = ConnTestDialer {
+        ping_count: 2,
+        inner: TcpDialer {
+            dest_addr: exit_c2e,
+        },
+    };
 
-    tracing::debug!(token = debug(&conn_token), sig = debug(&sig), "CONN TOKEN");
+    tracing::debug!(token = display(&conn_token), "CONN TOKEN");
 
     // also get bridges
     let bridge_routes = broker
@@ -169,11 +200,11 @@ pub async fn get_dialer(
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
     tracing::debug!(
-        bridge_routes = debug(&bridge_routes),
-        "bridge routes obtained too"
+        "bridge routes obtained: {}",
+        serde_yaml::to_string(&serde_json::to_value(&bridge_routes)?)?
     );
 
-    let bridge_dialer = route_to_dialer(&bridge_routes);
+    let bridge_dialer = route_to_dialer(ctx, &bridge_routes);
 
     let final_dialer = match ctx.init().bridge_mode {
         crate::BridgeMode::Auto => direct_dialer
@@ -270,17 +301,15 @@ pub async fn get_dialer(
 //     }
 // }
 
-fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
+fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
     match route {
         RouteDescriptor::Tcp(addr) => {
-            vpn_whitelist(addr.ip());
+            smart_vpn_whitelist(ctx, addr.ip());
             let addr = *addr;
-            TcpDialer { dest_addr: addr }
-                .dyn_delay(move || shitlist_delay(addr))
-                .dynamic()
+            TcpDialer { dest_addr: addr }.dynamic()
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
-            let inner = route_to_dialer(lower);
+            let inner = route_to_dialer(ctx, lower);
             SosistabDialer {
                 inner,
                 cookie: Cookie::new(cookie),
@@ -289,26 +318,51 @@ fn route_to_dialer(route: &RouteDescriptor) -> DynDialer {
         }
         RouteDescriptor::Race(inside) => inside
             .iter()
-            .map(route_to_dialer)
+            .map(|s| route_to_dialer(ctx, s))
             .reduce(|a, b| a.race(b).dynamic())
             .unwrap_or_else(|| FailingDialer.dynamic()),
         RouteDescriptor::Fallback(a) => a
             .iter()
-            .map(route_to_dialer)
+            .map(|s| route_to_dialer(ctx, s))
             .reduce(|a, b| a.fallback(b).dynamic())
             .unwrap_or_else(|| FailingDialer.dynamic()),
         RouteDescriptor::Timeout {
             milliseconds,
             lower,
-        } => route_to_dialer(lower)
+        } => route_to_dialer(ctx, lower)
             .timeout(Duration::from_millis(*milliseconds as _))
             .dynamic(),
         RouteDescriptor::Delay {
             milliseconds,
             lower,
-        } => route_to_dialer(lower)
+        } => route_to_dialer(ctx, lower)
             .delay(Duration::from_millis((*milliseconds).into()))
             .dynamic(),
+        RouteDescriptor::ConnTest { ping_count, lower } => {
+            let lower = route_to_dialer(ctx, lower);
+            ConnTestDialer {
+                inner: lower,
+                ping_count: *ping_count as _,
+            }
+            .dynamic()
+        }
+
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
+        RouteDescriptor::PlainTls { sni_domain, lower } => {
+            let lower = route_to_dialer(ctx, lower);
+            sillad_native_tls::TlsDialer::new(
+                lower,
+                TlsConnector::new()
+                    .use_sni(sni_domain.is_some())
+                    .danger_accept_invalid_certs(true)
+                    .danger_accept_invalid_hostnames(true)
+                    .min_protocol_version(None)
+                    .max_protocol_version(None),
+                sni_domain
+                    .clone()
+                    .unwrap_or_else(|| "example.com".to_string()),
+            )
+            .dynamic()
+        }
     }
 }

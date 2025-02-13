@@ -15,6 +15,7 @@ use governor::{DefaultDirectRateLimiter, Quota};
 use mizaru2::ClientToken;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
+use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use sysinfo::System;
 
@@ -153,7 +154,12 @@ impl RateLimiter {
         let mut total_bytes = 0;
 
         loop {
-            let bts = pooled_read(&mut read_stream).await?;
+            let bts = pooled_read(&mut read_stream)
+                .timeout(Duration::from_secs(1800))
+                .await
+                .ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout in TCP read")
+                })??;
             if bts.is_empty() {
                 break;
             }

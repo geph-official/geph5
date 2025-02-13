@@ -16,6 +16,9 @@ pub struct B2eMetadata {
 pub enum ObfsProtocol {
     Sosistab3(String),
     None,
+    ConnTest(Box<Self>),
+    PlainTls(Box<Self>),
+    Sosistab3New(String, Box<Self>),
 }
 
 /// The RPC protocol that bridges expose, called by the broker.

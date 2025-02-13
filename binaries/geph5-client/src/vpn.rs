@@ -6,15 +6,15 @@ use crossbeam_queue::ArrayQueue;
 
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
-pub use linux::*;
+use linux::*;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 mod dummy;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub use dummy::*;
+use dummy::*;
 
-use std::time::Instant;
+use std::{net::IpAddr, time::Instant};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -23,7 +23,7 @@ use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt as _};
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
-pub use windows::*;
+use windows::*;
 
 use smol::future::FutureExt;
 
@@ -33,12 +33,16 @@ mod macos;
 pub use macos::*;
 
 use crate::{
-    client::CtxField,
-    client_inner::open_conn,
-    spoof_dns::fake_dns_respond,
-    taskpool::add_task,
+    client::CtxField, client_inner::open_conn, spoof_dns::fake_dns_respond, taskpool::add_task,
     Config,
 };
+
+/// Whitelist a vpn address if needed
+pub fn smart_vpn_whitelist(ctx: &AnyCtx<Config>, addr: IpAddr) {
+    if ctx.init().vpn {
+        vpn_whitelist(addr);
+    }
+}
 
 /// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
 pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
@@ -47,7 +51,7 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
         chan_len = ctx.get(VPN_CAPTURE).len(),
         "vpn forcing up"
     );
-    ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
+    let _ = ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
     ctx.get(VPN_EVENT).notify_all();
 
     smol::future::yield_now().await;
@@ -110,7 +114,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 loop {
                     let bts = recv_injected.recv().await?;
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
-                    ctx.get(VPN_INJECT).push(bts);
+                    let _ = ctx.get(VPN_INJECT).push(bts);
                     ctx.get(VPN_EVENT).notify_all();
                 }
             };

@@ -72,6 +72,6 @@ fn dn_shuffle(ctx: AnyCtx<Config>, recv_injected: Receiver<bytes::Bytes>) -> any
 
 static WHITELIST: Lazy<DashSet<IpAddr>> = Lazy::new(DashSet::new);
 
-pub fn vpn_whitelist(addr: IpAddr) {
+pub(super) fn vpn_whitelist(addr: IpAddr) {
     WHITELIST.insert(addr);
 }

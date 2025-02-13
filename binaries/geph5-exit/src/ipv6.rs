@@ -5,10 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
-use futures_concurrency::{
-    future::RaceOk,
-    prelude::ConcurrentStream,
-};
+use futures_concurrency::future::RaceOk;
 use ipnet::Ipv6Net;
 use rand::Rng;
 use smol::{net::TcpStream, process::Command, Async};
@@ -38,23 +35,27 @@ impl EyeballDialer {
     /// Connect to a given remote.
     pub async fn connect(&self, addrs: Vec<SocketAddr>) -> anyhow::Result<TcpStream> {
         let my_addr = self.inner;
-        let streams: Vec<_> = addrs
-            .into_iter()
-            .enumerate()
-            .map(|(idx, addr)| async move {
-                if idx > 0 {
-                    smol::Timer::after(Duration::from_millis(200 * idx as u64)).await;
-                    tracing::debug!(idx, addr = display(addr), "eyeballed to non-ideal");
-                }
-                if addr.is_ipv6() {
-                    if let Some(my_addr) = my_addr {
-                        return connect_from(my_addr, addr).await;
+        if my_addr.is_none() {
+            Ok(TcpStream::connect(&addrs[..]).await?)
+        } else {
+            let streams: Vec<_> = addrs
+                .into_iter()
+                .enumerate()
+                .map(|(idx, addr)| async move {
+                    if idx > 0 {
+                        smol::Timer::after(Duration::from_millis(500 * idx as u64)).await;
+                        tracing::debug!(idx, addr = display(addr), "eyeballed to non-ideal");
                     }
-                }
-                Ok(TcpStream::connect(addr).await?)
-            })
-            .collect();
-        streams.race_ok().await.map_err(|mut e| e.remove(0))
+                    if addr.is_ipv6() {
+                        if let Some(my_addr) = my_addr {
+                            return connect_from(my_addr, addr).await;
+                        }
+                    }
+                    Ok(TcpStream::connect(addr).await?)
+                })
+                .collect();
+            streams.race_ok().await.map_err(|mut e| e.remove(0))
+        }
     }
 }
 
