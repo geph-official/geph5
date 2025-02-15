@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures_util::TryFutureExt;
+use futures_util::{FutureExt as _, TryFutureExt};
 use geph5_broker_protocol::{BridgeDescriptor, RouteDescriptor};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
 
@@ -32,6 +32,7 @@ pub async fn bridge_to_leaf_route(
             .time_to_live(Duration::from_secs(120))
             .build()
     });
+
     CACHE
         .get_with(
             (bridge.clone(), exit_b2e),
@@ -70,6 +71,17 @@ pub async fn bridge_to_leaf_route(
                     lower: RouteDescriptor::Fallback(vec![new_route, legacy_route]).into(),
                 })
             }
+            .map(|res| {
+                if let Err(err) = res.as_ref() {
+                    tracing::warn!(
+                        "failed to find {} => {}: {:?}",
+                        bridge.control_listen.ip(),
+                        exit_b2e,
+                        err
+                    )
+                }
+                res
+            })
             .map_err(Arc::new),
         )
         .await
