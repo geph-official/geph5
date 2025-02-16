@@ -10,7 +10,7 @@ license = "ISC"
 
 
 [patch.crates-io]
-#ipstack-geph = { path = "../ipstack-geph" }
+#smolscale = { path = "../smolscale" }
 
 
 [profile.release]

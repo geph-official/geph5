@@ -256,6 +256,7 @@ async fn client_auth(
         let (level, token, sig) = get_connect_token(ctx)
             .await
             .context("cannot get connect token")?;
+        tracing::info!(level=debug(level), "authentication with a connect token");
         (level, token, sig).stdcode().into()
     };
     match pipe.shared_secret().map(|s| s.to_owned()) {
