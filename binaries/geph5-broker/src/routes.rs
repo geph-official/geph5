@@ -118,9 +118,9 @@ async fn bridge_to_leaf_route_inner(
                 expiry: SystemTime::now() + Duration::from_secs(86400),
             },
         )
-        .timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(10))
         .await
-        .context("timeout")??;
+        .context("timeout when sosistab")??;
     let final_route = protocol_to_descriptor(protocol, sosistab_addr);
 
     anyhow::Ok(final_route)
