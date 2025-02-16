@@ -66,7 +66,7 @@ pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<(i32, Accoun
             .await?;
     if let Some((user_id,)) = user_id {
         let expiry = get_subscription_expiry(user_id).await?;
-        tracing::debug!(user_id, expiry = debug(expiry), "valid auth token");
+        tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
         record_auth(user_id).await?;
         if expiry.is_none() {
             Ok(Some((user_id, AccountLevel::Free)))
