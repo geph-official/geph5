@@ -35,7 +35,7 @@ pub struct Config {
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
     pub bridge_mode: BridgeMode,
-    pub cache: Option<PathBuf>,
+    pub cache: Option<PathBuf>, 
 
     pub broker: Option<BrokerSource>,
     pub broker_keys: Option<BrokerKeys>,

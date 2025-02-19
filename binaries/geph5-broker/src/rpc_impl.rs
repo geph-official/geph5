@@ -128,10 +128,11 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError> {
         let user_id = match credential {
-            Credential::TestDummy => 42,
+            Credential::TestDummy => return Err(AuthError::Forbidden),
             Credential::LegacyUsernamePassword { username, password } => {
                 validate_username_pwd(&username, &password).await?
             }
+            Credential::Secret(_) => return Err(AuthError::Forbidden),
         };
 
         let token = new_auth_token(user_id)

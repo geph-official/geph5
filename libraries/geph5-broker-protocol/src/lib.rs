@@ -91,6 +91,7 @@ pub enum AuthError {
 pub enum Credential {
     TestDummy,
     LegacyUsernamePassword { username: String, password: String },
+    Secret(String),
 }
 
 impl Default for Credential {
