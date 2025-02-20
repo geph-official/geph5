@@ -98,7 +98,7 @@ pub enum AuthError {
     WrongLevel,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Credential {
     TestDummy,

@@ -148,7 +148,7 @@ impl BrokerProtocol for BrokerImpl {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError> {
-        let (_, user_level) = match valid_auth_token(&auth_token).await {
+        let (_, user_level) = match valid_auth_token(auth_token).await {
             Ok(auth) => {
                 if let Some(level) = auth {
                     level
@@ -195,7 +195,7 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError> {
-        match valid_auth_token(&auth_token).await {
+        match valid_auth_token(auth_token).await {
             Ok(Some((user_id, _))) => get_user_info(user_id).await,
             Ok(None) => Ok(None),
             Err(_) => Err(AuthError::RateLimited),

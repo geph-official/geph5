@@ -1,4 +1,6 @@
 use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
+
+use cached::proc_macro::cached;
 use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
 
 use std::{
@@ -58,6 +60,7 @@ async fn secret_hash(secret: String) -> String {
     .await
 }
 
+#[cached(time = 3600, result = true, sync_writes = true)]
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {
         Credential::TestDummy => Err(AuthError::Forbidden),
@@ -133,7 +136,8 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<(i32, AccountLevel)>> {
+#[cached(time = 60, result = true, sync_writes = true)]
+pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, AccountLevel)>> {
     let user_id: Option<(i32,)> =
         sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
             .bind(token)
@@ -153,6 +157,7 @@ pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<(i32, Accoun
     }
 }
 
+#[cached(time = 60, result = true, sync_writes = true)]
 pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> {
     let plus_expires_unix = get_subscription_expiry(user_id)
         .await
