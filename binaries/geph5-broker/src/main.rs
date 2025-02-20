@@ -16,6 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod auth;
 mod database;
+mod puzzle;
 mod routes;
 mod rpc_impl;
 mod self_stat;
@@ -85,6 +86,8 @@ struct ConfigFile {
 
     bridge_token: String,
     exit_token: String,
+
+    puzzle_difficulty: u16,
 
     #[serde(default)]
     statsd_addr: Option<SocketAddr>,

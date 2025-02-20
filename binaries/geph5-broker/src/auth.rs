@@ -1,3 +1,6 @@
+use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
+use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
+use sqlx::Row;
 use std::{
     collections::BTreeMap,
     ops::Deref as _,
@@ -5,14 +8,55 @@ use std::{
     time::Duration,
 };
 
-use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
-use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
-
 use moka::future::Cache;
 use rand::Rng as _;
 use sqlx::types::chrono::Utc;
 
 use crate::{database::POSTGRES, log_error};
+
+pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
+    let secret = (0..23)
+        .map(|_| rand::thread_rng().gen_range(0..9))
+        .fold(String::new(), |a, b| format!("{a}{b}"));
+    let secret = format!("9{secret}");
+
+    let mut txn = POSTGRES.begin().await?;
+    let user_id = if let Some(user_id) = user_id {
+        user_id
+    } else {
+        let (user_id,): (i32,) =
+            sqlx::query_as("insert into users (createtime) values (NOW()) returning id")
+                .fetch_one(&mut *txn)
+                .await?;
+        user_id
+    };
+    let hash = secret_hash(secret.clone()).await;
+    sqlx::query("insert into auth_secret (id, secret_hash) values ($1, $2)")
+        .bind(user_id)
+        .bind(hash)
+        .execute(&mut *txn)
+        .await?;
+    txn.commit().await?;
+    Ok(secret)
+}
+
+async fn secret_hash(secret: String) -> String {
+    blocking::unblock(move || {
+        let hasher = Argon2::new_with_secret(
+            b"geph5-pepper",
+            argon2::Algorithm::Argon2id,
+            argon2::Version::V0x13,
+            argon2::Params::DEFAULT,
+        )
+        .unwrap();
+        let mut output_material = [0u8; 16];
+        hasher
+            .hash_password_into(secret.as_bytes(), b"", &mut output_material)
+            .unwrap();
+        hex::encode(output_material)
+    })
+    .await
+}
 
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {

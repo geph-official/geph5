@@ -11,8 +11,8 @@ pub use exit::*;
 mod signed;
 use serde::{Deserialize, Serialize};
 pub use signed::*;
-
 mod mac;
+pub mod puzzle;
 pub use mac::*;
 mod bridge;
 pub use bridge::*;
@@ -57,6 +57,14 @@ pub trait BrokerProtocol {
     async fn set_stat(&self, stat: String, value: f64);
 
     async fn upload_available(&self, data: AvailabilityData);
+
+    async fn get_puzzle(&self) -> (String, u16);
+
+    async fn register_user_secret(
+        &self,
+        puzzle: String,
+        solution: String,
+    ) -> Result<String, GenericError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

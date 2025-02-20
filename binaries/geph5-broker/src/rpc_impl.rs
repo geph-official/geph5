@@ -22,8 +22,9 @@ use std::{
 };
 
 use crate::{
-    auth::{get_subscription_expiry, get_user_info, validate_credential},
+    auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
     log_error,
+    puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
     auth::{new_auth_token, valid_auth_token, validate_username_pwd},
@@ -348,6 +349,19 @@ impl BrokerProtocol for BrokerImpl {
             .inspect_err(|e| tracing::warn!(err = debug(e), "setting availability failed")),
         )
         .detach();
+    }
+
+    async fn get_puzzle(&self) -> (String, u16) {
+        (new_puzzle().await, CONFIG_FILE.wait().puzzle_difficulty)
+    }
+
+    async fn register_user_secret(
+        &self,
+        puzzle: String,
+        solution: String,
+    ) -> Result<String, GenericError> {
+        verify_puzzle_solution(&puzzle, &solution).await?;
+        Ok(register_secret(None).await?)
     }
 }
 
