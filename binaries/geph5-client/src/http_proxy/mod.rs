@@ -4,7 +4,7 @@ mod rt_compat;
 
 use std::{net::SocketAddr, str::FromStr as _};
 
-pub async fn run_http_proxy(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn http_proxy_serve(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let shared_server: SharedProxyServer = ProxyServer::new_shared(ctx.clone());
     let listen = ctx.init().http_proxy_listen;
     if let Some(listen) = listen {

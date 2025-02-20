@@ -15,6 +15,7 @@ mod database;
 mod http_proxy;
 pub mod logs;
 
+mod pac;
 mod route;
 mod socks5;
 mod spoof_dns;

@@ -20,7 +20,8 @@ use crate::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
     },
     database::db_read_or_wait,
-    http_proxy::run_http_proxy,
+    http_proxy::http_proxy_serve,
+    pac::pac_serve,
     route::ExitConstraint,
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
@@ -30,12 +31,13 @@ use crate::{
 pub struct Config {
     pub socks5_listen: Option<SocketAddr>,
     pub http_proxy_listen: Option<SocketAddr>,
+    pub pac_listen: Option<SocketAddr>,
 
     pub control_listen: Option<SocketAddr>,
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
     pub bridge_mode: BridgeMode,
-    pub cache: Option<PathBuf>, 
+    pub cache: Option<PathBuf>,
 
     pub broker: Option<BrokerSource>,
     pub broker_keys: Option<BrokerKeys>,
@@ -217,7 +219,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))
             .race(vpn_loop.inspect_err(|e| tracing::error!(err = debug(e), "vpn loop stopped")))
             .race(
-                run_http_proxy(&ctx)
+                http_proxy_serve(&ctx)
                     .inspect_err(|e| tracing::error!(err = debug(e), "http proxy stopped")),
             )
             .race(
@@ -225,6 +227,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                     .inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
             )
             .race(rpc_serve)
+            .race(pac_serve(&ctx))
             .await
     }
 }
