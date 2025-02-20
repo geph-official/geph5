@@ -136,7 +136,7 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 60, result = true, sync_writes = true)]
+#[cached(time = 60, result = true)]
 pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, AccountLevel)>> {
     let user_id: Option<(i32,)> =
         sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
@@ -157,7 +157,7 @@ pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, Acco
     }
 }
 
-#[cached(time = 60, result = true, sync_writes = true)]
+#[cached(time = 60, result = true)]
 pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> {
     let plus_expires_unix = get_subscription_expiry(user_id)
         .await
