@@ -6,13 +6,23 @@ use std::{
 };
 
 use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
-use geph5_broker_protocol::{AccountLevel, AuthError};
+use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
 
 use moka::future::Cache;
 use rand::Rng as _;
 use sqlx::types::chrono::Utc;
 
 use crate::{database::POSTGRES, log_error};
+
+pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
+    match credential {
+        Credential::TestDummy => Err(AuthError::Forbidden),
+        Credential::LegacyUsernamePassword { username, password } => {
+            Ok(validate_username_pwd(&username, &password).await?)
+        }
+        Credential::Secret(_) => Err(AuthError::Forbidden),
+    }
+}
 
 pub async fn validate_username_pwd(username: &str, password: &str) -> Result<i32, AuthError> {
     tracing::debug!(username, "validating legacy username/password");
@@ -76,6 +86,18 @@ pub async fn valid_auth_token(token: &str) -> anyhow::Result<Option<(i32, Accoun
     } else {
         Ok(None)
     }
+}
+
+pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> {
+    let plus_expires_unix = get_subscription_expiry(user_id)
+        .await
+        .map_err(|_| AuthError::RateLimited)?
+        .map(|u| u as u64);
+
+    Ok(Some(UserInfo {
+        user_id: user_id as _,
+        plus_expires_unix,
+    }))
 }
 
 pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>> {

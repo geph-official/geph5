@@ -24,6 +24,10 @@ pub trait BrokerProtocol {
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
     async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError>;
+    async fn get_user_info_by_cred(
+        &self,
+        credential: Credential,
+    ) -> Result<Option<UserInfo>, AuthError>;
     async fn get_connect_token(
         &self,
         auth_token: String,

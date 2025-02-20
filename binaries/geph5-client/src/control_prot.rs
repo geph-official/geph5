@@ -5,14 +5,14 @@ use std::{
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
-use geph5_broker_protocol::ExitDescriptor;
+use geph5_broker_protocol::{AccountLevel, ExitDescriptor};
 
 use itertools::Itertools;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use crate::{client::CtxField, logs::LOGS, stats::stat_get_num, Config};
+use crate::{broker_client, client::CtxField, logs::LOGS, stats::stat_get_num, Config};
 
 #[nanorpc_derive]
 #[async_trait]
@@ -23,6 +23,11 @@ pub trait ControlProtocol {
     async fn stop(&self);
 
     async fn recent_logs(&self) -> Vec<String>;
+
+    // broker-proxying stuff
+
+    async fn check_secret(&self, secret: String) -> Result<bool, String>;
+    async fn user_info(&self, secret: String) -> Result<UserInfo, String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -38,6 +43,12 @@ pub struct ConnectedInfo {
     pub bridge: String,
 
     pub exit: ExitDescriptor,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UserInfo {
+    pub level: AccountLevel,
+    pub expiry: u64,
 }
 
 pub struct ControlProtocolImpl {
@@ -75,6 +86,15 @@ impl ControlProtocol for ControlProtocolImpl {
             .split('\n')
             .map(|s| s.to_string())
             .collect_vec()
+    }
+
+    async fn check_secret(&self, secret: String) -> Result<bool, String> {
+        // broker_client(&self.ctx)?.get_user_info(auth_token)
+        todo!()
+    }
+
+    async fn user_info(&self, secret: String) -> Result<UserInfo, String> {
+        todo!()
     }
 }
 

@@ -21,7 +21,10 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{auth::get_subscription_expiry, log_error};
+use crate::{
+    auth::{get_subscription_expiry, get_user_info, validate_credential},
+    log_error,
+};
 use crate::{
     auth::{new_auth_token, valid_auth_token, validate_username_pwd},
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
@@ -127,13 +130,7 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError> {
-        let user_id = match credential {
-            Credential::TestDummy => return Err(AuthError::Forbidden),
-            Credential::LegacyUsernamePassword { username, password } => {
-                validate_username_pwd(&username, &password).await?
-            }
-            Credential::Secret(_) => return Err(AuthError::Forbidden),
-        };
+        let user_id = validate_credential(credential).await?;
 
         let token = new_auth_token(user_id)
             .await
@@ -197,32 +194,16 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError> {
-        static USER_INFO_CACHE: Lazy<Cache<String, Option<UserInfo>>> = Lazy::new(|| {
-            Cache::builder()
-                .time_to_live(Duration::from_secs(60))
-                .build()
-        });
+        match valid_auth_token(&auth_token).await {
+            Ok(Some((user_id, _))) => get_user_info(user_id).await,
+            Ok(None) => Ok(None),
+            Err(_) => Err(AuthError::RateLimited),
+        }
+    }
 
-        USER_INFO_CACHE
-            .try_get_with(auth_token.clone(), async {
-                match valid_auth_token(&auth_token).await {
-                    Ok(Some((user_id, _))) => {
-                        let plus_expires_unix = get_subscription_expiry(user_id)
-                            .await
-                            .map_err(|_| AuthError::RateLimited)?
-                            .map(|u| u as u64);
-
-                        Ok(Some(UserInfo {
-                            user_id: user_id as _,
-                            plus_expires_unix,
-                        }))
-                    }
-                    Ok(None) => Ok(None),
-                    Err(_) => Err(AuthError::RateLimited),
-                }
-            })
-            .await
-            .map_err(|e| e.deref().clone())
+    async fn get_user_info_by_cred(&self, cred: Credential) -> Result<Option<UserInfo>, AuthError> {
+        let user_id = validate_credential(cred).await?;
+        get_user_info(user_id).await
     }
 
     async fn get_routes(
