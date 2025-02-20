@@ -32,6 +32,7 @@ pub trait ControlProtocol {
     async fn user_info(&self, secret: String) -> Result<UserInfo, String>;
     async fn start_registration(&self) -> Result<usize, String>;
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
+    async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -148,7 +149,6 @@ impl ControlProtocol for ControlProtocolImpl {
                         let puzzle = puzzle.clone();
                         smol::unblock(move || {
                             solve_puzzle(&puzzle, difficulty, |progress| {
-                                dbg!(progress);
                                 REGISTRATIONS.lock()[idx] = RegistrationProgress {
                                     progress,
                                     secret: None,
@@ -179,11 +179,16 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String> {
+        tracing::debug!(idx, "polling registration");
         let registers = REGISTRATIONS.lock();
         registers
             .get(idx)
             .cloned()
             .ok_or_else(|| "no such registration".to_string())
+    }
+
+    async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String> {
+        Ok(vec![1.0, 2.0, 3.0])
     }
 }
 

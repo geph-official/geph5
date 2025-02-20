@@ -64,7 +64,28 @@ pub async fn validate_credential(credential: Credential) -> Result<i32, AuthErro
         Credential::LegacyUsernamePassword { username, password } => {
             Ok(validate_username_pwd(&username, &password).await?)
         }
-        Credential::Secret(_) => Err(AuthError::Forbidden),
+        Credential::Secret(s) => Ok(validate_secret(&s).await?),
+    }
+}
+
+pub async fn validate_secret(secret: &str) -> Result<i32, AuthError> {
+    tracing::debug!(secret, "validating secret");
+    // 1. Compute the hash of the supplied secret, just like we did in register_secret.
+    let hash = secret_hash(secret.to_string()).await;
+
+    // 2. Query the DB to see if any row matches this hash.
+    let res: Option<(i32,)> = sqlx::query_as("SELECT id FROM auth_secret WHERE secret_hash = $1")
+        .bind(hash)
+        .fetch_optional(POSTGRES.deref())
+        .await
+        .inspect_err(log_error)
+        .map_err(|_| AuthError::RateLimited)?;
+
+    // 3. If we find a matching user_id, great; otherwise, Forbidden.
+    if let Some((user_id,)) = res {
+        Ok(user_id)
+    } else {
+        Err(AuthError::Forbidden)
     }
 }
 
