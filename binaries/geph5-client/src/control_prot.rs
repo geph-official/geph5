@@ -1,16 +1,18 @@
 use std::{
     convert::Infallible,
+    sync::{LazyLock, OnceLock},
     time::{Duration, SystemTime},
 };
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
-use geph5_broker_protocol::{AccountLevel, ExitDescriptor};
+use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor};
 
 use itertools::Itertools;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use slab::Slab;
 
 use crate::{broker_client, client::CtxField, logs::LOGS, stats::stat_get_num, Config};
 
@@ -28,6 +30,8 @@ pub trait ControlProtocol {
 
     async fn check_secret(&self, secret: String) -> Result<bool, String>;
     async fn user_info(&self, secret: String) -> Result<UserInfo, String>;
+    async fn start_registration(&self) -> Result<usize, String>;
+    async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -56,6 +60,15 @@ pub struct ControlProtocolImpl {
 }
 
 pub static CURRENT_CONN_INFO: CtxField<Mutex<ConnInfo>> = |_| Mutex::new(ConnInfo::Connecting);
+
+static REGISTRATIONS: LazyLock<Mutex<Slab<RegistrationProgress>>> =
+    LazyLock::new(|| Mutex::new(Slab::new()));
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RegistrationProgress {
+    pub progress: f64,
+    pub secret: Option<String>,
+}
 
 #[async_trait]
 impl ControlProtocol for ControlProtocolImpl {
@@ -105,7 +118,7 @@ impl ControlProtocol for ControlProtocolImpl {
             .await
             .map_err(|e| format!("{:?}", e))?
             .map_err(|e| format!("{:?}", e))?
-            .ok_or_else(|| "no usch user".to_string())?;
+            .ok_or_else(|| "no such user".to_string())?;
         Ok(UserInfo {
             level: if res.plus_expires_unix.is_some() {
                 AccountLevel::Plus
@@ -114,6 +127,63 @@ impl ControlProtocol for ControlProtocolImpl {
             },
             expiry: res.plus_expires_unix,
         })
+    }
+
+    async fn start_registration(&self) -> Result<usize, String> {
+        let (puzzle, difficulty) = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .get_puzzle()
+            .await
+            .map_err(|e| format!("{:?}", e))?;
+        tracing::debug!(puzzle, difficulty, "got puzzle");
+        let idx = REGISTRATIONS.lock().insert(RegistrationProgress {
+            progress: 0.0,
+            secret: None,
+        });
+        let ctx = self.ctx.clone();
+        smolscale::spawn(async move {
+            loop {
+                let fallible = async {
+                    let solution = {
+                        let puzzle = puzzle.clone();
+                        smol::unblock(move || {
+                            solve_puzzle(&puzzle, difficulty, |progress| {
+                                dbg!(progress);
+                                REGISTRATIONS.lock()[idx] = RegistrationProgress {
+                                    progress,
+                                    secret: None,
+                                }
+                            })
+                        })
+                        .await
+                    };
+                    let secret = broker_client(&ctx)?
+                        .register_user_secret(puzzle.clone(), solution)
+                        .await?
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    REGISTRATIONS.lock()[idx] = RegistrationProgress {
+                        progress: 1.0,
+                        secret: Some(secret.clone()),
+                    };
+                    anyhow::Ok(secret)
+                };
+                if let Err(err) = fallible.await {
+                    tracing::warn!(err = debug(err), "restarting registration")
+                } else {
+                    break;
+                }
+            }
+        })
+        .detach();
+        Ok(idx)
+    }
+
+    async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String> {
+        let registers = REGISTRATIONS.lock();
+        registers
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| "no such registration".to_string())
     }
 }
 

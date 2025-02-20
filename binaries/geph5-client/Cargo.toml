@@ -74,6 +74,7 @@ sillad-conntest = { version = "0.2", path = "../../libraries/sillad-conntest" }
 sillad-native-tls = {version="0.2", path="../../libraries/sillad-native-tls"}
 sillad-sosistab3 = { version = "0.2.7", path = "../../libraries/sillad-sosistab3" }
 simple-dns = "0.7.0"
+slab = "0.4.9"
 smol = "2.0.0"
 smol-timeout2 = "0.6.0"
 smol_str = { version = "0.2.2", features = ["serde"] }

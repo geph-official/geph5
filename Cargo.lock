@@ -3297,6 +3297,7 @@ dependencies = [
  "sillad-native-tls",
  "sillad-sosistab3",
  "simple-dns 0.7.1",
+ "slab",
  "smol 2.0.2",
  "smol-timeout2",
  "smol_str",

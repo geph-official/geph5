@@ -51,7 +51,7 @@ async fn secret_hash(secret: String) -> String {
         .unwrap();
         let mut output_material = [0u8; 16];
         hasher
-            .hash_password_into(secret.as_bytes(), b"", &mut output_material)
+            .hash_password_into(secret.as_bytes(), b"geph5-pepper", &mut output_material)
             .unwrap();
         hex::encode(output_material)
     })
