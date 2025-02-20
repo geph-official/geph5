@@ -202,8 +202,11 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_user_info_by_cred(&self, cred: Credential) -> Result<Option<UserInfo>, AuthError> {
-        let user_id = validate_credential(cred).await?;
-        get_user_info(user_id).await
+        let user_id = validate_credential(cred).await;
+        if let Err(AuthError::Forbidden) = user_id {
+            return Ok(None);
+        }
+        get_user_info(user_id?).await
     }
 
     async fn get_routes(

@@ -48,7 +48,7 @@ pub struct ConnectedInfo {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserInfo {
     pub level: AccountLevel,
-    pub expiry: u64,
+    pub expiry: Option<u64>,
 }
 
 pub struct ControlProtocolImpl {
@@ -89,12 +89,31 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn check_secret(&self, secret: String) -> Result<bool, String> {
-        // broker_client(&self.ctx)?.get_user_info(auth_token)
-        todo!()
+        let res = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+            .await
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?;
+        Ok(res.is_some())
     }
 
     async fn user_info(&self, secret: String) -> Result<UserInfo, String> {
-        todo!()
+        let res = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+            .await
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?
+            .ok_or_else(|| "no usch user".to_string())?;
+        Ok(UserInfo {
+            level: if res.plus_expires_unix.is_some() {
+                AccountLevel::Plus
+            } else {
+                AccountLevel::Free
+            },
+            expiry: res.plus_expires_unix,
+        })
     }
 }
 
