@@ -43,15 +43,11 @@ pub async fn bridge_to_leaf_route(
                     ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
                 )
                 .await?;
-                let obfs_tls = bridge_to_leaf_route_inner(
+                let obfs = bridge_to_leaf_route_inner(
                     bridge.clone(),
                     exit_b2e,
                     ObfsProtocol::ConnTest(
-                        ObfsProtocol::Sosistab3New(
-                            gencookie(),
-                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-                        )
-                        .into(),
+                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
                     ),
                 )
                 .await?;
@@ -59,7 +55,7 @@ pub async fn bridge_to_leaf_route(
                     only_test,
                     RouteDescriptor::Delay {
                         milliseconds: 500,
-                        lower: obfs_tls.into(),
+                        lower: obfs.into(),
                     },
                 ]);
 
