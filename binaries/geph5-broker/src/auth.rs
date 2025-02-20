@@ -1,6 +1,6 @@
 use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
 use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
-use sqlx::Row;
+
 use std::{
     collections::BTreeMap,
     ops::Deref as _,

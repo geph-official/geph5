@@ -87,6 +87,7 @@ struct ConfigFile {
     bridge_token: String,
     exit_token: String,
 
+    #[serde(default)]
     puzzle_difficulty: u16,
 
     #[serde(default)]
