@@ -10,8 +10,13 @@ static WATCHDOG_KICK: LazyLock<Sender<()>> = LazyLock::new(|| {
         .spawn(move || {
             smol::future::block_on(async move {
                 loop {
-                    if recv.recv().timeout(Duration::from_secs(60)).await.is_none() {
-                        panic!("watchdog not kicked for 60 seconds")
+                    if recv
+                        .recv()
+                        .timeout(Duration::from_secs(120))
+                        .await
+                        .is_none()
+                    {
+                        panic!("watchdog not kicked for 120 seconds")
                     }
                 }
             });
