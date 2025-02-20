@@ -1,9 +1,4 @@
-use std::{
-    ops::Deref,
-    str::FromStr,
-    sync::LazyLock,
-    time::Duration,
-};
+use std::{ops::Deref, str::FromStr, sync::LazyLock, time::Duration};
 
 use async_io::Timer;
 use geph5_broker_protocol::BridgeDescriptor;
@@ -22,7 +17,7 @@ use crate::CONFIG_FILE;
 pub static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     smolscale::block_on(
         PoolOptions::new()
-            .max_connections(128)
+            .max_connections(300)
             .acquire_timeout(Duration::from_secs(60))
             .max_lifetime(Duration::from_secs(600))
             .connect_with({
