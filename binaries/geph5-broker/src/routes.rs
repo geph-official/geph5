@@ -47,7 +47,11 @@ pub async fn bridge_to_leaf_route(
                     bridge.clone(),
                     exit_b2e,
                     ObfsProtocol::ConnTest(
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
+                        ObfsProtocol::Sosistab3New(
+                            gencookie(),
+                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                        )
+                        .into(),
                     ),
                 )
                 .await?;
@@ -114,7 +118,7 @@ async fn bridge_to_leaf_route_inner(
                 expiry: SystemTime::now() + Duration::from_secs(86400),
             },
         )
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(4))
         .await
         .context("timeout when sosistab")??;
     let final_route = protocol_to_descriptor(protocol, sosistab_addr);
