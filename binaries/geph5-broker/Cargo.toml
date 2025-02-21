@@ -45,7 +45,7 @@ rusty_pool = "0.7.0"
 oneshot = "0.1.8"
 cadence = "1.4.0"
 clap = { version = "4.5.8", features = ["derive"] }
-reqwest = { version = "0.12.5", default-features = false }
+reqwest = { version = "0.12.5", default-features = false, features=["json"] }
 hex = "0.4.3"
 tap = "1.0.1"
 blocking = "1.6.1"

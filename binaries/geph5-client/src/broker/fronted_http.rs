@@ -36,7 +36,8 @@ impl RpcTransport for FrontedHttpTransport {
             method = req.method,
             resp_len = resp_bytes.len(),
             elapsed = debug(start.elapsed()),
-            "response received through http"
+            "response received through http: {:?}",
+            String::from_utf8_lossy(&resp_bytes)
         );
         Ok(serde_json::from_slice(&resp_bytes)?)
     }
