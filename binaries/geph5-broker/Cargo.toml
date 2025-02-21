@@ -50,3 +50,4 @@ hex = "0.4.3"
 tap = "1.0.1"
 blocking = "1.6.1"
 cached = {version="0.54.0", features=["async"]}
+smol = "2.0.2"

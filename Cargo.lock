@@ -3232,6 +3232,7 @@ dependencies = [
  "serde_yaml",
  "sillad",
  "sillad-sosistab3",
+ "smol 2.0.2",
  "smol-timeout2",
  "smolscale",
  "sqlx",

@@ -1,12 +1,14 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use geph5_broker_protocol::NewsItem;
+
 use serde_json::json;
 
 use crate::CONFIG_FILE;
 
 pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
+    // Validate language code
     if lang_code != "en"
         && lang_code != "zh-CN"
         && lang_code != "zh-TW"
@@ -15,6 +17,29 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
     {
         anyhow::bail!("unsupported language {}", lang_code)
     }
+
+    // Path to cache file
+    let cache_path = "/tmp/news.json";
+    let one_hour = Duration::from_secs(3600);
+
+    // If the file exists and is not older than 1 hour, use the cached value
+    if let Ok(metadata) = smol::fs::metadata(cache_path).await {
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(elapsed) = SystemTime::now().duration_since(modified) {
+                if elapsed < one_hour {
+                    // Read from cache
+                    let cached_data = smol::fs::read_to_string(cache_path).await?;
+                    let cached_news: Vec<NewsItem> = serde_json::from_str(&cached_data)?;
+                    return Ok(cached_news);
+                }
+            }
+        }
+    }
+
+    // Otherwise, we need to fetch fresh data. Use a mutex to ensure no duplicate work.
+    static MUTEX: smol::lock::Mutex<()> = smol::lock::Mutex::new(());
+    let _guard = MUTEX.lock().await;
+
     // Replace with your actual OpenAI API key
     let api_key = CONFIG_FILE.wait().openai_key.clone();
 
@@ -22,7 +47,16 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()?;
-    let announcements = client.get(format!("https://gist.githubusercontent.com/nullchinchilla/b99b14bbc6090a423c62c6b29b9d06ca/raw/612fcb51be5700807b035056886124f7279713cb/geph-announcements.md?bust={}", rand::random::<u128>())).send().await?.text().await?;
+
+    // Fetch announcements
+    let announcements = client
+        .get(format!(
+            "https://gist.githubusercontent.com/nullchinchilla/b99b14bbc6090a423c62c6b29b9d06ca/raw/612fcb51be5700807b035056886124f7279713cb/geph-announcements.md?bust={}",
+            rand::random::<u128>()
+        ))
+        .send().await?
+        .text().await?;
+
     // Create the JSON request body
     let request_body = json!({
         "model": "o3-mini",
@@ -30,6 +64,7 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
         "messages": [
             {
                 "role": "system",
+                // Replace "uk-UA" with `lang_code` if you wish to dynamically inject the language
                 "content": include_str!("news_prompt.txt").replace("$LANGUAGE", "uk-UA")
             },
             {
@@ -37,12 +72,10 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
                 "content": announcements
             }
         ],
-
         "response_format": { "type": "json_object" }
-
     });
 
-    // Make the POST request
+    // Make the POST request to OpenAI
     let response = client
         .post("https://api.openai.com/v1/chat/completions")
         .bearer_auth(api_key)
@@ -50,26 +83,20 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
         .send()
         .await?;
 
-    // Parse the response text (or handle JSON as needed)
-    let response: serde_json::Value = response.json().await?;
-    dbg!(&response);
-    let response = response["choices"][0]["message"]["content"]
+    // Parse the response as JSON
+    let response_json: serde_json::Value = response.json().await?;
+    dbg!(&response_json);
+    let content_str = response_json["choices"][0]["message"]["content"]
         .as_str()
         .context("no response string")?;
-    let response: serde_json::Value = serde_json::from_str(response)?;
+    let parsed = serde_json::from_str::<serde_json::Value>(content_str)?;
 
-    Ok(serde_json::from_value(response["news"].clone())?)
+    // Convert to Vec<NewsItem>
+    let news_items: Vec<NewsItem> = serde_json::from_value(parsed["news"].clone())?;
+
+    // Write to cache (overwrite if it exists or create if it doesn't)
+    let serialized = serde_json::to_string(&news_items)?;
+    smol::fs::write(cache_path, serialized).await?;
+
+    Ok(news_items)
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::fetch_news;
-
-//     #[test]
-//     fn test_news() {
-//         smolscale::block_on(async move {
-//             let res = fetch_news().await.unwrap();
-//             dbg!(res);
-//         })
-//     }
-// }
