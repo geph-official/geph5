@@ -93,6 +93,8 @@ struct ConfigFile {
 
     #[serde(default)]
     statsd_addr: Option<SocketAddr>,
+
+    openai_key: String,
 }
 
 fn default_puzzle_difficulty() -> u16 {

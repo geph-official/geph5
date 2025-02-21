@@ -6,8 +6,8 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, UserInfo,
-    DOMAIN_EXIT_DESCRIPTOR,
+    Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
+    UserInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
@@ -24,6 +24,7 @@ use std::{
 use crate::{
     auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
     log_error,
+    news::fetch_news,
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
@@ -362,6 +363,10 @@ impl BrokerProtocol for BrokerImpl {
     ) -> Result<String, GenericError> {
         verify_puzzle_solution(&puzzle, &solution).await?;
         Ok(register_secret(None).await?)
+    }
+
+    async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {
+        Ok(fetch_news(&lang).await?)
     }
 }
 

@@ -65,6 +65,8 @@ pub trait BrokerProtocol {
         puzzle: String,
         solution: String,
     ) -> Result<String, GenericError>;
+
+    async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -128,4 +130,11 @@ impl<T: Into<anyhow::Error>> From<T> for GenericError {
     fn from(value: T) -> Self {
         Self(value.into().to_string())
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NewsItem {
+    pub title: String,
+    pub date_unix: u64,
+    pub contents: String,
 }
