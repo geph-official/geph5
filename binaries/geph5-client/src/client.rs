@@ -73,7 +73,7 @@ impl Config {
         this.dry_run = true;
         this.socks5_listen = None;
         this.http_proxy_listen = None;
-
+        this.pac_listen = None;
         this.control_listen = None;
         this
     }

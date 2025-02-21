@@ -16,18 +16,20 @@ pub async fn pac_serve(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     })
     .await?;
 
-    // We start a loop to continuously accept incoming connections
+    // Clone the context for use in the spawned tasks
+    let ctx = ctx.clone();
+
     loop {
         let (stream, _) = listener.accept().await?;
-
-        // Use an adapter to access something implementing `tokio::io` traits as if they implement
-        // `hyper::rt` IO traits.
         let io = TokioIo::new(stream);
+        // Clone the context for this connection
+        let ctx = ctx.clone();
 
-        // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
+            // Create a service function that captures a clone of `ctx`
+            let service = service_fn(move |req| serve_pac(req, ctx.clone()));
             if let Err(err) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, service_fn(serve_pac))
+                .serve_connection(io, service)
                 .await
             {
                 eprintln!("Error serving connection: {:?}", err);
@@ -36,8 +38,13 @@ pub async fn pac_serve(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     }
 }
 
-async fn serve_pac(_: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    Ok(Response::new(Full::new(Bytes::from(
-        "function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}",
-    ))))
+async fn serve_pac(
+    _req: Request<hyper::body::Incoming>,
+    ctx: AnyCtx<Config>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+    let pac_addr = ctx.init().http_proxy_listen.unwrap();
+    Ok(Response::new(Full::new(Bytes::from(format!(
+        "function FindProxyForURL(url, host){{return 'PROXY {}';}}",
+        pac_addr
+    )))))
 }

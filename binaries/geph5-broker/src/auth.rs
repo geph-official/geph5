@@ -60,7 +60,7 @@ async fn secret_hash(secret: String) -> String {
     .await
 }
 
-#[cached(time = 3600, result = true, sync_writes = true)]
+#[cached(time = 60, result = true, sync_writes = true)]
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {
         Credential::TestDummy => Err(AuthError::Forbidden),
