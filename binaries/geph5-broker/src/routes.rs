@@ -29,7 +29,7 @@ pub async fn bridge_to_leaf_route(
         Cache<(BridgeDescriptor, SocketAddr), Result<RouteDescriptor, Arc<anyhow::Error>>>,
     > = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(120))
+            .time_to_live(Duration::from_secs(600))
             .build()
     });
 
