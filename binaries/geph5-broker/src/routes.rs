@@ -37,38 +37,34 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit_b2e),
             async {
-                // let plain_route = bridge_to_leaf_route_inner(
-                //     bridge.clone(),
-                //     exit_b2e,
-                //     ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
-                // )
-                // .await?;
+                let plain_route = bridge_to_leaf_route_inner(
+                    bridge.clone(),
+                    exit_b2e,
+                    ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
+                )
+                .await?;
                 let obfs_route = bridge_to_leaf_route_inner(
                     bridge.clone(),
                     exit_b2e,
                     ObfsProtocol::ConnTest(
-                        ObfsProtocol::Sosistab3New(
-                            gencookie(),
-                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-                        )
-                        .into(),
+                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
                     ),
                 )
                 .await?;
-                // let new_route = RouteDescriptor::Race(vec![
-                //     plain_route,
-                //     RouteDescriptor::Delay {
-                //         milliseconds: 500,
-                //         lower: obfs_route.into(),
-                //     },
-                // ]);
+                let new_route = RouteDescriptor::Race(vec![
+                    plain_route,
+                    RouteDescriptor::Delay {
+                        milliseconds: 500,
+                        lower: obfs_route.into(),
+                    },
+                ]);
 
                 let legacy_route =
                     bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
                         .await?;
                 anyhow::Ok(RouteDescriptor::Delay {
                     milliseconds: delay_ms,
-                    lower: RouteDescriptor::Fallback(vec![obfs_route, legacy_route]).into(),
+                    lower: RouteDescriptor::Fallback(vec![new_route, legacy_route]).into(),
                 })
             }
             .map(|res| {
