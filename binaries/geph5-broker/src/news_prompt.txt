@@ -1,0 +1,5 @@
+Your task is to extract all the news items in the input that matches the language en-US, and format them into a JSON object as follows:
+
+{"news": [{"date": (unix timestamp in seconds), "news": "News item etc"}...]}
+
+Each news item must be transcribed into HTML from the original Markdown. Links must have target _blank
