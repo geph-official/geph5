@@ -6,7 +6,9 @@ use std::{
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
-use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor};
+use geph5_broker_protocol::{
+    puzzle::solve_puzzle, AccountLevel, ExitDescriptor, ExitList, NewsItem,
+};
 
 use itertools::Itertools;
 use moka::future::Cache;
@@ -35,6 +37,8 @@ pub trait ControlProtocol {
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
     async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
+
+    async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -213,6 +217,15 @@ impl ControlProtocol for ControlProtocolImpl {
             .map_err(|e| format!("{:?}", e))?
             .map_err(|e| format!("{:?}", e))?;
         Ok(resp.inner.all_exits.iter().map(|s| s.1.clone()).collect())
+    }
+
+    async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .get_news(lang)
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?)
     }
 }
 

@@ -20,13 +20,12 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
 
     // Path to cache file
     let cache_path = format!("/tmp/geph5_news_{lang_code}.json");
-    let one_hour = Duration::from_secs(3600);
 
     // If the file exists and is not older than 1 hour, use the cached value
     if let Ok(metadata) = smol::fs::metadata(&cache_path).await {
         if let Ok(modified) = metadata.modified() {
             if let Ok(elapsed) = SystemTime::now().duration_since(modified) {
-                if elapsed < one_hour {
+                if elapsed < Duration::from_secs(3600) {
                     // Read from cache
                     let cached_data = smol::fs::read_to_string(&cache_path).await?;
                     let cached_news: Vec<NewsItem> = serde_json::from_str(&cached_data)?;
@@ -64,8 +63,8 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
         "messages": [
             {
                 "role": "system",
-                // Replace "uk-UA" with `lang_code` if you wish to dynamically inject the language
-                "content": include_str!("news_prompt.txt").replace("$LANGUAGE", "uk-UA")
+
+                "content": include_str!("news_prompt.txt").replace("$LANGUAGE", lang_code)
             },
             {
                 "role": "user",
