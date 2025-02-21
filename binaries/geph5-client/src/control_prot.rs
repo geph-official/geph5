@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    sync::{LazyLock, OnceLock},
+    sync::{Arc, LazyLock, OnceLock},
     time::{Duration, SystemTime},
 };
 
@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor};
 
 use itertools::Itertools;
+use moka::future::Cache;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -33,6 +34,7 @@ pub trait ControlProtocol {
     async fn start_registration(&self) -> Result<usize, String>;
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
+    async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -87,11 +89,10 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn stop(&self) {
-        smolscale::spawn(async move {
-            smol::Timer::after(Duration::from_millis(100)).await;
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
             std::process::exit(0);
-        })
-        .detach();
+        });
     }
 
     async fn recent_logs(&self) -> Vec<String> {
@@ -113,21 +114,34 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn user_info(&self, secret: String) -> Result<UserInfo, String> {
-        let res = broker_client(&self.ctx)
-            .map_err(|e| format!("{:?}", e))?
-            .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+        static USER_INFO_CACHE: CtxField<Cache<String, UserInfo>> = |_| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(60))
+                .build()
+        };
+
+        let cache = self.ctx.get(USER_INFO_CACHE);
+
+        cache
+            .try_get_with(secret.clone(), async {
+                let res = broker_client(&self.ctx)
+                    .map_err(|e| format!("{:?}", e))?
+                    .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+                    .await
+                    .map_err(|e| format!("{:?}", e))?
+                    .map_err(|e| format!("{:?}", e))?
+                    .ok_or_else(|| "no such user".to_string())?;
+                Ok(UserInfo {
+                    level: if res.plus_expires_unix.is_some() {
+                        AccountLevel::Plus
+                    } else {
+                        AccountLevel::Free
+                    },
+                    expiry: res.plus_expires_unix,
+                })
+            })
             .await
-            .map_err(|e| format!("{:?}", e))?
-            .map_err(|e| format!("{:?}", e))?
-            .ok_or_else(|| "no such user".to_string())?;
-        Ok(UserInfo {
-            level: if res.plus_expires_unix.is_some() {
-                AccountLevel::Plus
-            } else {
-                AccountLevel::Free
-            },
-            expiry: res.plus_expires_unix,
-        })
+            .map_err(|s: Arc<String>| (*s).clone())
     }
 
     async fn start_registration(&self) -> Result<usize, String> {
@@ -189,6 +203,16 @@ impl ControlProtocol for ControlProtocolImpl {
 
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String> {
         Ok(vec![1.0, 2.0, 3.0])
+    }
+
+    async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String> {
+        let resp = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .get_exits()
+            .await
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?;
+        Ok(resp.inner.all_exits.iter().map(|s| s.1.clone()).collect())
     }
 }
 

@@ -165,7 +165,7 @@ impl ClientExitCryptPipe {
 
 impl Pipe for ClientExitCryptPipe {
     fn protocol(&self) -> &str {
-        "client-exit"
+        "plain"
     }
 
     fn remote_addr(&self) -> Option<&str> {

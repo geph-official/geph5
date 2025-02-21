@@ -16,6 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod auth;
 mod database;
+mod news;
 mod puzzle;
 mod routes;
 mod rpc_impl;
@@ -87,11 +88,15 @@ struct ConfigFile {
     bridge_token: String,
     exit_token: String,
 
-    #[serde(default)]
+    #[serde(default = "default_puzzle_difficulty")]
     puzzle_difficulty: u16,
 
     #[serde(default)]
     statsd_addr: Option<SocketAddr>,
+}
+
+fn default_puzzle_difficulty() -> u16 {
+    24
 }
 
 /// Run the Geph5 broker.

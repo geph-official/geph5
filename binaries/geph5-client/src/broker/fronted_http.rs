@@ -8,7 +8,6 @@ use reqwest::Client;
 pub struct FrontedHttpTransport {
     pub url: String,
     pub host: Option<String>,
-    pub client: Client,
 }
 
 #[async_trait]
@@ -17,8 +16,7 @@ impl RpcTransport for FrontedHttpTransport {
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
         tracing::debug!(method = req.method, "calling broker through http");
         let start = Instant::now();
-        let mut request_builder = self
-            .client
+        let mut request_builder = reqwest::Client::new()
             .post(&self.url)
             .header("content-type", "application/json");
 

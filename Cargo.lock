@@ -5526,6 +5526,7 @@ dependencies = [
  "async-lock 3.4.0",
  "async-task",
  "async_io_stream",
+ "atomic_float",
  "bipe",
  "bytemuck",
  "bytes",

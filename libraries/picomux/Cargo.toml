@@ -41,6 +41,7 @@ async-event = "0.2.1"
 async-lock = "3.4.0"
 crossbeam-queue = "0.3.11"
 async-io-bufpool = "0.1.2"
+atomic_float = "1.1.0"
 
 [dev-dependencies]
 smol = "2"

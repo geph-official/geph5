@@ -39,12 +39,10 @@ pub enum BrokerSource {
 impl BrokerSource {
     /// Converts to a RpcTransport.
     pub fn rpc_transport(&self) -> DynRpcTransport {
-        let client = Client::builder().no_proxy().build().unwrap();
         match self {
             BrokerSource::Direct(s) => DynRpcTransport::new(FrontedHttpTransport {
                 url: s.clone(),
                 host: None,
-                client,
             }),
             BrokerSource::DirectTcp(dest_addr) => {
                 DynRpcTransport::new(nanorpc_sillad::DialerTransport(TcpDialer {
@@ -54,7 +52,6 @@ impl BrokerSource {
             BrokerSource::Fronted { front, host } => DynRpcTransport::new(FrontedHttpTransport {
                 url: front.clone(),
                 host: Some(host.clone()),
-                client,
             }),
             BrokerSource::AwsLambda {
                 function_name,
