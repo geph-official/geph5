@@ -366,7 +366,9 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {
-        Ok(fetch_news(&lang).await?)
+        let (send, recv) = oneshot::channel();
+        smolscale::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
+        recv.await.unwrap().map_err(|e: anyhow::Error| e.into())
     }
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
