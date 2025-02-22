@@ -16,7 +16,7 @@ pub fn solve_puzzle(puzzle: &str, difficulty: u16, on_progress: impl Fn(f64)) ->
 
 /// Verify a puzzle solution
 pub fn verify_puzzle_solution(puzzle: &str, difficulty: u16, solution: &str) -> anyhow::Result<()> {
-    let solution = STANDARD_NO_PAD.decode(&solution)?;
+    let solution = STANDARD_NO_PAD.decode(solution)?;
     let solution = melpow::Proof::from_bytes(&solution).context("invalid solution format")?;
     if !solution.verify(puzzle.as_bytes(), difficulty as _, Blake3HashFunction) {
         anyhow::bail!("invalid solution to puzzle")

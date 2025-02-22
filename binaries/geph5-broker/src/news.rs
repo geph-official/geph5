@@ -62,7 +62,6 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
         "messages": [
             {
                 "role": "system",
-
                 "content": include_str!("news_prompt.txt").replace("$LANGUAGE", lang_code)
             },
             {
@@ -83,7 +82,6 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
 
     // Parse the response as JSON
     let response_json: serde_json::Value = response.json().await?;
-    dbg!(&response_json);
     let content_str = response_json["choices"][0]["message"]["content"]
         .as_str()
         .context("no response string")?;

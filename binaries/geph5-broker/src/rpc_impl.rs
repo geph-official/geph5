@@ -368,6 +368,23 @@ impl BrokerProtocol for BrokerImpl {
     async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {
         Ok(fetch_news(&lang).await?)
     }
+
+    async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
+        Ok(vec![(30, 500), (90, 1500), (365, 5475), (730, 10342)])
+    }
+
+    async fn payment_methods(&self) -> Result<Vec<String>, GenericError> {
+        Ok(vec![])
+    }
+
+    async fn create_payment(
+        &self,
+        auth_token: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, GenericError> {
+        Err(GenericError("payments disabled for now".to_string()))
+    }
 }
 
 pub static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {
