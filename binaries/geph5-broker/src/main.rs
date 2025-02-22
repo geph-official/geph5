@@ -17,6 +17,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 mod auth;
 mod database;
 mod news;
+mod payments;
 mod puzzle;
 mod routes;
 mod rpc_impl;
@@ -95,10 +96,20 @@ struct ConfigFile {
     statsd_addr: Option<SocketAddr>,
 
     openai_key: String,
+
+    #[serde(default = "default_payment_service")]
+    payment_url: String,
+
+    #[serde(default)]
+    payment_support_secret: String,
 }
 
 fn default_puzzle_difficulty() -> u16 {
     24
+}
+
+fn default_payment_service() -> String {
+    "https://web-backend.geph.io/rpc".to_string()
 }
 
 /// Run the Geph5 broker.

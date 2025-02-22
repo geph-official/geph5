@@ -25,6 +25,7 @@ use crate::{
     auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
     log_error,
     news::fetch_news,
+    payments::{payment_sessid, PaymentClient, PaymentTransport, StartStripeArgs},
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
@@ -381,11 +382,28 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn create_payment(
         &self,
-        auth_token: String,
+        secret: String,
         days: u32,
         method: String,
     ) -> Result<String, GenericError> {
-        Err(GenericError("payments disabled for now".to_string()))
+        let user_id = validate_credential(Credential::Secret(secret.clone())).await?;
+        let rpc = PaymentClient(PaymentTransport);
+        let sessid = payment_sessid(user_id).await?;
+        match method.as_str() {
+            "credit-card" => Ok(rpc
+                .start_stripe(
+                    sessid,
+                    StartStripeArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        is_recurring: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
+            _ => Err(GenericError("no support for this method here".to_string())),
+        }
     }
 }
 
