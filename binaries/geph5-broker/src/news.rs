@@ -57,7 +57,8 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
 
     // Create the JSON request body
     let request_body = json!({
-        "model": "gpt-4o",
+        "model": "o3-mini",
+        "reasoning_effort": "low",
         "messages": [
             {
                 "role": "system",
