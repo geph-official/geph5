@@ -8,6 +8,9 @@ use serde_json::json;
 use crate::CONFIG_FILE;
 
 pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
+    static MUTEX: smol::lock::Mutex<()> = smol::lock::Mutex::new(());
+    let _guard = MUTEX.lock().await;
+
     // Validate language code
     if lang_code != "en"
         && lang_code != "zh-CN"
@@ -34,10 +37,6 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
             }
         }
     }
-
-    // Otherwise, we need to fetch fresh data. Use a mutex to ensure no duplicate work.
-    static MUTEX: smol::lock::Mutex<()> = smol::lock::Mutex::new(());
-    let _guard = MUTEX.lock().await;
 
     // Replace with your actual OpenAI API key
     let api_key = CONFIG_FILE.wait().openai_key.clone();
