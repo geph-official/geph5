@@ -3,7 +3,6 @@ use std::time::Instant;
 use anyhow::Context;
 use async_trait::async_trait;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
-use reqwest::Client;
 
 pub struct FrontedHttpTransport {
     pub url: String,

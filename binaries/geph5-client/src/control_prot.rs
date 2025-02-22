@@ -1,14 +1,12 @@
 use std::{
     convert::Infallible,
-    sync::{Arc, LazyLock, OnceLock},
+    sync::{Arc, LazyLock},
     time::{Duration, SystemTime},
 };
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
-use geph5_broker_protocol::{
-    puzzle::solve_puzzle, AccountLevel, ExitDescriptor, ExitList, NewsItem,
-};
+use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem};
 
 use itertools::Itertools;
 use moka::future::Cache;
@@ -37,8 +35,14 @@ pub trait ControlProtocol {
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
     async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
-
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
+    async fn price_points(&self) -> Result<Vec<(u32, f64)>, String>;
+    async fn create_payment(
+        &self,
+        secret: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -223,6 +227,32 @@ impl ControlProtocol for ControlProtocolImpl {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
         Ok(client
             .get_news(lang)
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?)
+    }
+
+    async fn price_points(&self) -> Result<Vec<(u32, f64)>, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .raw_price_points()
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?
+            .into_iter()
+            .map(|(a, b)| (a, b as f64 / 100.0))
+            .collect())
+    }
+
+    async fn create_payment(
+        &self,
+        auth_token: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .create_payment(auth_token, days, method)
             .await
             .map_err(|s| s.to_string())?
             .map_err(|s| s.to_string())?)

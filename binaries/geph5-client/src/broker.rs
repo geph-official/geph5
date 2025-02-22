@@ -11,7 +11,7 @@ use geph5_broker_protocol::BrokerClient;
 use itertools::Itertools;
 use nanorpc::DynRpcTransport;
 use race::RaceTransport;
-use reqwest::Client;
+
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
 use std::net::SocketAddr;

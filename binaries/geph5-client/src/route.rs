@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -18,7 +18,7 @@ use sillad::{
 };
 use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
-use smol::lock::Semaphore;
+
 use smol_timeout2::TimeoutExt as _;
 
 use crate::{
