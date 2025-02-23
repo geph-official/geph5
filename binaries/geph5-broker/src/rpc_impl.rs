@@ -397,19 +397,18 @@ impl BrokerProtocol for BrokerImpl {
         let rpc = PaymentClient(PaymentTransport);
         let sessid = payment_sessid(user_id).await?;
         match method.as_str() {
-            "credit-card" => Ok("https://checkout.stripe.com/c/pay/".to_string()
-                + &rpc
-                    .start_stripe(
-                        sessid,
-                        StartStripeArgs {
-                            promo: "".to_string(),
-                            days: days as _,
-                            item: crate::payments::Item::Plus,
-                            is_recurring: false,
-                        },
-                    )
-                    .await?
-                    .map_err(GenericError)?),
+            "credit-card" => Ok(rpc
+                .start_stripe_url(
+                    sessid,
+                    StartStripeArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        is_recurring: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
             _ => Err(GenericError("no support for this method here".to_string())),
         }
     }

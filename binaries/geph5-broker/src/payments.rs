@@ -42,7 +42,11 @@ pub trait PaymentProtocol {
         user_id: i32,
         support_secret: String,
     ) -> Result<String, String>;
-    async fn start_stripe(&self, sessid: String, args: StartStripeArgs) -> Result<String, String>;
+    async fn start_stripe_url(
+        &self,
+        sessid: String,
+        args: StartStripeArgs,
+    ) -> Result<String, String>;
 
     async fn start_aliwechat(
         &self,
