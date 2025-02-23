@@ -33,6 +33,11 @@ pub trait ControlProtocol {
     async fn user_info(&self, secret: String) -> Result<UserInfo, String>;
     async fn start_registration(&self) -> Result<usize, String>;
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
+    async fn convert_legacy_account(
+        &self,
+        username: String,
+        password: String,
+    ) -> Result<String, String>;
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
     async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
@@ -207,6 +212,22 @@ impl ControlProtocol for ControlProtocolImpl {
             .get(idx)
             .cloned()
             .ok_or_else(|| "no such registration".to_string())
+    }
+
+    async fn convert_legacy_account(
+        &self,
+        username: String,
+        password: String,
+    ) -> Result<String, String> {
+        Ok(broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .upgrade_to_secret(geph5_broker_protocol::Credential::LegacyUsernamePassword {
+                username,
+                password,
+            })
+            .await
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?)
     }
 
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String> {
