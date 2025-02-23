@@ -57,7 +57,7 @@ pub async fn validate_secret(secret: &str) -> Result<i32, AuthError> {
     tracing::debug!(secret, "validating secret");
 
     // Query the DB to see if any row matches this hash.
-    let res: Option<(i32,)> = sqlx::query_as("SELECT id FROM auth_secret WHERE secret_hash = $1")
+    let res: Option<(i32,)> = sqlx::query_as("SELECT id FROM auth_secret WHERE secret = $1")
         .bind(secret)
         .fetch_optional(POSTGRES.deref())
         .await
