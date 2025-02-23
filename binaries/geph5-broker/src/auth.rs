@@ -17,29 +17,53 @@ use sqlx::types::chrono::Utc;
 use crate::{database::POSTGRES, log_error};
 
 pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
-    let secret = (0..23)
-        .map(|_| rand::thread_rng().gen_range(0..9))
-        .fold(String::new(), |a, b| format!("{a}{b}"));
-    let secret = format!("9{secret}");
-
     let mut txn = POSTGRES.begin().await?;
-    let user_id = if let Some(user_id) = user_id {
-        user_id
-    } else {
-        let (user_id,): (i32,) =
-            sqlx::query_as("insert into users (createtime) values (NOW()) returning id")
-                .fetch_one(&mut *txn)
-                .await?;
-        user_id
+
+    let user_id = match user_id {
+        Some(uid) => uid,
+        None => {
+            let (uid,): (i32,) =
+                sqlx::query_as("INSERT INTO users (createtime) VALUES (NOW()) RETURNING id")
+                    .fetch_one(&mut *txn)
+                    .await?;
+            uid
+        }
     };
 
-    sqlx::query("insert into auth_secret (id, secret) values ($1, $2)")
+    let existing_secret: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT secret
+        FROM auth_secret
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *txn)
+    .await?;
+
+    if let Some((secret,)) = existing_secret {
+        txn.commit().await?;
+        Ok(secret)
+    } else {
+        let secret = (0..23)
+            .map(|_| rand::thread_rng().gen_range(0..9))
+            .fold(String::new(), |a, b| format!("{a}{b}"));
+        let secret = format!("9{secret}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO auth_secret (id, secret) 
+            VALUES ($1, $2)
+            "#,
+        )
         .bind(user_id)
         .bind(secret.clone())
         .execute(&mut *txn)
         .await?;
-    txn.commit().await?;
-    Ok(secret)
+
+        txn.commit().await?;
+        Ok(secret)
+    }
 }
 
 #[cached(time = 60, result = true, sync_writes = true)]

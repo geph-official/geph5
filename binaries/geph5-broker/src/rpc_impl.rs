@@ -366,6 +366,13 @@ impl BrokerProtocol for BrokerImpl {
         Ok(register_secret(None).await?)
     }
 
+    async fn upgrade_to_secret(&self, cred: Credential) -> Result<String, AuthError> {
+        let user_id = validate_credential(cred).await?;
+        register_secret(Some(user_id))
+            .map_err(|_| AuthError::RateLimited)
+            .await
+    }
+
     async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {
         let (send, recv) = oneshot::channel();
         smolscale::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
