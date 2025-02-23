@@ -32,32 +32,14 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
                 .await?;
         user_id
     };
-    let hash = secret_hash(secret.clone()).await;
-    sqlx::query("insert into auth_secret (id, secret_hash) values ($1, $2)")
+
+    sqlx::query("insert into auth_secret (id, secret) values ($1, $2)")
         .bind(user_id)
-        .bind(hash)
+        .bind(secret.clone())
         .execute(&mut *txn)
         .await?;
     txn.commit().await?;
     Ok(secret)
-}
-
-async fn secret_hash(secret: String) -> String {
-    blocking::unblock(move || {
-        let hasher = Argon2::new_with_secret(
-            b"geph5-pepper",
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            argon2::Params::DEFAULT,
-        )
-        .unwrap();
-        let mut output_material = [0u8; 16];
-        hasher
-            .hash_password_into(secret.as_bytes(), b"geph5-pepper", &mut output_material)
-            .unwrap();
-        hex::encode(output_material)
-    })
-    .await
 }
 
 #[cached(time = 60, result = true, sync_writes = true)]
@@ -73,18 +55,16 @@ pub async fn validate_credential(credential: Credential) -> Result<i32, AuthErro
 
 pub async fn validate_secret(secret: &str) -> Result<i32, AuthError> {
     tracing::debug!(secret, "validating secret");
-    // 1. Compute the hash of the supplied secret, just like we did in register_secret.
-    let hash = secret_hash(secret.to_string()).await;
 
-    // 2. Query the DB to see if any row matches this hash.
+    // Query the DB to see if any row matches this hash.
     let res: Option<(i32,)> = sqlx::query_as("SELECT id FROM auth_secret WHERE secret_hash = $1")
-        .bind(hash)
+        .bind(secret)
         .fetch_optional(POSTGRES.deref())
         .await
         .inspect_err(log_error)
         .map_err(|_| AuthError::RateLimited)?;
 
-    // 3. If we find a matching user_id, great; otherwise, Forbidden.
+    // If we find a matching user_id, great; otherwise, Forbidden.
     if let Some((user_id,)) = res {
         Ok(user_id)
     } else {
