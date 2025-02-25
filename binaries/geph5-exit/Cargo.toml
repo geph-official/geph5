@@ -14,7 +14,7 @@ picomux = { path = "../../libraries/picomux" }
 async-trait = "0.1.80"
 nanorpc = "0.1.12"
 thiserror = "1.0.61"
-smolscale = "0.4.7"
+smolscale = "0.4.13"
 futures-util = "0.3.30"
 async-io = "2.3.3"
 once_cell = "1.19.0"
