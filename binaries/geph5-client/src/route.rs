@@ -7,7 +7,7 @@ use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
 
 use geph5_broker_protocol::{
-    AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, RouteDescriptor,
 };
 use isocountry::CountryCode;
 use rand::seq::SliceRandom;
@@ -17,7 +17,7 @@ use sillad::{
     tcp::TcpDialer,
 };
 use sillad_conntest::ConnTestDialer;
-use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 
 use smol_timeout2::TimeoutExt as _;
 

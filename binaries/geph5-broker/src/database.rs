@@ -6,10 +6,10 @@ use moka::future::Cache;
 
 use rand::Rng;
 use sqlx::{
+    PgPool,
     pool::PoolOptions,
     postgres::{PgConnectOptions, PgSslMode},
     prelude::FromRow,
-    PgPool,
 };
 
 use crate::CONFIG_FILE;
@@ -39,7 +39,7 @@ pub static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
 pub async fn database_gc_loop() -> anyhow::Result<()> {
     tracing::info!("starting the database GC loop");
     loop {
-        let sleep_time = Duration::from_secs_f64(rand::thread_rng().gen_range(60.0..120.0));
+        let sleep_time = Duration::from_secs_f64(rand::rng().random_range(60.0..120.0));
         tracing::debug!("sleeping {:?}", sleep_time);
         Timer::after(sleep_time).await;
         let res = sqlx::query("delete from exits_new where expiry < extract(epoch from now())")

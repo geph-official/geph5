@@ -3,11 +3,11 @@ use bytes::Bytes;
 use cadence::prelude::*;
 use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
-use futures_util::{future::join_all, TryFutureExt};
+use futures_util::{TryFutureExt, future::join_all};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
-    UserInfo, DOMAIN_EXIT_DESCRIPTOR,
+    Credential, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, ExitList, GenericError, Mac, NewsItem,
+    RouteDescriptor, Signed, UserInfo,
 };
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
@@ -22,17 +22,17 @@ use std::{
 };
 
 use crate::{
-    auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
-    log_error,
-    news::fetch_news,
-    payments::{payment_sessid, PaymentClient, PaymentTransport, StartStripeArgs},
-    puzzle::{new_puzzle, verify_puzzle_solution},
+    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
+    auth::{new_auth_token, valid_auth_token},
+    database::{ExitRow, POSTGRES, insert_exit, query_bridges},
+    routes::bridge_to_leaf_route,
 };
 use crate::{
-    auth::{new_auth_token, valid_auth_token, validate_username_pwd},
-    database::{insert_exit, query_bridges, ExitRow, POSTGRES},
-    routes::bridge_to_leaf_route,
-    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
+    auth::{get_user_info, register_secret, validate_credential},
+    log_error,
+    news::fetch_news,
+    payments::{PaymentClient, PaymentTransport, StartStripeArgs, payment_sessid},
+    puzzle::{new_puzzle, verify_puzzle_solution},
 };
 
 pub struct WrappedBrokerService(BrokerService<BrokerImpl>);

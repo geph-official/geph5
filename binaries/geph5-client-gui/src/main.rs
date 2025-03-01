@@ -8,7 +8,7 @@ use native_dialog::MessageType;
 
 use geph5_client_gui::pac::unset_http_proxy;
 
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _, util::SubscriberInitExt};
 
 // 0123456789
 

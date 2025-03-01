@@ -13,7 +13,7 @@ use listen::listen_main;
 use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -114,7 +114,7 @@ static SIGNING_SECRET: Lazy<SigningKey> = Lazy::new(|| {
         }
         _ => {
             // Generate a new SigningKey if there's an error or the length is not 32 bytes.
-            let new_key = SigningKey::from_bytes(&rand::thread_rng().gen());
+            let new_key = SigningKey::from_bytes(&rand::thread_rng().r#gen());
             let key_bytes = new_key.to_bytes();
             std::fs::write(&config_file.signing_secret, key_bytes).unwrap();
             new_key

@@ -1,6 +1,6 @@
 [package]
 name = "sillad-native-tls"
-edition = "2021"
+edition = "2024"
 version = "0.2.11"
 description = "A native-tls wrapper within the sillad framework"
 repository.workspace = true
@@ -8,11 +8,11 @@ license.workspace = true
 
 [dependencies]
 async-native-tls = "0.5.0"
-async-trait = "0.1.84"
-futures-lite = "2.5.0"
+async-trait = "0.1.86"
+futures-lite = "2.6.0"
 sillad = { version = "0.2", path = "../sillad" }
-native-tls={version="0.2", features=["vendored"]}
+native-tls = { version = "0.2", features = ["vendored"] }
 tracing = "0.1.41"
 tachyonix = "0.3.1"
-smolscale = "0.4.11"
+smolscale = "0.4.15"
 async-task = "4.7.1"

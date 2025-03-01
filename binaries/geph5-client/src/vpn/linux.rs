@@ -17,7 +17,7 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::{client_inner::open_conn, spoof_dns::fake_dns_respond, Config};
+use crate::{Config, client_inner::open_conn, spoof_dns::fake_dns_respond};
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
@@ -49,7 +49,9 @@ extern "C" fn teardown_routing() {
         "!!!!!!!!!!!!!!!!!!!!!!! teardown_routing starting !!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     );
     WHITELIST.clear();
-    std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
+    unsafe {
+        std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
+    }
     let cmd = include_str!("linux_routing_teardown.sh");
     let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
     child.wait().expect("iptables was not set up properly");
@@ -63,8 +65,9 @@ pub(super) async fn packet_shuffle(
 ) -> anyhow::Result<()> {
     let dns_proxy = UdpSocket::bind("127.0.0.1:0").await?;
     *GEPH_DNS.lock() = dns_proxy.local_addr()?.to_string();
-    std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
-
+    unsafe {
+        std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
+    }
     tracing::info!(
         addr = display(dns_proxy.local_addr().unwrap()),
         "start DNS proxy"
@@ -130,10 +133,10 @@ pub(super) async fn packet_shuffle(
 }
 
 #[cfg(target_os = "linux")]
-fn configure_tun_device() -> tun::platform::Device {
-    let device = tun::platform::Device::new(
+fn configure_tun_device() -> tun::Device {
+    let device = tun::Device::new(
         tun::Configuration::default()
-            .name("tun-geph")
+            .tun_name("tun-geph")
             .address(FAKE_LOCAL_ADDR)
             .netmask("255.255.255.0")
             .destination("100.64.0.1")

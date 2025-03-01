@@ -2,8 +2,8 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, LazyLock,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -19,7 +19,7 @@ use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{PicoMux, Stream};
 use rand::Rng;
-use sillad::{dialer::Dialer, listener::Listener, tcp::TcpListener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener, tcp::TcpListener};
 use smol::future::FutureExt as _;
 use smol::io::AsyncWriteExt;
 use smol_timeout2::TimeoutExt;
@@ -68,7 +68,7 @@ impl BridgeControlProtocol for State {
 
 async fn random_tcp_listener() -> TcpListener {
     loop {
-        let rando = rand::thread_rng().gen_range(2048u16..65535);
+        let rando = rand::rng().random_range(2048u16..65535);
         match TcpListener::bind(format!("0.0.0.0:{rando}").parse().unwrap()).await {
             Ok(listener) => return listener,
             Err(err) => {

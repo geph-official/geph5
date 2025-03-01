@@ -12,17 +12,17 @@ use std::{
 use anyhow::Context as _;
 use asn_count::ASN_BYTES;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
-use listen_forward::{listen_forward_loop, BYTE_COUNT};
+use listen_forward::{BYTE_COUNT, listen_forward_loop};
 use rand::Rng;
 use sillad::{
     dialer::DialerExt,
     tcp::{TcpDialer, TcpListener},
 };
-use sillad_sosistab3::{listener::SosistabListener, Cookie};
+use sillad_sosistab3::{Cookie, listener::SosistabListener};
 use smol::future::FutureExt as _;
 
 use smol_timeout2::TimeoutExt;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -36,7 +36,9 @@ fn main() {
         if std::env::var("GEPH5_BRIDGE_CHILD").is_err() {
             for _ in 0..available_parallelism().unwrap().get() {
                 std::thread::spawn(|| {
-                    std::env::set_var("GEPH5_BRIDGE_CHILD", "1");
+                    unsafe {
+                        std::env::set_var("GEPH5_BRIDGE_CHILD", "1");
+                    }
                     let current_exe = std::env::current_exe().unwrap();
 
                     // Collect the current command-line arguments
@@ -83,7 +85,7 @@ fn main() {
         )
         .unwrap();
 
-        let port = rand::thread_rng().gen_range(1024..10000);
+        let port = rand::rng().random_range(1024..10000);
         let control_listen = SocketAddr::new(my_ip, port);
         let control_cookie = format!("bridge-cookie-{}", rand::random::<u128>());
 

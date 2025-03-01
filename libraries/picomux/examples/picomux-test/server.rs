@@ -4,7 +4,7 @@ use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt};
 use picomux::{PicoMux, Stream};
 use rand::RngCore;
 
-use sillad::{listener::Listener, Pipe};
+use sillad::{Pipe, listener::Listener};
 
 use crate::command::Command;
 
@@ -29,7 +29,7 @@ pub async fn server_main(listen: SocketAddr, sosistab3: Option<String>) -> anyho
     }
 }
 
-async fn once_wire(mut wire: impl Pipe) -> anyhow::Result<()> {
+async fn once_wire(wire: impl Pipe) -> anyhow::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let wire_count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     eprintln!("accepted wire {wire_count} from {:?}", wire.remote_addr());
@@ -62,7 +62,7 @@ async fn once_stream(wire_count: u64, stream_count: u64, mut stream: Stream) -> 
             while len > 0 {
                 let n = len.min(65536);
                 let mut buff = vec![0u8; n];
-                rand::thread_rng().fill_bytes(&mut buff);
+                rand::rng().fill_bytes(&mut buff);
                 stream.write_all(&buff).await?;
                 len = len.saturating_sub(n);
             }

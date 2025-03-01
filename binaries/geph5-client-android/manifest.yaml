@@ -1,0 +1,7 @@
+icon: "../geph5-client-gui/icon.png"
+
+android:
+  manifest:
+    application:
+      label: "Geph 5"
+    uses_permission: [{ name: "android.permission.INTERNET" }, { name: "android.permission.ACCESS_NETWORK_STATE" }]

@@ -1,4 +1,4 @@
-use std::pin::{pin, Pin};
+use std::pin::{Pin, pin};
 
 use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
