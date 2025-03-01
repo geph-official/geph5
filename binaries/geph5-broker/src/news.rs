@@ -1,16 +1,14 @@
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use geph5_broker_protocol::NewsItem;
-
 use serde_json::json;
+use smol::lock::Mutex;
 
 use crate::CONFIG_FILE;
 
 pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
-    static MUTEX: smol::lock::Mutex<()> = smol::lock::Mutex::new(());
-    let _guard = MUTEX.lock().await;
-
     // Validate language code
     if lang_code != "en"
         && lang_code != "zh-CN"
@@ -24,20 +22,66 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
     // Path to cache file
     let cache_path = format!("/tmp/geph5_news_{lang_code}.json");
 
-    // If the file exists and is not older than 1 hour, use the cached value
-    if let Ok(metadata) = smol::fs::metadata(&cache_path).await {
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(elapsed) = SystemTime::now().duration_since(modified) {
-                if elapsed < Duration::from_secs(3600) {
-                    // Read from cache
-                    let cached_data = smol::fs::read_to_string(&cache_path).await?;
-                    let cached_news: Vec<NewsItem> = serde_json::from_str(&cached_data)?;
-                    return Ok(cached_news);
+    // First, try to read the cached data regardless of age
+    let cached_news = match smol::fs::read_to_string(&cache_path).await {
+        Ok(cached_data) => match serde_json::from_str::<Vec<NewsItem>>(&cached_data) {
+            Ok(news) => Some(news),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    };
+
+    // Check if we need to refresh the data
+    let needs_refresh = match smol::fs::metadata(&cache_path).await {
+        Ok(metadata) => match metadata.modified() {
+            Ok(modified) => match SystemTime::now().duration_since(modified) {
+                Ok(elapsed) => elapsed >= Duration::from_secs(3600),
+                Err(_) => true,
+            },
+            Err(_) => true,
+        },
+        Err(_) => true,
+    };
+
+    // If we need to refresh and have cached data, spawn a task to update the cache
+    // and return the cached data immediately
+    if needs_refresh {
+        if let Some(news) = cached_news.clone() {
+            // We have stale data, so let's refresh in the background
+            let cache_path_clone = cache_path.clone();
+            let lang_code_clone = lang_code.to_string();
+
+            // Use a static mutex to prevent multiple simultaneous refreshes for the same language
+            static REFRESH_MUTEX: Mutex<()> = Mutex::new(());
+
+            smol::spawn(async move {
+                // Try to acquire the lock. If we can't, it means another refresh is in progress
+                if let Some(guard) = REFRESH_MUTEX.try_lock() {
+                    if let Err(e) = refresh_news_cache(&lang_code_clone, &cache_path_clone).await {
+                        // Log the error but don't propagate it
+                        tracing::warn!("Background news refresh failed: {}", e);
+                    }
+                    drop(guard);
                 }
-            }
+            })
+            .detach();
+
+            return Ok(news);
         }
+    } else if let Some(news) = cached_news {
+        // Cache is fresh, return it directly
+        return Ok(news);
     }
 
+    // If we get here, either:
+    // 1. We need to refresh and don't have cached data
+    // 2. Cache is stale and we have no data
+    // So we need to fetch and block
+    refresh_news_cache(lang_code, &cache_path).await
+}
+
+// Separate function to refresh the news cache
+async fn refresh_news_cache(lang_code: &str, cache_path: &str) -> anyhow::Result<Vec<NewsItem>> {
     // Replace with your actual OpenAI API key
     let api_key = CONFIG_FILE.wait().openai_key.clone();
 
