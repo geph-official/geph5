@@ -54,7 +54,7 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
             // Use a static mutex to prevent multiple simultaneous refreshes for the same language
             static REFRESH_MUTEX: Mutex<()> = Mutex::new(());
 
-            smol::spawn(async move {
+            smolscale::spawn(async move {
                 // Try to acquire the lock. If we can't, it means another refresh is in progress
                 if let Some(guard) = REFRESH_MUTEX.try_lock() {
                     if let Err(e) = refresh_news_cache(&lang_code_clone, &cache_path_clone).await {
