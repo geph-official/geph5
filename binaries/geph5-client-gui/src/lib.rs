@@ -55,11 +55,11 @@ impl App {
         let mut fonts = FontDefinitions::default();
         fonts.font_data.insert(
             "normal".into(),
-            FontData::from_static(include_bytes!("assets/normal.otf")),
+            FontData::from_static(include_bytes!("assets/normal.otf")).into(),
         );
         fonts.font_data.insert(
             "chinese".into(),
-            FontData::from_static(include_bytes!("assets/chinese.ttf")),
+            FontData::from_static(include_bytes!("assets/chinese.ttf")).into(),
         );
 
         {
@@ -83,6 +83,74 @@ impl App {
             dashboard: Dashboard::new(),
             logs: Logs::new(),
             settings: Settings::new(),
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_zoom_factor(1.1);
+        ctx.request_repaint_after(Duration::from_millis(200));
+
+        {
+            let count = self
+                .total_bytes
+                .get_or_refresh(Duration::from_millis(200), || {
+                    smol::future::block_on(
+                        DAEMON_HANDLE
+                            .control_client()
+                            .stat_num("total_rx_bytes".to_string()),
+                    )
+                    .unwrap_or_default()
+                        + smol::future::block_on(
+                            DAEMON_HANDLE
+                                .control_client()
+                                .stat_num("total_tx_bytes".to_string()),
+                        )
+                        .unwrap_or_default()
+                })
+                .copied()
+                .unwrap_or_default();
+            TOTAL_BYTES_TIMESERIES.record(count);
+        }
+
+        if USERNAME.get().is_empty() {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                self.login.render(ui).unwrap();
+            });
+
+            return;
+        }
+
+        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut self.selected_tab,
+                    TabName::Dashboard,
+                    l10n("dashboard"),
+                );
+                ui.selectable_value(&mut self.selected_tab, TabName::Logs, l10n("logs"));
+                ui.selectable_value(&mut self.selected_tab, TabName::Settings, l10n("settings"));
+            });
+        });
+
+        let result = egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
+            TabName::Dashboard => self.dashboard.render(ui),
+            TabName::Logs => self.logs.render(ui),
+            TabName::Settings => self.settings.render(ui),
+        });
+
+        #[cfg(not(target_os = "android"))]
+        if let Err(err) = result.inner {
+            use native_dialog::MessageType;
+            let _ = native_dialog::MessageDialog::new()
+                .set_title("Fatal error")
+                .set_text(&format!(
+                    "Unfortunately, a fatal error occurred:\n\n{:?}",
+                    err
+                ))
+                .set_type(MessageType::Error)
+                .show_alert();
         }
     }
 }

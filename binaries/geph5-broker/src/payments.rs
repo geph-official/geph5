@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use axum::async_trait;
-use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcTransport};
+use async_trait::async_trait;
+use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport, nanorpc_derive};
 use serde::{Deserialize, Serialize};
 
 use crate::CONFIG_FILE;

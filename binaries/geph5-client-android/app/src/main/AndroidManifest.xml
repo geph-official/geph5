@@ -26,7 +26,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.app.lib_name"
-                android:value="na_egui" />
+                android:value="geph5_client_android" />
         </activity>
     </application>
 

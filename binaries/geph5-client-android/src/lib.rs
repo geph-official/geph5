@@ -3,7 +3,7 @@ mod keyboard;
 
 #[allow(dead_code)]
 #[cfg(target_os = "android")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn android_main(app: egui_winit::winit::platform::android::activity::AndroidApp) {
     use egui_winit::winit::platform::android::EventLoopBuilderExtAndroid;
     android_logger::init_once(
@@ -30,9 +30,7 @@ fn android_main(app: egui_winit::winit::platform::android::activity::AndroidApp)
     eframe::run_simple_native(
         "geph",
         eframe::NativeOptions {
-            event_loop_builder: Some(Box::new(|builder| {
-                builder.with_android_app(app);
-            })),
+            android_app: Some(app),
             ..Default::default()
         },
         move |ctx, _frame| {

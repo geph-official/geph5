@@ -1,5 +1,5 @@
-pub use broker::broker_client;
 pub use broker::BrokerSource;
+pub use broker::broker_client;
 pub use client::Client;
 pub use client::{BridgeMode, BrokerKeys, Config};
 pub use control_prot::{ConnInfo, ControlClient};

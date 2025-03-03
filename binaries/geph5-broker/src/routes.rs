@@ -8,7 +8,7 @@ use nanorpc_sillad::DialerTransport;
 
 use rand::RngCore;
 use sillad::tcp::TcpDialer;
-use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 use smol_timeout2::TimeoutExt;
 use std::{
     net::SocketAddr,
@@ -86,7 +86,7 @@ pub async fn bridge_to_leaf_route(
 
 fn gencookie() -> String {
     let mut b = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::rng().fill_bytes(&mut b);
     hex::encode(b)
 }
 

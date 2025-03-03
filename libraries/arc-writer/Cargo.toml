@@ -1,6 +1,6 @@
 [package]
 name = "arc-writer"
-edition = "2021"
+edition = "2024"
 description = "Arc writer"
 version = "0.2.1-alpha.1"
 repository.workspace = true

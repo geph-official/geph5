@@ -1,4 +1,4 @@
-use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
+use argon2::{Argon2, PasswordHash, PasswordVerifier, password_hash::Encoding};
 
 use cached::proc_macro::cached;
 use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
@@ -46,7 +46,7 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
         Ok(secret)
     } else {
         let secret = (0..23)
-            .map(|_| rand::thread_rng().gen_range(0..9))
+            .map(|_| rand::rng().random_range(0..9))
             .fold(String::new(), |a, b| format!("{a}{b}"));
         let secret = format!("9{secret}");
 
@@ -124,7 +124,7 @@ pub async fn validate_username_pwd(username: &str, password: &str) -> Result<i32
 
 pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     let token: String = std::iter::repeat(())
-        .map(|()| rand::thread_rng().sample(rand::distributions::Alphanumeric))
+        .map(|()| rand::rng().sample(rand::distr::Alphanumeric))
         .map(char::from)
         .take(30)
         .collect();

@@ -1,6 +1,6 @@
 [package]
 name = "geph5-misc-rpc"
-edition = "2021"
+edition = "2024"
 description = "Geph5 misc RPC protocols"
 version.workspace = true
 repository.workspace = true
@@ -8,25 +8,27 @@ license.workspace = true
 
 
 [dependencies]
-serde = { version = "1.0.204", features = ["derive"] }
+serde = { version = "1.0.218", features = ["derive"] }
 stdcode = "0.1.14"
-futures-util = { version = "0.3.30", features = ["io"] }
-async-trait = "0.1.80"
-nanorpc = "0.1.12"
-serde_json = "1.0.120"
-thiserror = "1.0.61"
-anyhow = "1.0.86"
-bytes = { version = "1.6.0", features = ["serde"] }
-ed25519-dalek = {version="2", default-features=false, features=["serde"]}
-x25519-dalek = {version="2", default-features=false, features=["serde"]}
-blake3 = { version = "1.5.1", features = ["serde"] }
-sillad = { version="0.2", path = "../sillad" }
+futures-util = { version = "0.3.31", features = ["io"] }
+async-trait = "0.1.86"
+nanorpc = "0.1.13"
+serde_json = "1.0.139"
+thiserror = "2.0.11"
+anyhow = "1.0.96"
+bytes = { version = "1.10.0", features = ["serde"] }
+ed25519-dalek = { version = "2", default-features = false, features = [
+  "serde",
+] }
+x25519-dalek = { version = "2", default-features = false, features = ["serde"] }
+blake3 = { version = "1.6.1", features = ["serde"] }
+sillad = { version = "0.2", path = "../sillad" }
 chacha20poly1305 = "0.10.1"
-smallvec = "1.13.2"
-smolscale = "0.4.7"
+smallvec = "1.14.0"
+smolscale = "0.4.15"
 async-task = "4.7.1"
-bipe = "0.2.2"
+bipe = "0.2.8"
 tap = "1.0.1"
-pin-project = "1.1.5"
+pin-project = "1.1.9"
 socksv5 = "0.3"
-tachyonix = "0.3.0"
+tachyonix = "0.3.1"

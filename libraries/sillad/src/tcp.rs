@@ -11,9 +11,9 @@ use pin_project::pin_project;
 use rand::Rng as _;
 
 use crate::{
+    Pipe,
     dialer::{Dialer, DialerExt},
     listener::Listener,
-    Pipe,
 };
 
 /// A TcpListener is a listener for TCP endpoints.
@@ -63,7 +63,7 @@ impl Listener for TcpListener {
                         delay_secs,
                         "backing off and retrying accept"
                     );
-                    delay_secs = rand::thread_rng().gen_range(delay_secs..delay_secs * 2.0);
+                    delay_secs = rand::rng().random_range(delay_secs..delay_secs * 2.0);
                     err = Some(e);
                     async_io::Timer::after(Duration::from_secs_f64(delay_secs)).await;
                 }

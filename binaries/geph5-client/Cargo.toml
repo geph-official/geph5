@@ -1,9 +1,9 @@
 [package]
 name = "geph5-client"
-edition = "2021"
+edition = "2024"
 license = "MPL-2.0"
 description = "Geph5 client"
-version= "0.2.37"
+version = "0.2.37"
 repository.workspace = true
 
 [features]
@@ -11,86 +11,94 @@ windivert = []
 
 [dependencies]
 anyctx = "0.1.0"
-anyhow = "1.0.86"
+anyhow = "1.0.96"
 arc-writer = { version = "0.2.1-alpha.1", path = "../../libraries/arc-writer" }
-async-broadcast = "0.7.1"
+async-broadcast = "0.7.2"
 async-compat = "0.2.4"
 async-dup = "1.2.4"
 async-event = "0.2.1"
 async-native-tls = "0.5.0"
-async-trait = "0.1.80"
-atomic_float = "1.0.0"
-aws-config = "1.5.4"
-aws-sdk-lambda = { version = "1.35.0", features = ["rustls"] }
+async-trait = "0.1.86"
+atomic_float = "1.1.0"
+aws-config = "1.5.17"
+aws-sdk-lambda = { version = "1.70.0", features = ["rustls"] }
 aws-smithy-runtime = "1"
-blake3 = "1.5.1"
+blake3 = "1.6.1"
 blind-rsa-signatures = "0.15.1"
-bytes = "1.6.0"
-chrono = "0.4.38"
-clap = { version = "4.5.8", features = ["derive"] }
+bytes = "1.10.0"
+chrono = "0.4.40"
+clap = { version = "4.5.31", features = ["derive"] }
 clone-macro = "0.1.0"
-crossbeam-queue = "0.3.11"
-ctrlc = {version="3.4.5", features=["termination"]}
-dashmap = "6.0.1"
-dirs = "5.0.1"
-ed25519-dalek = {version="2", default-features=false, features=["serde"]}
+crossbeam-queue = "0.3.12"
+ctrlc = { version = "3.4.5", features = ["termination"] }
+dashmap = "6.1.0"
+dirs = "6.0.0"
+ed25519-dalek = { version = "2", default-features = false, features = [
+  "serde",
+] }
 elevated-command = "1.1.2"
-event-listener = "5.3.1"
-futures-concurrency = "7.6.1"
+event-listener = "5.4.0"
+futures-concurrency = "7.6.3"
 futures-intrusive = "0.5.0"
-futures-util = "0.3.30"
+futures-util = "0.3.31"
 geph5-broker-protocol = { version = "0.2", path = "../../libraries/geph5-broker-protocol" }
 geph5-misc-rpc = { version = "0.2", path = "../../libraries/geph5-misc-rpc" }
 hex = "0.4.3"
-http = "1.1.0"
+http = "1.2.0"
 http-body-util = "0.1.2"
-hyper = { version = "1.4.0", features = ["http1", "client", "server"] }
+hyper = { version = "1.6.0", features = ["http1", "client", "server"] }
 hyper-rustls = { version = "0.24.2", features = ["webpki-roots"] }
-hyper-util = { version = "0.1.6" }
-ipstack-geph = "0.2.0" 
+hyper-util = { version = "0.1.10" }
+ipstack-geph = "0.2.8"
 isocountry = "0.3.2"
-itertools = "0.13.0"
-libc = "0.2.155"
-mizaru2 = { version= "0.2.7", path = "../../libraries/mizaru2" }
-moka = { version = "0.12.7", features = ["future", "sync"] }
-nanorpc = "0.1.12"
+itertools = "0.14.0"
+libc = "0.2.170"
+mizaru2 = { version = "0.2.7", path = "../../libraries/mizaru2" }
+moka = { version = "0.12.10", features = ["future", "sync"] }
+nanorpc = "0.1.13"
 nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }
 nursery_macro = "0.1.0"
-once_cell = "1.19.0"
-oneshot = "0.1.8"
+once_cell = "1.20.3"
+oneshot = "0.1.11"
 parking_lot = "0.12.3"
 picomux = { version = "0.1.11", path = "../../libraries/picomux" }
-pin-project = "1.1.5"
+pin-project = "1.1.9"
 pnet_packet = "0.35.0"
-psl = "2.1.55"
+psl = "2.1.89"
 rand = "0.8.5"
-reqwest = { version = "0.12.5", default-features = false, features = ["rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12.12", default-features = false, features = [
+  "rustls-tls-webpki-roots",
+] }
 scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1.0.120"
+serde_json = "1.0.139"
 serde_yaml = "0.9.34"
-sillad = { version= "0.2.5", path = "../../libraries/sillad" }
+sillad = { version = "0.2.5", path = "../../libraries/sillad" }
 sillad-conntest = { version = "0.2", path = "../../libraries/sillad-conntest" }
-sillad-native-tls = {version="0.2", path="../../libraries/sillad-native-tls"}
+sillad-native-tls = { version = "0.2", path = "../../libraries/sillad-native-tls" }
 sillad-sosistab3 = { version = "0.2.7", path = "../../libraries/sillad-sosistab3" }
-simple-dns = "0.7.0"
+simple-dns = "0.10.0"
 slab = "0.4.9"
-smol = "2.0.0"
-smol-timeout2 = "0.6.0"
-smol_str = { version = "0.2.2", features = ["serde"] }
-smolscale = "0.4.7"
+smol = "2.0.2"
+smol-timeout2 = "0.6.1"
+smol_str = { version = "0.3.2", features = ["serde"] }
+smolscale = "0.4.15"
 socksv5 = "0.3.1"
-sqlx = { version = "0.7.4", features = ["sqlite", "runtime-tokio"] }
+sqlx = { version = "0.8.3", features = ["sqlite", "runtime-tokio"] }
 stdcode = "0.1.14"
-tachyonix = "0.3.0"
+tachyonix = "0.3.1"
 tap = "1.0.1"
-thiserror = "1.0.61"
-tokio = { version = "1.38.0", features = ["rt", "net", "io-util"] }
-tower-service = "0.3.2"
-tracing = "0.1.40"
-tracing-subscriber = {version="0.3.18", features=["json"]}
-tun = "0.6.1"
-x25519-dalek = {version="2", default-features=false, features=["serde"]}
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", features = ["rt", "net", "io-util"] }
+tower-service = "0.3.3"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["json"] }
+tun = "0.7.13"
+x25519-dalek = { version = "2", default-features = false, features = ["serde"] }
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }
-
+winapi = { version = "0.3.9", features = [
+  "minwindef",
+  "mmsystem",
+  "timeapi",
+  "std",
+] }
