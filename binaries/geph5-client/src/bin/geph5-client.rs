@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::{io::stdin, path::PathBuf};
 
 use clap::Parser;
 use geph5_client::{logging, Client, Config};
+use nanorpc::{JrpcRequest, RpcTransport};
 
 /// Run the Geph5 client.
 #[derive(Parser)]
@@ -11,8 +12,8 @@ struct CliArgs {
     config: PathBuf,
 
     #[arg(short, long)]
-    /// don't start the client, but instead dump authentication info
-    dry_run: bool,
+    /// do RPC on the stdio
+    stdio_rpc: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -21,9 +22,20 @@ fn main() -> anyhow::Result<()> {
 
     let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
-    let mut config: Config = serde_json::from_value(config)?;
-    config.dry_run = args.dry_run;
+    let config: Config = serde_json::from_value(config)?;
     let client = Client::start(config);
+    let rpc = client.control_client().0;
+    if args.stdio_rpc {
+        std::thread::spawn(move || {
+            let stdin = stdin();
+            for line in stdin.lines() {
+                let line = line.unwrap();
+                let line: JrpcRequest = serde_json::from_str(&line).unwrap();
+                let resp = smol::future::block_on(rpc.call_raw(line)).unwrap();
+                println!("{}", serde_json::to_string(&resp).unwrap());
+            }
+        });
+    }
     smolscale::block_on(client.wait_until_dead())?;
     Ok(())
 }

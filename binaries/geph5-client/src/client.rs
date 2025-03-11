@@ -178,30 +178,8 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     }
 
     if ctx.init().dry_run {
-        auth_loop(&ctx)
-            .race(async {
-                let broker_client = broker_client(&ctx)?;
-                let exits = broker_client
-                    .get_exits()
-                    .await?
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                let auth_token = db_read_or_wait(&ctx, "auth_token").await?;
-                let exits = exits.inner;
-                println!(
-                    "{}",
-                    serde_json::to_string(&DryRunOutput {
-                        auth_token: hex::encode(auth_token),
-                        exits,
-                    })?
-                );
-                anyhow::Ok(())
-            })
-            .await
+        smol::future::pending().await
     } else {
-        let vpn_loop = vpn_loop(&ctx);
-
-        let _client_loop = Immortal::spawn(client_inner(ctx.clone()));
-
         let rpc_serve = async {
             if let Some(control_listen) = ctx.init().control_listen {
                 nanorpc_sillad::rpc_serve(
@@ -214,6 +192,10 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
                 smol::future::pending().await
             }
         };
+
+        let vpn_loop = vpn_loop(&ctx);
+
+        let _client_loop = Immortal::spawn(client_inner(ctx.clone()));
 
         socks5_loop(&ctx)
             .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))
