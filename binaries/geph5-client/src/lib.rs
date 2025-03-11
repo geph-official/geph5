@@ -13,7 +13,7 @@ mod client_inner;
 mod control_prot;
 mod database;
 mod http_proxy;
-pub mod logs;
+pub mod logging;
 
 mod pac;
 mod route;

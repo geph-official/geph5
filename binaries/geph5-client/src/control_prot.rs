@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 
-use crate::{broker_client, client::CtxField, logs::LOGS, stats::stat_get_num, Config};
+use crate::{broker_client, client::CtxField, logging::get_json_logs, stats::stat_get_num, Config};
 
 #[nanorpc_derive]
 #[async_trait]
@@ -109,11 +109,7 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn recent_logs(&self) -> Vec<String> {
-        let logs = LOGS.lock();
-        String::from_utf8_lossy(&logs)
-            .split('\n')
-            .map(|s| s.to_string())
-            .collect_vec()
+        get_json_logs().split("\n").map(|s| s.to_string()).collect()
     }
 
     async fn check_secret(&self, secret: String) -> Result<bool, String> {
@@ -275,8 +271,8 @@ impl ControlProtocol for ControlProtocolImpl {
         Ok(client
             .create_payment(auth_token, days, method)
             .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?)
+            .map_err(|s| dbg!(s).to_string())?
+            .map_err(|s| dbg!(s).to_string())?)
     }
 }
 

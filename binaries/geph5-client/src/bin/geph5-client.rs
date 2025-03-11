@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use geph5_client::{logs::LOGS, Client, Config};
-use tracing_subscriber::{prelude::*, EnvFilter};
+use geph5_client::{logging, Client, Config};
 
 /// Run the Geph5 client.
 #[derive(Parser)]
@@ -17,24 +16,8 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    // smolscale::permanently_single_threaded();
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .compact()
-                .with_writer(std::io::stderr),
-        )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .compact()
-                .with_writer(|| &*LOGS),
-        )
-        .with(
-            EnvFilter::builder()
-                .with_default_directive("geph5_client=debug".parse()?)
-                .from_env_lossy(),
-        )
-        .init();
+    // Initialize logging with JSON support
+    logging::init_logging()?;
 
     let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
