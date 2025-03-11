@@ -16,6 +16,8 @@ license = "ISC"
 [profile.release]
 panic = "abort"
 debug = 1
+overflow-checks = true
+lto = "thin"
 
 [profile.dev]
 panic = "abort"
@@ -28,3 +30,8 @@ opt-level = 3
 [profile.release-dbg]
 inherits = "dev"
 opt-level = 3
+
+[profile.release-small]
+inherits = "release"
+opt-level = 'z'
+strip = true
