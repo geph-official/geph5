@@ -17,6 +17,7 @@ license = "ISC"
 panic = "abort"
 debug = 1
 overflow-checks = true
+lto = "thin"
 
 [profile.dev]
 panic = "abort"
