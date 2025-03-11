@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
             for line in stdin.lines() {
                 let line = line.unwrap();
                 let line: JrpcRequest = serde_json::from_str(&line).unwrap();
-                let resp = smol::future::block_on(rpc.call_raw(line)).unwrap();
+                let resp = smolscale::block_on(rpc.call_raw(line)).unwrap();
                 println!("{}", serde_json::to_string(&resp).unwrap());
             }
         });
