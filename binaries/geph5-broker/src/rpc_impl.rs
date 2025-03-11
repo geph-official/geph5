@@ -412,6 +412,26 @@ impl BrokerProtocol for BrokerImpl {
             _ => Err(GenericError("no support for this method here".to_string())),
         }
     }
+
+    async fn upload_debug_pack(
+        &self,
+        email: Option<String>,
+        logs: String,
+    ) -> Result<(), GenericError> {
+        // Dummy implementation - in real implementation, this would store the logs and email
+        tracing::info!(
+            email = debug(email),
+            logs_len = logs.len(),
+            "Debug pack uploaded"
+        );
+
+        // In a real implementation we would:
+        // 1. Store the logs in a database or file system
+        // 2. If email is provided, notify support personnel
+        // 3. Generate a reference ID for the debug pack
+
+        Ok(())
+    }
 }
 
 pub static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {

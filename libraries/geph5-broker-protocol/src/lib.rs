@@ -77,6 +77,13 @@ pub trait BrokerProtocol {
         days: u32,
         method: String,
     ) -> Result<String, GenericError>;
+
+    // Upload debug information for troubleshooting purposes
+    async fn upload_debug_pack(
+        &self,
+        email: Option<String>,
+        logs: String,
+    ) -> Result<(), GenericError>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

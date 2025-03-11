@@ -48,6 +48,11 @@ pub trait ControlProtocol {
         days: u32,
         method: String,
     ) -> Result<String, String>;
+    async fn export_debug_pack(
+        &self,
+        email: Option<String>,
+        contents: String,
+    ) -> Result<(), String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -271,8 +276,22 @@ impl ControlProtocol for ControlProtocolImpl {
         Ok(client
             .create_payment(auth_token, days, method)
             .await
-            .map_err(|s| dbg!(s).to_string())?
-            .map_err(|s| dbg!(s).to_string())?)
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?)
+    }
+
+    async fn export_debug_pack(
+        &self,
+        email: Option<String>,
+        contents: String,
+    ) -> Result<(), String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        client
+            .upload_debug_pack(email, contents)
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?;
+        Ok(())
     }
 }
 

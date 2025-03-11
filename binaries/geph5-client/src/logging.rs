@@ -19,7 +19,7 @@ pub fn init_logging() -> anyhow::Result<()> {
         // Set filtering based on environment or defaults
         .with(
             EnvFilter::builder()
-                .with_default_directive("geph5_client=debug".parse()?)
+                .with_default_directive("geph=debug".parse()?)
                 .from_env_lossy(),
         )
         .init();
