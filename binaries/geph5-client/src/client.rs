@@ -124,6 +124,7 @@ impl Client {
                 let read_task = async {
                     let mut buf = vec![0u8; 65535]; // Buffer for reading packets
                     loop {
+                        tracing::debug!("----- GONNA GONNA UP");
                         match reader.read(&mut buf).await {
                             Ok(n) if n > 0 => {
                                 tracing::debug!("----- UP UP UP {n}");
