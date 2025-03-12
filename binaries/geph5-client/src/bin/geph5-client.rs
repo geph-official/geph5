@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
                 let line = line.unwrap();
                 let line: JrpcRequest = serde_json::from_str(&line).unwrap();
                 let rpc = rpc.clone();
-                let resp = smolscale::block_on(async move {rpc.call_raw(line).await}).unwrap();
+                let resp = smolscale::block_on(async move { rpc.call_raw(line).await }).unwrap();
                 println!("{}", serde_json::to_string(&resp).unwrap());
             }
         });

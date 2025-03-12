@@ -117,17 +117,15 @@ impl Client {
                     smol::Async::new(unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) })
                         .expect("could not wrap VPN fd in Async");
 
-                // Split the file descriptor for reading and writing
+                // Split the file descriptor for reading and writingz
                 let (mut reader, mut writer) = async_fd.split();
 
                 // Spawn a task for reading from fd and sending to VPN
                 let read_task = async {
                     let mut buf = vec![0u8; 65535]; // Buffer for reading packets
                     loop {
-                        tracing::debug!("----- GONNA GONNA UP");
                         match reader.read(&mut buf).await {
                             Ok(n) if n > 0 => {
-                                tracing::debug!("----- UP UP UP {n}");
                                 // Send the packet to the VPN
                                 send_vpn_packet(
                                     &ctx_clone,
