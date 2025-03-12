@@ -122,10 +122,11 @@ impl Client {
 
                 // Spawn a task for reading from fd and sending to VPN
                 let read_task = async {
-                    let mut buf = vec![0u8; 2048]; // Buffer for reading packets
+                    let mut buf = vec![0u8; 65535]; // Buffer for reading packets
                     loop {
                         match reader.read(&mut buf).await {
                             Ok(n) if n > 0 => {
+                                tracing::debug!("----- UP UP UP {n}");
                                 // Send the packet to the VPN
                                 send_vpn_packet(
                                     &ctx_clone,
