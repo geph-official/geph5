@@ -80,7 +80,7 @@ impl Dashboard {
 
                     columns[1].label(info.bridge.split(':').next().unwrap());
                 }
-                None => {
+                _ => {
                     columns[1].colored_label(egui::Color32::DARK_RED, l10n("disconnected"));
                 }
             }
