@@ -58,6 +58,7 @@ pub trait ControlProtocol {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "state")]
 pub enum ConnInfo {
+    Disconnected,
     Connecting,
     Connected(ConnectedInfo),
 }
@@ -80,7 +81,7 @@ pub struct ControlProtocolImpl {
     pub ctx: AnyCtx<Config>,
 }
 
-pub static CURRENT_CONN_INFO: CtxField<Mutex<ConnInfo>> = |_| Mutex::new(ConnInfo::Connecting);
+pub static CURRENT_CONN_INFO: CtxField<Mutex<ConnInfo>> = |_| Mutex::new(ConnInfo::Disconnected);
 
 static REGISTRATIONS: LazyLock<Mutex<Slab<RegistrationProgress>>> =
     LazyLock::new(|| Mutex::new(Slab::new()));
