@@ -25,7 +25,9 @@ use crate::{
     auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
     log_error,
     news::fetch_news,
-    payments::{payment_sessid, PaymentClient, PaymentTransport, StartStripeArgs},
+    payments::{
+        payment_sessid, PaymentClient, PaymentTransport, StartAliwechatArgs, StartStripeArgs,
+    },
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
@@ -405,6 +407,18 @@ impl BrokerProtocol for BrokerImpl {
                         days: days as _,
                         item: crate::payments::Item::Plus,
                         is_recurring: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
+            "wechat" => Ok(rpc
+                .start_aliwechat(
+                    sessid,
+                    StartAliwechatArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        method: "wxpay".to_string(),
                     },
                 )
                 .await?
