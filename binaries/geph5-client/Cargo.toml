@@ -9,6 +9,9 @@ repository.workspace = true
 [features]
 windivert = []
 
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 anyctx = "0.1.0"
 anyhow = "1.0.86"
