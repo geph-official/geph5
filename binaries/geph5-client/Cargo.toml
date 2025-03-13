@@ -20,8 +20,8 @@ async-event = "0.2.1"
 async-native-tls = "0.5.0"
 async-trait = "0.1.80"
 atomic_float = "1.0.0"
-aws-config = "1.5.4"
-aws-sdk-lambda = { version = "1.35.0", features = ["rustls"] }
+aws-config = "=1.5.4"
+aws-sdk-lambda = { version = "=1.35.0", features = ["rustls"] }
 aws-smithy-runtime = "1"
 blake3 = "1.5.1"
 blind-rsa-signatures = "0.15.1"
