@@ -68,6 +68,7 @@ pub struct StartAliwechatArgs {
     pub days: i32,
     pub item: Item,
     pub method: String,
+    pub mobile: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -419,6 +419,7 @@ impl BrokerProtocol for BrokerImpl {
                         days: days as _,
                         item: crate::payments::Item::Plus,
                         method: "wxpay".to_string(),
+                        mobile: false,
                     },
                 )
                 .await?
