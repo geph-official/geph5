@@ -237,7 +237,7 @@ impl ControlProtocol for ControlProtocolImpl {
 
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String> {
         if stat != "traffic" {
-            return Err("bad".into());
+            return Err(format!("bad: {stat}"));
         }
         Ok(self.ctx.get(TRAFF_COUNT).read().unwrap().speed_history())
     }
