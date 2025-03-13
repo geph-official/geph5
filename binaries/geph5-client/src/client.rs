@@ -111,7 +111,7 @@ impl Client {
         std::env::remove_var("HTTP_PROXY");
         std::env::remove_var("HTTPS_PROXY");
         let ctx = AnyCtx::new(cfg.clone());
-        *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
+
         if let Some(fd) = cfg.vpn_fd {
             let ctx_clone = ctx.clone();
             smolscale::spawn(async move {
