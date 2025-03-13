@@ -120,7 +120,7 @@ pub static CONCURRENCY: usize = 1;
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
-    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
+
 
     let start = Instant::now();
 
