@@ -15,7 +15,10 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 
-use crate::{broker_client, client::CtxField, logging::get_json_logs, stats::stat_get_num, Config};
+use crate::{
+    broker_client, client::CtxField, logging::get_json_logs, stats::stat_get_num,
+    traffcount::TRAFF_COUNT, Config,
+};
 
 #[nanorpc_derive]
 #[async_trait]
@@ -233,7 +236,10 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String> {
-        Ok(vec![1.0, 2.0, 3.0])
+        if stat != "traffic" {
+            return Err("bad".into());
+        }
+        Ok(self.ctx.get(TRAFF_COUNT).read().unwrap().speed_history())
     }
 
     async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String> {
