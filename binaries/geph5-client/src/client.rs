@@ -112,6 +112,7 @@ impl Client {
         std::env::remove_var("HTTPS_PROXY");
         let ctx = AnyCtx::new(cfg.clone());
 
+        #[cfg(unix)]
         if let Some(fd) = cfg.vpn_fd {
             let ctx_clone = ctx.clone();
             smolscale::spawn(async move {
