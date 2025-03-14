@@ -10,7 +10,6 @@ use std::{
 };
 
 use anyhow::Context as _;
-use asn_count::ASN_BYTES;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::{listen_forward_loop, BYTE_COUNT};
 use rand::Rng;

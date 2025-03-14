@@ -20,15 +20,12 @@ use crate::{
     client_inner::{client_inner, open_conn},
     control_prot::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
-        CURRENT_CONN_INFO,
     },
-    database::db_read_or_wait,
     http_proxy::http_proxy_serve,
     pac::pac_serve,
     route::ExitConstraint,
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
-    ConnInfo,
 };
 
 #[derive(Serialize, Deserialize, Clone)]

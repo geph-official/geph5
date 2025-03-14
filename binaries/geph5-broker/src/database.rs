@@ -1,4 +1,9 @@
-use std::{ops::Deref, str::FromStr, sync::LazyLock, time::Duration};
+use std::{
+    ops::Deref,
+    str::FromStr,
+    sync::LazyLock,
+    time::Duration,
+};
 
 use async_io::Timer;
 use geph5_broker_protocol::BridgeDescriptor;
@@ -67,14 +72,14 @@ pub struct ExitRow {
 pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     sqlx::query(
         r"INSERT INTO exits_new (pubkey, c2e_listen, b2e_listen, country, city, load, expiry)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, extract(epoch from now()) + ($7 - extract(epoch from now())))
         ON CONFLICT (pubkey) DO UPDATE 
         SET c2e_listen = EXCLUDED.c2e_listen, 
             b2e_listen = EXCLUDED.b2e_listen, 
             country = EXCLUDED.country, 
             city = EXCLUDED.city, 
             load = EXCLUDED.load, 
-            expiry = EXCLUDED.expiry
+            expiry = extract(epoch from now()) + (EXCLUDED.expiry - extract(epoch from now()))
         ",
     )
     .bind(exit.pubkey)

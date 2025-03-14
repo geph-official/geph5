@@ -4,17 +4,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_lite::{AsyncWriteExt, FutureExt as _};
+use futures_lite::FutureExt as _;
 use futures_util::AsyncReadExt;
 use picomux::{LivenessConfig, PicoMux};
-use rand::RngCore;
 use sillad::dialer::{Dialer, DialerExt};
 
 use crate::command::Command;
 
 pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyhow::Result<()> {
     let start = Instant::now();
-    let mut wire = if let Some(sosistab3) = sosistab3 {
+    let wire = if let Some(sosistab3) = sosistab3 {
         sillad_sosistab3::dialer::SosistabDialer {
             inner: sillad::tcp::TcpDialer { dest_addr: connect },
             cookie: sillad_sosistab3::Cookie::new(&sosistab3),

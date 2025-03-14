@@ -22,7 +22,7 @@ use std::{
 };
 
 use crate::{
-    auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
+    auth::{get_user_info, register_secret, validate_credential},
     log_error,
     news::fetch_news,
     payments::{
@@ -31,7 +31,7 @@ use crate::{
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
-    auth::{new_auth_token, valid_auth_token, validate_username_pwd},
+    auth::{new_auth_token, valid_auth_token},
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
     routes::bridge_to_leaf_route,
     CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
@@ -278,6 +278,18 @@ impl BrokerProtocol for BrokerImpl {
             descriptor.verify(blake3::hash(CONFIG_FILE.wait().exit_token.as_bytes()).as_bytes())?;
         let pubkey = descriptor.pubkey;
         let descriptor = descriptor.verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)?;
+
+        // Validate that the timestamp is reasonably current
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if descriptor.expiry < now {
+            return Err(GenericError(
+                "Exit info timestamp is before current time (potential replay attack)".to_string(),
+            ));
+        }
+
         let exit = ExitRow {
             pubkey: pubkey.to_bytes(),
             c2e_listen: descriptor.c2e_listen.to_string(),
@@ -285,7 +297,7 @@ impl BrokerProtocol for BrokerImpl {
             country: descriptor.country.alpha2().into(),
             city: descriptor.city.clone(),
             load: descriptor.load,
-            expiry: descriptor.expiry as _,
+            expiry: (now + 10) as _,
         };
         insert_exit(&exit).await?;
         Ok(())
