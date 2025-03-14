@@ -174,30 +174,30 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
                     .await
                     .context("incrementing bytes timed out")??;
 
-                let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
-                    .iter()
-                    .map(|item| {
-                        let asn_byte_count =
-                            item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
-                        (*item.key(), asn_byte_count)
-                    })
-                    .collect();
-                ASN_BYTES.clear();
-                for (asn, bytes) in asn_bytes {
-                    let bytes = bytes.min(i32::MAX as u64) as i32;
-                    let broker_rpc = broker_rpc.clone();
-                    let bridge_key = bridge_key.clone();
-                    smolscale::spawn(async move {
-                        broker_rpc
-                            .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes)
-                            .timeout(Duration::from_secs(2))
-                            .await
-                            .context("incrementing ASN timed out")??;
-                        tracing::debug!("incremented ASN {} with {} bytes", asn, bytes);
-                        anyhow::Ok(())
-                    })
-                    .detach();
-                }
+                // let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
+                //     .iter()
+                //     .map(|item| {
+                //         let asn_byte_count =
+                //             item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
+                //         (*item.key(), asn_byte_count)
+                //     })
+                //     .collect();
+                // ASN_BYTES.clear();
+                // for (asn, bytes) in asn_bytes {
+                //     let bytes = bytes.min(i32::MAX as u64) as i32;
+                //     let broker_rpc = broker_rpc.clone();
+                //     let bridge_key = bridge_key.clone();
+                //     smolscale::spawn(async move {
+                //         broker_rpc
+                //             .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes)
+                //             .timeout(Duration::from_secs(2))
+                //             .await
+                //             .context("incrementing ASN timed out")??;
+                //         tracing::debug!("incremented ASN {} with {} bytes", asn, bytes);
+                //         anyhow::Ok(())
+                //     })
+                //     .detach();
+                // }
                 anyhow::Ok(())
             };
             if let Err(err) = res.await {
