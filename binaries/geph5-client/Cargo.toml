@@ -3,7 +3,7 @@ name = "geph5-client"
 edition = "2021"
 license = "MPL-2.0"
 description = "Geph5 client"
-version= "0.2.41"
+version= "0.2.42"
 repository.workspace = true
 
 [features]
