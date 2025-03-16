@@ -26,6 +26,7 @@ atomic_float = "1.0.0"
 aws-config = "1.5.4"
 aws-sdk-lambda = { version = "1.35.0", features = ["rustls"] }
 aws-smithy-runtime = "1"
+base32 = "0.5.1"
 blake3 = "1.5.1"
 blind-rsa-signatures = "0.15.1"
 bytes = "1.6.0"
