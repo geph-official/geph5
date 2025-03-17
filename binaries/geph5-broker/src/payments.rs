@@ -59,6 +59,8 @@ pub trait PaymentProtocol {
         sessid: String,
         args: StartCryptoArgs,
     ) -> Result<serde_json::Value, String>;
+
+    async fn create_giftcard(&self, support_secret: String, days: i32) -> Result<String, String>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

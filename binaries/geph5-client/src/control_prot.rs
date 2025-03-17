@@ -6,7 +6,9 @@ use std::{
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
-use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem};
+use geph5_broker_protocol::{
+    puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem, VoucherInfo,
+};
 
 use itertools::Itertools;
 use moka::future::Cache;
@@ -51,6 +53,7 @@ pub trait ControlProtocol {
         days: u32,
         method: String,
     ) -> Result<String, String>;
+    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String>;
     async fn export_debug_pack(
         &self,
         email: Option<String>,
@@ -256,6 +259,15 @@ impl ControlProtocol for ControlProtocolImpl {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
         Ok(client
             .get_news(lang)
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?)
+    }
+
+    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .get_free_voucher(secret)
             .await
             .map_err(|s| s.to_string())?
             .map_err(|s| s.to_string())?)

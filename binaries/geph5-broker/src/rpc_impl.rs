@@ -7,13 +7,14 @@ use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
     Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
-    UserInfo, DOMAIN_EXIT_DESCRIPTOR,
+    UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
+use rand::Rng;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -437,6 +438,24 @@ impl BrokerProtocol for BrokerImpl {
                 .await?
                 .map_err(GenericError)?),
             _ => Err(GenericError("no support for this method here".to_string())),
+        }
+    }
+
+    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError> {
+        // TODO a db-driven implementation
+        let user_id = validate_credential(Credential::Secret(secret)).await?;
+        if user_id == 42 {
+            let days = rand::thread_rng().gen_range(3..10);
+            let code = PaymentClient(PaymentTransport)
+                .create_giftcard(CONFIG_FILE.wait().payment_support_secret.clone(), days)
+                .await?
+                .map_err(|e| anyhow::anyhow!(e))?;
+            Ok(Some(VoucherInfo {
+                code,
+                explanation: std::iter::once(("en".to_string(), format!("{days} days"))).collect(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
