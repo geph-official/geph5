@@ -136,34 +136,21 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn user_info(&self, secret: String) -> Result<UserInfo, String> {
-        static USER_INFO_CACHE: CtxField<Cache<String, UserInfo>> = |_| {
-            Cache::builder()
-                .time_to_live(Duration::from_secs(60))
-                .build()
-        };
-
-        let cache = self.ctx.get(USER_INFO_CACHE);
-
-        cache
-            .try_get_with(secret.clone(), async {
-                let res = broker_client(&self.ctx)
-                    .map_err(|e| format!("{:?}", e))?
-                    .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
-                    .await
-                    .map_err(|e| format!("{:?}", e))?
-                    .map_err(|e| format!("{:?}", e))?
-                    .ok_or_else(|| "no such user".to_string())?;
-                Ok(UserInfo {
-                    level: if res.plus_expires_unix.is_some() {
-                        AccountLevel::Plus
-                    } else {
-                        AccountLevel::Free
-                    },
-                    expiry: res.plus_expires_unix,
-                })
-            })
+        let res = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
             .await
-            .map_err(|s: Arc<String>| (*s).clone())
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?
+            .ok_or_else(|| "no such user".to_string())?;
+        Ok(UserInfo {
+            level: if res.plus_expires_unix.is_some() {
+                AccountLevel::Plus
+            } else {
+                AccountLevel::Free
+            },
+            expiry: res.plus_expires_unix,
+        })
     }
 
     async fn start_registration(&self) -> Result<usize, String> {
