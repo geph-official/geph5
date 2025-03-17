@@ -27,7 +27,7 @@ use crate::{
     log_error,
     news::fetch_news,
     payments::{
-        payment_sessid, PaymentClient, PaymentTransport, StartAliwechatArgs, StartStripeArgs,
+        payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs, StartStripeArgs,
     },
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
@@ -457,6 +457,29 @@ impl BrokerProtocol for BrokerImpl {
         } else {
             Ok(None)
         }
+    }
+
+    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {
+        // Validate the secret and get the user ID
+        let user_id = validate_credential(Credential::Secret(secret)).await?;
+
+        // Get a payment session for the user
+        let sessid = payment_sessid(user_id).await?;
+
+        // Call the payment service to spend the gift card
+        let days = PaymentClient(PaymentTransport)
+            .spend_giftcard(
+                sessid,
+                GiftcardWireInfo {
+                    gc_id: code,
+                    promo: "".to_string(),
+                },
+            )
+            .await?
+            .map_err(|e| GenericError(format!("Failed to redeem voucher: {}", e)))?;
+
+        // Return the number of days credited to the account
+        Ok(days)
     }
 
     async fn upload_debug_pack(

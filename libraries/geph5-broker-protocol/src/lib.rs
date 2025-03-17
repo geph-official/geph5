@@ -79,6 +79,9 @@ pub trait BrokerProtocol {
     ) -> Result<String, GenericError>;
 
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError>;
+    
+    // Redeem a voucher/gift card code to add credit to the user's account
+    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError>;
 
     // Upload debug information for troubleshooting purposes
     async fn upload_debug_pack(

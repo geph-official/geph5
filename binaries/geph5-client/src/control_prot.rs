@@ -54,6 +54,7 @@ pub trait ControlProtocol {
         method: String,
     ) -> Result<String, String>;
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String>;
+    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, String>;
     async fn export_debug_pack(
         &self,
         email: Option<String>,
@@ -273,6 +274,17 @@ impl ControlProtocol for ControlProtocolImpl {
             .map_err(|s| s.to_string())?)
     }
 
+    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+
+        // Call the broker's redeem_voucher method directly with the secret
+        client
+            .redeem_voucher(secret, code)
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())
+    }
+
     async fn price_points(&self) -> Result<Vec<(u32, f64)>, String> {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
         Ok(client
@@ -287,13 +299,13 @@ impl ControlProtocol for ControlProtocolImpl {
 
     async fn create_payment(
         &self,
-        auth_token: String,
+        secret: String,
         days: u32,
         method: String,
     ) -> Result<String, String> {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
         Ok(client
-            .create_payment(auth_token, days, method)
+            .create_payment(secret, days, method)
             .await
             .map_err(|s| s.to_string())?
             .map_err(|s| s.to_string())?)
