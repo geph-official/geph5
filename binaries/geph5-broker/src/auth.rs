@@ -66,7 +66,7 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 86400, result = true, sync_writes = true)]
+#[cached(time = 86400, result = true)]
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {
         Credential::TestDummy => Err(AuthError::Forbidden),
@@ -140,7 +140,7 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 86400, result = true, sync_writes = true)]
+#[cached(time = 86400, result = true)]
 async fn get_user_id_from_token(token: String) -> anyhow::Result<Option<i32>> {
     let user_id: Option<(i32,)> =
         sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
