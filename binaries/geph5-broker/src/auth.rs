@@ -66,7 +66,7 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 60, result = true, sync_writes = true)]
+#[cached(time = 86400, result = true, sync_writes = true)]
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {
         Credential::TestDummy => Err(AuthError::Forbidden),
@@ -140,7 +140,7 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 86400, result = true)]
+#[cached(time = 86400, result = true, sync_writes = true)]
 async fn get_user_id_from_token(token: String) -> anyhow::Result<Option<i32>> {
     let user_id: Option<(i32,)> =
         sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
@@ -160,7 +160,7 @@ pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, Acco
 
     let expiry = get_subscription_expiry(user_id).await?;
     tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
-    record_auth(user_id).await?;
+    smolscale::spawn(record_auth(user_id)).detach();
 
     if expiry.is_none() {
         Ok(Some((user_id, AccountLevel::Free)))
@@ -208,17 +208,6 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
 
 pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
     let now = Utc::now().naive_utc();
-
-    // sqlx::query(
-    //     r#"
-    //     INSERT INTO auth_logs (id, last_login)
-    //     VALUES ($1, $2)
-    //     "#,
-    // )
-    // .bind(user_id)
-    // .bind(now)
-    // .execute(POSTGRES.deref())
-    // .await?;
 
     sqlx::query(
         r#"INSERT INTO last_login (id, login_time)
