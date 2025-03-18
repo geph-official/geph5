@@ -123,8 +123,8 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             .await?;
                         diff = diff.saturating_sub(1_000_000_000);
                     }
+                    let load = get_load();
                     if rand::random::<f32>() < 0.1 {
-                        let load = get_load();
                         client
                             .set_stat(format!("{server_name}.load"), load as _)
                             .await?;
