@@ -184,12 +184,23 @@ pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> 
 pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>> {
     static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i64, Arc<BTreeMap<i32, i64>>>> =
         LazyLock::new(|| Cache::new(10));
+    static LAST_PAYMENT_TIMESTAMP_CACHE: LazyLock<Cache<(), i64>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_millis(50))
+            .build()
+    });
 
-    let last_payment_timestamp = sqlx::query_scalar::<_, i64>(
-        "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
-    )
-    .fetch_one(POSTGRES.deref())
-    .await?;
+    let last_payment_timestamp = LAST_PAYMENT_TIMESTAMP_CACHE
+        .try_get_with((), async {
+            let ts = sqlx::query_scalar::<_, i64>(
+                "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
+            )
+            .fetch_one(POSTGRES.deref())
+            .await?;
+            anyhow::Ok(ts)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
         .try_get_with(last_payment_timestamp, async move {
@@ -205,7 +216,6 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
 
     Ok(all_subscriptions.get(&user_id).cloned())
 }
-
 pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
     let now = Utc::now().naive_utc();
 
