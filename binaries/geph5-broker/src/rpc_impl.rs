@@ -9,6 +9,7 @@ use geph5_broker_protocol::{
     Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
     UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
+use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
@@ -27,7 +28,8 @@ use crate::{
     log_error,
     news::fetch_news,
     payments::{
-        payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs, StartStripeArgs,
+        payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs,
+        StartStripeArgs,
     },
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
@@ -55,12 +57,22 @@ impl RpcService for WrappedBrokerService {
     ) -> Option<Result<serde_json::Value, ServerError>> {
         let start = Instant::now();
         let resp = self.0.respond(method, params).await?;
-        if let Some(client) = STATSD_CLIENT.as_ref() {
-            client.count(&format!("broker.{method}"), 1).unwrap();
-            client
-                .time(&format!("broker_resptime.{method}"), start.elapsed())
-                .unwrap();
-        }
+        let method = method.to_string();
+        smolscale::spawn(async move {
+            if let Some(endpoint) = &CONFIG_FILE.wait().influxdb {
+                endpoint
+                    .send_line(
+                        LineProtocolBuilder::new()
+                            .measurement("broker_rpc_calls")
+                            .tag("method", &method)
+                            .field("latency", start.elapsed().as_secs_f64())
+                            .close_line()
+                            .build(),
+                    )
+                    .await;
+            }
+        })
+        .detach();
         Some(resp)
     }
 }

@@ -105,7 +105,7 @@ struct ConfigFile {
 
     #[serde(default)]
     payment_support_secret: String,
-    
+
     /// Optional InfluxDB configuration for metrics
     #[serde(default)]
     influxdb: Option<InfluxDbEndpoint>,
