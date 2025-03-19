@@ -33,7 +33,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                         .close_line()
                         .build(),
                 )
-                .await;
+                .await?;
 
             // Get bridge pool counts
             let pool_counts: Vec<(String, i64)> =
@@ -53,7 +53,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                             .close_line()
                             .build(),
                     )
-                    .await;
+                    .await?;
             }
 
             // Get login statistics
@@ -79,7 +79,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                         .close_line()
                         .build(),
                 )
-                .await;
+                .await?;
         }
         async_io::Timer::after(Duration::from_secs(5)).await;
     }
