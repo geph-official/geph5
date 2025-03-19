@@ -21,7 +21,7 @@ impl InfluxDbEndpoint {
                 .build()
                 .unwrap()
         });
-        tracing::debug!("INFLUXDB SEND: {:?}", String::from_utf8_lossy(&line));
+
         CLIENT
             .post(&self.url)
             .basic_auth(&self.username, Some(&self.password))
