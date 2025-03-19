@@ -44,6 +44,10 @@ pub fn get_load() -> f32 {
     cpu.max(speed)
 }
 
+pub fn get_kbps() -> f32 {
+    CURRENT_SPEED.load(Ordering::Relaxed) / 1000.0
+}
+
 pub static TOTAL_BYTE_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
 pub fn update_load_loop() {

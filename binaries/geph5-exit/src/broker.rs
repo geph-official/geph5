@@ -13,7 +13,7 @@ use reqwest::Method;
 use tap::Tap;
 
 use crate::{
-    ratelimit::{get_load, TOTAL_BYTE_COUNT},
+    ratelimit::{get_kbps, get_load, TOTAL_BYTE_COUNT},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
     watchdog::kick_watchdog,
@@ -92,7 +92,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
         Some(broker) => {
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
-            let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+
             loop {
                 let upload = async {
                     let free_exits = client
@@ -110,35 +110,24 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                         ACCEPT_FREE.store(accept_free, Ordering::Relaxed);
                     }
 
-                    let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                    let mut diff = byte_count.saturating_sub(last_byte_count);
-                    last_byte_count = byte_count;
-                    tracing::debug!(diff, last_byte_count, "uploaded a diff");
-                    while diff > 0 {
-                        client
-                            .incr_stat(
-                                format!("{server_name}.throughput"),
-                                diff.min(1_000_000_000) as _,
-                            )
-                            .await?;
-                        diff = diff.saturating_sub(1_000_000_000);
-                    }
+                    client
+                        .set_stat(format!("{server_name}.kbps"), get_kbps() as _)
+                        .await?;
+
                     let load = get_load();
-                    if rand::random::<f32>() < 0.1 {
-                        client
-                            .set_stat(format!("{server_name}.load"), load as _)
-                            .await?;
-                        let task_count = get_task_count();
-                        client
-                            .set_stat(format!("{server_name}.task_count"), task_count as _)
-                            .await?;
-                        client
-                            .set_stat(
-                                format!("{server_name}.schedlag"),
-                                SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
-                            )
-                            .await?;
-                    }
+                    client
+                        .set_stat(format!("{server_name}.load"), load as _)
+                        .await?;
+                    let task_count = get_task_count();
+                    client
+                        .set_stat(format!("{server_name}.task_count"), task_count as _)
+                        .await?;
+                    client
+                        .set_stat(
+                            format!("{server_name}.schedlag"),
+                            SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
+                        )
+                        .await?;
 
                     let descriptor = ExitDescriptor {
                         c2e_listen: CONFIG_FILE
@@ -173,7 +162,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 } else {
                     kick_watchdog();
                 }
-                smol::Timer::after(Duration::from_millis(200)).await;
+                smol::Timer::after(Duration::from_millis(2000)).await;
             }
         }
         None => {
