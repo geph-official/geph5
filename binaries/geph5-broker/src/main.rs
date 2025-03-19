@@ -16,12 +16,15 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod auth;
 mod database;
+mod influxdb;
 mod news;
 mod payments;
 mod puzzle;
 mod routes;
 mod rpc_impl;
 mod self_stat;
+
+use influxdb::InfluxDbEndpoint;
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
@@ -102,6 +105,10 @@ struct ConfigFile {
 
     #[serde(default)]
     payment_support_secret: String,
+    
+    /// Optional InfluxDB configuration for metrics
+    #[serde(default)]
+    influxdb: Option<InfluxDbEndpoint>,
 }
 
 fn default_puzzle_difficulty() -> u16 {
@@ -140,6 +147,13 @@ async fn main() -> anyhow::Result<()> {
     // Parse the YAML file into our AppConfig struct
     let config: ConfigFile =
         serde_yaml::from_str(&config_contents).context("Failed to parse the config file")?;
+
+    // Log if InfluxDB is configured
+    if let Some(influxdb) = &config.influxdb {
+        tracing::info!("InfluxDB endpoint configured at {}", influxdb.url);
+    } else {
+        tracing::info!("No InfluxDB endpoint configured");
+    }
 
     let _ = CONFIG_FILE.set(config);
 
