@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{thread::available_parallelism, time::Duration};
 
 use anyhow::Context;
 use influxdb_line_protocol::LineProtocolBuilder;
@@ -29,7 +29,10 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                     LineProtocolBuilder::new()
                         .measurement("broker_sysstat")
                         .tag("ip_addr", &ip_addr)
-                        .field("nmlz_load_factor", load_avg)
+                        .field(
+                            "nmlz_load_factor",
+                            load_avg / available_parallelism()?.get() as f64,
+                        )
                         .close_line()
                         .build(),
                 )
