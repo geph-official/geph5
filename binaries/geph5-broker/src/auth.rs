@@ -194,6 +194,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
             .build()
     });
 
+    let mut ts_missed = false;
     let last_payment_timestamp = LAST_PAYMENT_TIMESTAMP_CACHE
         .try_get_with(
             SystemTime::now()
@@ -207,24 +208,30 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
                 )
                 .fetch_one(POSTGRES.deref())
                 .await?;
+                ts_missed = true;
                 anyhow::Ok(ts)
             },
         )
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
+    let mut sub_missed = false;
     let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
-        .try_get_with(last_payment_timestamp, async move {
+        .try_get_with(last_payment_timestamp, async  {
             let all_subscriptions: Vec<(i32, i64)> = sqlx::query_as(
                 "SELECT id, EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp FROM subscriptions",
             )
             .fetch_all(POSTGRES.deref())
             .await?;
+        sub_missed = true;
             anyhow::Ok(Arc::new(all_subscriptions.into_iter().collect()))
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
+    if rand::random::<f64>() < 0.001 {
+        tracing::debug!("sub expiry missed? {ts_missed} {sub_missed}")
+    }
     Ok(all_subscriptions.get(&user_id).cloned())
 }
 pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
