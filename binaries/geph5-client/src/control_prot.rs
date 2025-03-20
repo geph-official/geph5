@@ -8,7 +8,6 @@ use anyctx::AnyCtx;
 use async_trait::async_trait;
 use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem};
 
-use itertools::Itertools;
 use moka::future::Cache;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
@@ -73,6 +72,7 @@ pub struct ConnectedInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserInfo {
+    pub user_id: u64,
     pub level: AccountLevel,
     pub expiry: Option<u64>,
 }
@@ -147,6 +147,7 @@ impl ControlProtocol for ControlProtocolImpl {
                     .map_err(|e| format!("{:?}", e))?
                     .ok_or_else(|| "no such user".to_string())?;
                 Ok(UserInfo {
+                    user_id: res.user_id,
                     level: if res.plus_expires_unix.is_some() {
                         AccountLevel::Plus
                     } else {
