@@ -12,6 +12,10 @@ windivert = []
 [lib]
 crate-type = ["lib", "staticlib"]
 
+[target.aarch64-apple-ios]
+linker = "clang"
+
+
 [dependencies]
 anyctx = "0.1.0"
 anyhow = "1.0.86"
