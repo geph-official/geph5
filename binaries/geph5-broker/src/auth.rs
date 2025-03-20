@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     ops::Deref as _,
     sync::{Arc, LazyLock},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use moka::future::Cache;
@@ -188,21 +188,28 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
                 .time_to_idle(Duration::from_secs(60))
                 .build()
         });
-    static LAST_PAYMENT_TIMESTAMP_CACHE: LazyLock<Cache<(), i64>> = LazyLock::new(|| {
+    static LAST_PAYMENT_TIMESTAMP_CACHE: LazyLock<Cache<u128, i64>> = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_millis(50))
+            .time_to_idle(Duration::from_secs(60))
             .build()
     });
 
     let last_payment_timestamp = LAST_PAYMENT_TIMESTAMP_CACHE
-        .try_get_with((), async {
-            let ts = sqlx::query_scalar::<_, i64>(
-                "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
-            )
-            .fetch_one(POSTGRES.deref())
-            .await?;
-            anyhow::Ok(ts)
-        })
+        .try_get_with(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+                / 50,
+            async {
+                let ts = sqlx::query_scalar::<_, i64>(
+                    "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
+                )
+                .fetch_one(POSTGRES.deref())
+                .await?;
+                anyhow::Ok(ts)
+            },
+        )
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
