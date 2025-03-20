@@ -181,24 +181,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
 
 [[package]]
-name = "android_log-sys"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84521a3cf562bc62942e294181d9eef17eb38ceb8c68677bc49f144e4c3d4f8d"
-
-[[package]]
-name = "android_logger"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c494134f746c14dc653a35a4ea5aca24ac368529da5370ecf41fe0341c35772f"
-dependencies = [
- "android_log-sys",
- "env_logger",
- "log",
- "once_cell",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2569,7 +2551,6 @@ dependencies = [
  "objc2-foundation 0.2.2",
  "parking_lot",
  "percent-encoding",
- "pollster 0.3.0",
  "raw-window-handle 0.5.2",
  "raw-window-handle 0.6.2",
  "static_assertions",
@@ -2577,7 +2558,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time 0.2.4",
- "wgpu",
  "winapi",
  "winit",
 ]
@@ -2777,19 +2757,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
-dependencies = [
- "humantime",
- "is-terminal",
- "log",
- "regex",
- "termcolor",
 ]
 
 [[package]]
@@ -3282,7 +3249,7 @@ dependencies = [
  "nanorpc-sillad",
  "once_cell",
  "oneshot",
- "pollster 0.3.0",
+ "pollster",
  "rand 0.8.5",
  "reqwest",
  "rusty_pool",
@@ -3298,6 +3265,7 @@ dependencies = [
  "stdcode",
  "tap",
  "thiserror 1.0.69",
+ "tikv-jemallocator",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3412,27 +3380,6 @@ dependencies = [
  "tun",
  "winapi",
  "x25519-dalek",
-]
-
-[[package]]
-name = "geph5-client-android"
-version = "0.1.0"
-dependencies = [
- "android_logger",
- "anyhow",
- "eframe",
- "egui",
- "egui-winit",
- "env_logger",
- "geph5-client-gui",
- "jni",
- "log",
- "ndk-context",
- "once_cell",
- "pollster 0.2.5",
- "reqwest",
- "smolscale",
- "tracing",
 ]
 
 [[package]]
@@ -3924,12 +3871,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbf6a919d6cf397374f7dfeeea91d974c7c0a7221d0d0f4f20d859d329e53fcc"
 
 [[package]]
-name = "hermit-abi"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbd780fe5cc30f81464441920d82ac8740e2e46b29a6fad543ddd075229ce37e"
-
-[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4053,12 +3994,6 @@ name = "httpdate"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
-
-[[package]]
-name = "humantime"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b112acc8b3adf4b107a8ec20977da0273a8c386765a3ec0229bd500a1443f9f"
 
 [[package]]
 name = "hyper"
@@ -4450,22 +4385,11 @@ dependencies = [
  "log",
  "moka",
  "parking_lot",
- "pollster 0.3.0",
+ "pollster",
  "rand 0.8.5",
  "smol-timeout",
  "smolscale",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "is-terminal"
-version = "0.4.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e04d7f318608d35d4b61ddd75cbdaee86b023ebe2bd5a66ee0915f0bf93095a9"
-dependencies = [
- "hermit-abi 0.5.0",
- "libc",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4509,15 +4433,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
-name = "java-locator"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09c46c1fe465c59b1474e665e85e1256c3893dd00927b8d55f63b09044c1e64f"
-dependencies = [
- "glob",
-]
-
-[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4526,9 +4441,7 @@ dependencies = [
  "cesu8",
  "cfg-if",
  "combine",
- "java-locator",
  "jni-sys",
- "libloading 0.7.4",
  "log",
  "thiserror 1.0.69",
  "walkdir",
@@ -5874,12 +5787,6 @@ dependencies = [
  "tracing",
  "windows-sys 0.59.0",
 ]
-
-[[package]]
-name = "pollster"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5da3b0203fd7ee5720aa0b5e790b591aa5d3f41c3ed2c34a3a393382198af2f7"
 
 [[package]]
 name = "pollster"
@@ -8786,7 +8693,6 @@ dependencies = [
  "document-features",
  "js-sys",
  "log",
- "naga",
  "parking_lot",
  "profiling",
  "raw-window-handle 0.6.2",
@@ -8837,7 +8743,6 @@ dependencies = [
  "arrayvec",
  "ash",
  "bitflags 2.9.0",
- "block",
  "cfg_aliases 0.1.1",
  "core-graphics-types",
  "glow",

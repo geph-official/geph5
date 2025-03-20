@@ -12,6 +12,7 @@ use self_stat::self_stat_loop;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock};
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod auth;
@@ -23,6 +24,9 @@ mod puzzle;
 mod routes;
 mod rpc_impl;
 mod self_stat;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 use influxdb::InfluxDbEndpoint;
 
