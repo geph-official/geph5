@@ -13,7 +13,7 @@ use reqwest::Method;
 use tap::Tap;
 
 use crate::{
-    ratelimit::{get_kbps, get_load, TOTAL_BYTE_COUNT},
+    ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
     watchdog::kick_watchdog,

@@ -2,7 +2,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc, LazyLock,
     },
     time::Duration,

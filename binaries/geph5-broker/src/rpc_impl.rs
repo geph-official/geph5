@@ -60,7 +60,7 @@ impl RpcService for WrappedBrokerService {
         let method = method.to_string();
         smolscale::spawn(async move {
             if let Some(endpoint) = &CONFIG_FILE.wait().influxdb {
-                endpoint
+                let _ = endpoint
                     .send_line(
                         LineProtocolBuilder::new()
                             .measurement("broker_rpc_calls")

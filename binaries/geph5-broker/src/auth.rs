@@ -217,7 +217,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
 
     let mut sub_missed = false;
     let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
-        .try_get_with(last_payment_timestamp, async move {
+        .try_get_with(last_payment_timestamp, async {
             let all_subscriptions: Vec<(i32, i64)> = sqlx::query_as(
                 "SELECT id, EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp FROM subscriptions",
             )
