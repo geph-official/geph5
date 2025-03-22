@@ -53,11 +53,11 @@ where $H$ is a cryptographically secure hash function used in a full-domain-hash
 
 - The broker holds $2^{16}$ RSA key pairs:
 
-  $$
-  \{ (N_i, e_{i}, d_i) \}_{i=0}^{2^{16}-1},
-  $$
+$$
+\{ (N_i, e_{i}, d_i) \}_{i=0}^{2^{16}-1},
+$$
 
-  each 2048 bits, indexed by $i$. These represent _epoch keys_, one for each day after the Unix epoch.
+each 2048 bits, indexed by $i$. These represent _epoch keys_, one for each day after the Unix epoch.
 
 - A **Merkle tree** based on blake3 is is constructed over all $2^{16}$ public keys $\bigl(N_i, e_{i}\bigr)$. Leaves are hashes of these public keys; internal nodes are hashes of their children.
 - The broker **long-term public key** is the **Merkle root**:
@@ -74,51 +74,35 @@ $$
 
 1. **Token generation**
 
-   - The client generates a random 32-byte token:  
-     $T \xleftarrow{\$} \{0,1\}^{256}.$
+   - The client generates a random 32-byte token:
+
+$$ T \leftarrow \{ 0,1 \}^{256} $$
 
 2. **Epoch and key retrieval**
 
-   - Define the epoch:
-
-     $$
-     E = \left\lfloor \frac{\text{UnixTime}}{86400} \right\rfloor.
-     $$
-
+   - Define the epoch: $E = \left\lfloor \frac{\text{UnixTime}}{86400} \right\rfloor$
    - A function $f(E)$ derives a key index $i \in \{0,\dots,2^{16}-1\}$. For example, $i = E \bmod 65536$.
    - The client requests **both the broker's RSA public key** $\bigl(N_i, e_{i}\bigr)$ **and a corresponding Merkle proof** from the broker.
    - **Client validates the Merkle proof**:
-     - Using the known root $\mathsf{Root}$, which is hardcoded, the client checks that $\bigl(N_i, e_{i}\bigr)$ indeed appears as the valid leaf at index $i$.
-     - This prevents an untrusted broker from substituting a rogue public key in order to allow exits to deanonymize users.
+   - Using the known root $\mathsf{Root}$, which is hardcoded, the client checks that $\bigl(N_i, e_{i}\bigr)$ indeed appears as the valid leaf at index $i$.
+   - This prevents an untrusted broker from substituting a rogue public key in order to allow exits to deanonymize users.
 
 3. **Blinding process**
 
-   - Once the client verifies the key $\bigl(N_i, e_{i}\bigr)$, it selects a random $r$ (coprime to $N_i$) and computes:
-
-     $$
-     T' = \bigl(H(T) \cdot r^{\,e_{i}}\bigr) \bmod N_i.
-     $$
+   - Once the client verifies the key $\bigl(N_i, e_{i}\bigr)$, it selects a random $r$ (coprime to $N_i$) and computes: $T' = \bigl(H(T) \cdot r^{\,e_{i}}\bigr) \bmod N_i.$
 
    - The client sends $\{ E, i, T' \}$ to the broker.
 
 4. **Broker signing**
 
    - The broker checks the client’s **regular credentials** (e.g., username/password).
-   - If valid, the broker applies its private exponent $d_i$:
-
-     $$
-     \sigma' = (T')^{d_i} \bmod N_i.
-     $$
+   - If valid, the broker applies its private exponent $d_i$: $\sigma' = (T')^{d_i} \bmod N_i.$
 
    - The broker returns $\sigma'$ (plus the Merkle proof again if needed, though typically the client already has it from step 2).
 
 5. **Unblinding**
 
-   - The client computes $r^{-1}$ modulo $N_i$ and calculates:
-
-     $$
-     \sigma = \sigma' \cdot r^{-1} \bmod N_i.
-     $$
+   - The client computes $r^{-1}$ modulo $N_i$ and calculates: $\sigma = \sigma' \cdot r^{-1} \bmod N_i.$
 
    - Thus, $\sigma$ is a valid RSA-FDH signature on $H(T)$.
 
@@ -140,5 +124,3 @@ $$
    - By design, a valid token can be replayed. After 24 hours, it expires.
 4. **Forward privacy**
    - After an epoch ends, the user obtains a new token. Past tokens do not link to future tokens, as each day effectively resets the user’s identity handle.
-
----

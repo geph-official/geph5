@@ -43,4 +43,5 @@ tikv-jemallocator = { version = "0.6.0", features = ["unprefixed_malloc_on_suppo
 flate2 = "1.0.35"
 clap = "4.5.32"
 influxdb-line-protocol = "2.0.0"
+nano-influxdb = { path = "../../libraries/nano-influxdb" }
 #jemalloc_pprof = "0.6.0"

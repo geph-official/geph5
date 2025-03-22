@@ -4,6 +4,7 @@ use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
+use nano_influxdb::InfluxDbEndpoint;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -17,7 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod auth;
 mod database;
-mod influxdb;
+
 mod news;
 mod payments;
 mod puzzle;
@@ -27,8 +28,6 @@ mod self_stat;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
-
-use influxdb::InfluxDbEndpoint;
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
