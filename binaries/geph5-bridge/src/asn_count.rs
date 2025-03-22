@@ -20,7 +20,7 @@ static ASN_BYTE_COUNTS: LazyLock<DashMap<u32, u64>> = LazyLock::new(DashMap::new
 // Global mapping of ASN to country code
 static ASN_COUNTRY_MAP: LazyLock<DashMap<u32, String>> = LazyLock::new(DashMap::new);
 
-const FLUSH_THRESHOLD: u64 = 100_000;
+const FLUSH_THRESHOLD: u64 = 1_000_000;
 
 pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
     let ip_to_asn_map = get_ip_to_asn_map().await?;
@@ -32,10 +32,10 @@ pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
         .range(ip.to_bits()..)
         .next()
         .context("ASN lookup failed")?;
-        
+
     // Store the ASN to country mapping
     ASN_COUNTRY_MAP.insert(*asn, country.clone());
-    
+
     Ok(*asn)
 }
 
@@ -75,9 +75,12 @@ fn flush_asn_data(asn: u32) {
         if let Some((_, bytes)) = ASN_BYTE_COUNTS.remove(&asn) {
             // Clone the endpoint for the async block
             let endpoint = val.clone();
-            
+
             // Get the country code from our mapping
-            let country_code = ASN_COUNTRY_MAP.get(&asn).map(|c| c.clone()).unwrap_or_else(|| "XX".to_string());
+            let country_code = ASN_COUNTRY_MAP
+                .get(&asn)
+                .map(|c| c.clone())
+                .unwrap_or_else(|| "XX".to_string());
 
             smolscale::spawn(async move {
                 let pool = match std::env::var("GEPH5_BRIDGE_POOL") {
