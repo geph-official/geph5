@@ -8,6 +8,7 @@ use std::{
     collections::BTreeMap,
     io::BufRead,
     net::IpAddr,
+    net::Ipv4Addr,
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -16,6 +17,8 @@ use crate::influxdb::INFLUXDB_ENDPOINT;
 
 // Global mapping of ASN to byte counts
 static ASN_BYTE_COUNTS: LazyLock<DashMap<u32, u64>> = LazyLock::new(DashMap::new);
+// Global mapping of ASN to country code
+static ASN_COUNTRY_MAP: LazyLock<DashMap<u32, String>> = LazyLock::new(DashMap::new);
 
 const FLUSH_THRESHOLD: u64 = 100_000;
 
@@ -25,11 +28,25 @@ pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
         IpAddr::V4(ip) => ip,
         IpAddr::V6(_) => return Err(anyhow::anyhow!("IPv6 not supported")),
     };
-    let (_, (asn, _country)) = ip_to_asn_map
+    let (_, (asn, country)) = ip_to_asn_map
         .range(ip.to_bits()..)
         .next()
         .context("ASN lookup failed")?;
+        
+    // Store the ASN to country mapping
+    ASN_COUNTRY_MAP.insert(*asn, country.clone());
+    
     Ok(*asn)
+}
+
+// Get country code for an ASN
+pub async fn ip_to_asn_country(ip: Ipv4Addr) -> anyhow::Result<(u32, String)> {
+    let ip_to_asn_map = get_ip_to_asn_map().await?;
+    let (_, (asn, country)) = ip_to_asn_map
+        .range(ip.to_bits()..)
+        .next()
+        .context("ASN lookup failed")?;
+    Ok((*asn, country.clone()))
 }
 
 // Increment the byte count for a given ASN and flush if threshold is reached
@@ -58,6 +75,9 @@ fn flush_asn_data(asn: u32) {
         if let Some((_, bytes)) = ASN_BYTE_COUNTS.remove(&asn) {
             // Clone the endpoint for the async block
             let endpoint = val.clone();
+            
+            // Get the country code from our mapping
+            let country_code = ASN_COUNTRY_MAP.get(&asn).map(|c| c.clone()).unwrap_or_else(|| "XX".to_string());
 
             smolscale::spawn(async move {
                 let pool = match std::env::var("GEPH5_BRIDGE_POOL") {
@@ -71,6 +91,7 @@ fn flush_asn_data(asn: u32) {
                             .measurement("bridge_bytes")
                             .tag("pool", &pool)
                             .tag("asn", &asn.to_string())
+                            .tag("country", &country_code) // Add country code tag
                             .field("bytes", bytes as f64)
                             .close_line()
                             .build(),
