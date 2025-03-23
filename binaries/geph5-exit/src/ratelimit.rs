@@ -85,20 +85,14 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
         AccountLevel::Free => {
             FREE_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().free_ratelimit,
-                        CONFIG_FILE.wait().free_ratelimit,
-                    )
+                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, 1000)
                 })
                 .await
         }
         AccountLevel::Plus => {
             PLUS_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().plus_ratelimit,
-                        CONFIG_FILE.wait().plus_ratelimit * 5,
-                    )
+                    RateLimiter::new(CONFIG_FILE.wait().plus_ratelimit, 1000)
                 })
                 .await
         }

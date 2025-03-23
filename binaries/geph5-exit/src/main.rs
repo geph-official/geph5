@@ -79,7 +79,7 @@ fn default_free_ratelimit() -> u32 {
 }
 
 fn default_plus_ratelimit() -> u32 {
-    50000
+    30000
 }
 
 fn default_total_ratelimit() -> u32 {
