@@ -1,9 +1,9 @@
 Your task is to extract all the news items in the input that matches the language $LANGUAGE, and format them into a JSON object as follows:
 
-{"news": [{"title": "Headline", "date_unix": (unix timestamp in seconds), "contents": "News item etc"}...]}
+{"news": [{"title": "Headline", "date": (date in YYYY-MM-DD), "contents": "News item etc"}...]}
 
 Each news item must be transcribed into HTML from the original Markdown. Links must have target _blank.
 
-If the original item doesn't have a title, make one up.
+If the original item doesn't have a title, it should be the first few words followed by ...
 
 If the original news item doesn't have a version in the chosen language $LANGUAGE, translate from the most similar language. (For instance, if a person requests Traditional Chinese but we only have Simplified, transcribe the Simplified Chinese; if a person requests Spanish, translate from English, etc)
