@@ -18,7 +18,7 @@ use slab::Slab;
 
 use crate::{
     broker_client, client::CtxField, logging::get_json_logs, stats::stat_get_num,
-    traffcount::TRAFF_COUNT, Config,
+    traffcount::TRAFF_COUNT, updates::get_update_manifest, Config,
 };
 
 #[nanorpc_derive]
@@ -59,6 +59,8 @@ pub trait ControlProtocol {
         email: Option<String>,
         contents: String,
     ) -> Result<(), String>;
+
+    async fn get_update_manifest(&self) -> Result<(serde_json::Value, String), String>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -309,6 +311,10 @@ impl ControlProtocol for ControlProtocolImpl {
             .map_err(|s| s.to_string())?
             .map_err(|s| s.to_string())?;
         Ok(())
+    }
+
+    async fn get_update_manifest(&self) -> Result<(serde_json::Value, String), String> {
+        get_update_manifest().await.map_err(|e| format!("{:?}", e))
     }
 }
 

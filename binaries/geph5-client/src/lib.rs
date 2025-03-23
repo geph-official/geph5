@@ -22,4 +22,5 @@ mod spoof_dns;
 mod stats;
 mod taskpool;
 mod traffcount;
+mod updates;
 mod vpn;

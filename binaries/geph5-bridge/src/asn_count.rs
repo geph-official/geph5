@@ -8,7 +8,6 @@ use std::{
     collections::BTreeMap,
     io::BufRead,
     net::IpAddr,
-    net::Ipv4Addr,
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -37,16 +36,6 @@ pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
     ASN_COUNTRY_MAP.insert(*asn, country.clone());
 
     Ok(*asn)
-}
-
-// Get country code for an ASN
-pub async fn ip_to_asn_country(ip: Ipv4Addr) -> anyhow::Result<(u32, String)> {
-    let ip_to_asn_map = get_ip_to_asn_map().await?;
-    let (_, (asn, country)) = ip_to_asn_map
-        .range(ip.to_bits()..)
-        .next()
-        .context("ASN lookup failed")?;
-    Ok((*asn, country.clone()))
 }
 
 // Increment the byte count for a given ASN and flush if threshold is reached
