@@ -5,6 +5,7 @@ use std::io::Write;
 
 pub use broker::broker_client;
 pub use broker::BrokerSource;
+use bytes::Bytes;
 pub use client::Client;
 pub use client::{BridgeMode, BrokerKeys, Config};
 pub use control_prot::{ConnInfo, ControlClient};
@@ -72,9 +73,11 @@ pub extern "C" fn daemon_rpc(
 
 #[no_mangle]
 pub extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
-    let slice = unsafe { std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize) };
+    let slice: &'static [u8] =
+        unsafe { std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize) };
     if let Some(client) = CLIENT.get() {
-        if let Ok(_) = smolscale::block_on(client.send_vpn_packet(slice.into())) {
+        if let Ok(_) = smol::future::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
+        {
             return 0;
         }
     }
@@ -84,7 +87,7 @@ pub extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
 #[no_mangle]
 pub extern "C" fn recv_pkt(out_buf: *mut c_char, out_buflen: c_int) -> c_int {
     if let Some(client) = CLIENT.get() {
-        if let Ok(pkt) = smolscale::block_on(client.recv_vpn_packet()) {
+        if let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet()) {
             return unsafe { fill_buffer(out_buf, out_buflen, &pkt) };
         }
     }
