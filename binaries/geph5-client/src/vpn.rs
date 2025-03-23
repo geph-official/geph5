@@ -33,8 +33,8 @@ mod macos;
 pub use macos::*;
 
 use crate::{
-    client::CtxField, client_inner::open_conn, spoof_dns::fake_dns_respond, taskpool::add_task,
-    Config,
+    client::CtxField, client_inner::open_conn, litecopy::litecopy, spoof_dns::fake_dns_respond,
+    taskpool::add_task, Config,
 };
 
 /// Whitelist a vpn address if needed
@@ -141,8 +141,8 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                     let (read_tunneled, write_tunneled) = tunneled.split();
                     let (read_captured, write_captured) = captured.split();
-                    smol::io::copy(read_tunneled, write_captured)
-                        .race(smol::io::copy(read_captured, write_tunneled))
+                    litecopy(read_tunneled, write_captured)
+                        .race(litecopy(read_captured, write_tunneled))
                         .await?;
                     anyhow::Ok(())
                 });

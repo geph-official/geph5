@@ -22,6 +22,7 @@ mod client_inner;
 mod control_prot;
 mod database;
 mod http_proxy;
+mod litecopy;
 pub mod logging;
 
 mod pac;
@@ -37,7 +38,7 @@ mod vpn;
 static CLIENT: OnceCell<Client> = OnceCell::new();
 
 #[no_mangle]
-pub extern "C" fn start_client(cfg: *const c_char) -> libc::c_int {
+pub unsafe extern "C" fn start_client(cfg: *const c_char) -> libc::c_int {
     let cfg_str = unsafe { CStr::from_ptr(cfg) }.to_str().unwrap();
     let cfg: Config = serde_json::from_str(cfg_str).unwrap();
 
@@ -47,7 +48,7 @@ pub extern "C" fn start_client(cfg: *const c_char) -> libc::c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn daemon_rpc(
+pub unsafe extern "C" fn daemon_rpc(
     jrpc_req: *const c_char,
     out_buf: *mut c_char,
     out_buflen: c_int,
@@ -72,26 +73,25 @@ pub extern "C" fn daemon_rpc(
 }
 
 #[no_mangle]
-pub extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
-    let slice: &'static [u8] =
-        unsafe { std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize) };
+pub unsafe extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
+    let slice: &'static [u8] = std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize);
     if let Some(client) = CLIENT.get() {
         if let Ok(_) = smol::future::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
         {
             return 0;
         }
     }
-    return -1;
+    -1
 }
 
 #[no_mangle]
-pub extern "C" fn recv_pkt(out_buf: *mut c_char, out_buflen: c_int) -> c_int {
+pub unsafe extern "C" fn recv_pkt(out_buf: *mut c_char, out_buflen: c_int) -> c_int {
     if let Some(client) = CLIENT.get() {
         if let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet()) {
-            return unsafe { fill_buffer(out_buf, out_buflen, &pkt) };
+            return fill_buffer(out_buf, out_buflen, &pkt);
         }
     }
-    return -1;
+    -1
 }
 
 unsafe fn fill_buffer(buffer: *mut c_char, buflen: c_int, output: &[u8]) -> c_int {
@@ -191,7 +191,7 @@ mod tests {
         let cfg_str = CString::new(serde_json::to_string(&cfg).unwrap()).unwrap();
         let cfg_ptr = cfg_str.as_ptr();
 
-        let start_client_ret = start_client(cfg_ptr);
+        let start_client_ret = unsafe { start_client(cfg_ptr) };
         assert!(start_client_ret == 0);
 
         // call daemon_rpc;
@@ -208,7 +208,7 @@ mod tests {
             let mut out_buf = vec![0; 1024 * 128]; // Adjust size as needed
             let out_buf_ptr = out_buf.as_mut_ptr();
 
-            let rpc_ret = daemon_rpc(jrpc_req_ptr, out_buf_ptr, out_buf.len() as _);
+            let rpc_ret = unsafe { daemon_rpc(jrpc_req_ptr, out_buf_ptr, out_buf.len() as _) };
             println!("daemon_rpc retcode = {rpc_ret}");
             assert!(rpc_ret >= 0);
             let output = unsafe { CStr::from_ptr(out_buf_ptr) }.to_str().unwrap();

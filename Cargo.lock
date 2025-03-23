@@ -3392,6 +3392,7 @@ dependencies = [
  "async-compat",
  "async-dup",
  "async-event",
+ "async-io-bufpool",
  "async-native-tls",
  "async-trait",
  "atomic_float",
