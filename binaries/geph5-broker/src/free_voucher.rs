@@ -6,7 +6,7 @@ use crate::database::POSTGRES;
 
 pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo>> {
     let row: Option<(String, String)> =
-        sqlx::query_as("select voucher,description from free_voucher where id = $1 limit 1")
+        sqlx::query_as("select voucher,description from free_vouchers where id = $1 limit 1")
             .bind(user_id)
             .fetch_optional(&*POSTGRES)
             .await?;
