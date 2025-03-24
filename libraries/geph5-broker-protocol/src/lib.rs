@@ -1,4 +1,4 @@
-use std::{fmt::Display, net::SocketAddr};
+use std::{collections::BTreeMap, fmt::Display, net::SocketAddr};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -78,12 +78,23 @@ pub trait BrokerProtocol {
         method: String,
     ) -> Result<String, GenericError>;
 
+    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError>;
+
+    // Redeem a voucher/gift card code to add credit to the user's account
+    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError>;
+
     // Upload debug information for troubleshooting purposes
     async fn upload_debug_pack(
         &self,
         email: Option<String>,
         logs: String,
     ) -> Result<(), GenericError>;
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VoucherInfo {
+    pub code: String,
+    pub explanation: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,10 +1,11 @@
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use geph5_broker_protocol::NewsItem;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smol::lock::Mutex;
+use sqlx::types::chrono::NaiveDate;
 
 use crate::CONFIG_FILE;
 
@@ -132,11 +133,34 @@ async fn refresh_news_cache(lang_code: &str, cache_path: &str) -> anyhow::Result
     let parsed = serde_json::from_str::<serde_json::Value>(content_str)?;
 
     // Convert to Vec<NewsItem>
-    let news_items: Vec<NewsItem> = serde_json::from_value(parsed["news"].clone())?;
+    let news_items: Vec<PreNewsItem> = serde_json::from_value(parsed["news"].clone())?;
+    let news_items = news_items
+        .into_iter()
+        .map(|item| NewsItem {
+            title: item.title,
+            date_unix: date_to_unix_timestamp(&item.date) as _,
+            contents: item.contents,
+        })
+        .collect();
 
     // Write to cache (overwrite if it exists or create if it doesn't)
     let serialized = serde_json::to_string(&news_items)?;
     smol::fs::write(cache_path, serialized).await?;
 
     Ok(news_items)
+}
+
+fn date_to_unix_timestamp(date_str: &str) -> i64 {
+    let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").expect("Failed to parse date");
+    date.and_hms_opt(0, 0, 0)
+        .expect("Invalid time")
+        .and_utc()
+        .timestamp()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct PreNewsItem {
+    pub title: String,
+    pub date: String,
+    pub contents: String,
 }

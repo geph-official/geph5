@@ -51,3 +51,6 @@ tap = "1.0.1"
 blocking = "1.6.1"
 cached = {version="0.54.0", features=["async"]}
 smol = "2.0.2"
+influxdb-line-protocol = "2.0.0"
+nano-influxdb = { path = "../../libraries/nano-influxdb" }
+tikv-jemallocator = "0.6.0"

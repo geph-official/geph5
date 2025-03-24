@@ -39,7 +39,7 @@ pub static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
 pub async fn database_gc_loop() -> anyhow::Result<()> {
     tracing::info!("starting the database GC loop");
     loop {
-        let sleep_time = Duration::from_secs_f64(rand::thread_rng().gen_range(60.0..120.0));
+        let sleep_time = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0..2.0));
         tracing::debug!("sleeping {:?}", sleep_time);
         Timer::after(sleep_time).await;
         let res = sqlx::query("delete from exits_new where expiry < extract(epoch from now())")
@@ -67,14 +67,14 @@ pub struct ExitRow {
 pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     sqlx::query(
         r"INSERT INTO exits_new (pubkey, c2e_listen, b2e_listen, country, city, load, expiry)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, extract(epoch from now()) + ($7 - extract(epoch from now())))
         ON CONFLICT (pubkey) DO UPDATE 
         SET c2e_listen = EXCLUDED.c2e_listen, 
             b2e_listen = EXCLUDED.b2e_listen, 
             country = EXCLUDED.country, 
             city = EXCLUDED.city, 
             load = EXCLUDED.load, 
-            expiry = EXCLUDED.expiry
+            expiry = extract(epoch from now()) + (EXCLUDED.expiry - extract(epoch from now()))
         ",
     )
     .bind(exit.pubkey)

@@ -29,7 +29,7 @@ pub async fn server_main(listen: SocketAddr, sosistab3: Option<String>) -> anyho
     }
 }
 
-async fn once_wire(mut wire: impl Pipe) -> anyhow::Result<()> {
+async fn once_wire(wire: impl Pipe) -> anyhow::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let wire_count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     eprintln!("accepted wire {wire_count} from {:?}", wire.remote_addr());

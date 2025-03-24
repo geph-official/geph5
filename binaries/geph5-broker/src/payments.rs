@@ -59,6 +59,17 @@ pub trait PaymentProtocol {
         sessid: String,
         args: StartCryptoArgs,
     ) -> Result<serde_json::Value, String>;
+
+    async fn create_giftcard(&self, support_secret: String, days: i32) -> Result<String, String>;
+
+    async fn spend_giftcard(&self, sessid: String, info: GiftcardWireInfo) -> Result<i32, String>;
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct GiftcardWireInfo {
+    pub gc_id: String,
+    pub promo: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -68,6 +79,7 @@ pub struct StartAliwechatArgs {
     pub days: i32,
     pub item: Item,
     pub method: String,
+    pub mobile: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

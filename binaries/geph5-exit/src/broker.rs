@@ -13,7 +13,7 @@ use reqwest::Method;
 use tap::Tap;
 
 use crate::{
-    ratelimit::{get_load, TOTAL_BYTE_COUNT},
+    ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
     watchdog::kick_watchdog,
@@ -92,7 +92,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
         Some(broker) => {
             let transport = BrokerRpcTransport::new(&broker.url);
             let client = BrokerClient(transport);
-            let mut last_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
+
             loop {
                 let upload = async {
                     let free_exits = client
@@ -110,19 +110,10 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                         ACCEPT_FREE.store(accept_free, Ordering::Relaxed);
                     }
 
-                    let byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
-                    let mut diff = byte_count.saturating_sub(last_byte_count);
-                    last_byte_count = byte_count;
-                    tracing::debug!(diff, last_byte_count, "uploaded a diff");
-                    while diff > 0 {
-                        client
-                            .incr_stat(
-                                format!("{server_name}.throughput"),
-                                diff.min(1_000_000_000) as _,
-                            )
-                            .await?;
-                        diff = diff.saturating_sub(1_000_000_000);
-                    }
+                    client
+                        .set_stat(format!("{server_name}.kbps"), get_kbps() as _)
+                        .await?;
+
                     let load = get_load();
                     client
                         .set_stat(format!("{server_name}.load"), load as _)
@@ -154,7 +145,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs()
-                            + 1800,
+                            + 30,
                     };
                     let to_upload = Mac::new(
                         Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),

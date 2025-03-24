@@ -26,7 +26,7 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, vpn::smart_vpn_whitelist, ConnInfo
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, traffcount::TRAFF_COUNT, vpn::smart_vpn_whitelist, ConnInfo
 };
 
 use super::Config;
@@ -70,10 +70,12 @@ pub async fn open_conn(
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
-        stat_incr_num(&ctx, "total_rx_bytes", n as _)
+        stat_incr_num(&ctx, "total_rx_bytes", n as _);
+        ctx.get(TRAFF_COUNT).write().unwrap().incr(n as _);
     }));
     conn.set_on_write(clone!([ctx], move |n| {
-        stat_incr_num(&ctx, "total_tx_bytes", n as _)
+        stat_incr_num(&ctx, "total_tx_bytes", n as _);
+        ctx.get(TRAFF_COUNT).write().unwrap().incr(n as _);
     }));
     Ok(Box::new(conn))
 }
@@ -113,7 +115,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 8;
+pub static CONCURRENCY: usize = 3;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {

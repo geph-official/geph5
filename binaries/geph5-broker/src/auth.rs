@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     ops::Deref as _,
     sync::{Arc, LazyLock},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use moka::future::Cache;
@@ -66,7 +66,7 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 60, result = true, sync_writes = true)]
+#[cached(time = 86400, result = true)]
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {
         Credential::TestDummy => Err(AuthError::Forbidden),
@@ -140,28 +140,35 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 60, result = true)]
-pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, AccountLevel)>> {
+#[cached(time = 86400, result = true)]
+async fn get_user_id_from_token(token: String) -> anyhow::Result<Option<i32>> {
     let user_id: Option<(i32,)> =
         sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
             .bind(token)
             .fetch_optional(POSTGRES.deref())
             .await?;
-    if let Some((user_id,)) = user_id {
-        let expiry = get_subscription_expiry(user_id).await?;
-        tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
-        record_auth(user_id).await?;
-        if expiry.is_none() {
-            Ok(Some((user_id, AccountLevel::Free)))
-        } else {
-            Ok(Some((user_id, AccountLevel::Plus)))
-        }
+
+    Ok(user_id.map(|(user_id,)| user_id))
+}
+
+// Refactored function that uses the helper without caching its own result
+pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, AccountLevel)>> {
+    let user_id = match get_user_id_from_token(token).await? {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    let expiry = get_subscription_expiry(user_id).await?;
+    tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
+    smolscale::spawn(record_auth(user_id)).detach();
+
+    if expiry.is_none() {
+        Ok(Some((user_id, AccountLevel::Free)))
     } else {
-        Ok(None)
+        Ok(Some((user_id, AccountLevel::Plus)))
     }
 }
 
-#[cached(time = 60, result = true)]
 pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> {
     let plus_expires_unix = get_subscription_expiry(user_id)
         .await
@@ -175,41 +182,61 @@ pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> 
 }
 
 pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>> {
-    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<(), Arc<BTreeMap<i32, i64>>>> =
+    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i64, Arc<BTreeMap<i32, i64>>>> =
         LazyLock::new(|| {
             Cache::builder()
-                .time_to_live(Duration::from_secs(30))
+                .time_to_idle(Duration::from_secs(60))
                 .build()
         });
+    static LAST_PAYMENT_TIMESTAMP_CACHE: LazyLock<Cache<u128, i64>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_idle(Duration::from_secs(60))
+            .build()
+    });
 
-    let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
-        .try_get_with((), async {
-            let all_subscriptions: Vec<(i32, i64)> = sqlx::query_as(
-            "SELECT id,EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp FROM subscriptions",
+    let mut ts_missed = false;
+    let last_payment_timestamp = LAST_PAYMENT_TIMESTAMP_CACHE
+        .try_get_with(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+                / 50,
+            async {
+                let ts = sqlx::query_scalar::<_, i64>(
+                    "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
+                )
+                .fetch_one(POSTGRES.deref())
+                .await?;
+                ts_missed = true;
+                anyhow::Ok(ts)
+            },
         )
-        .fetch_all(POSTGRES.deref())
-        .await?;
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    let mut sub_missed = false;
+    let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
+        .try_get_with(last_payment_timestamp, async {
+            let all_subscriptions: Vec<(i32, i64)> = sqlx::query_as(
+                "SELECT id, EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp FROM subscriptions",
+            )
+            .fetch_all(POSTGRES.deref())
+            .await?;
+        sub_missed = true;
             anyhow::Ok(Arc::new(all_subscriptions.into_iter().collect()))
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
+    if rand::random::<f64>() < 0.001 {
+        tracing::debug!("sub expiry missed? {ts_missed} {sub_missed}")
+    }
     Ok(all_subscriptions.get(&user_id).cloned())
 }
 
 pub async fn record_auth(user_id: i32) -> anyhow::Result<()> {
     let now = Utc::now().naive_utc();
-
-    // sqlx::query(
-    //     r#"
-    //     INSERT INTO auth_logs (id, last_login)
-    //     VALUES ($1, $2)
-    //     "#,
-    // )
-    // .bind(user_id)
-    // .bind(now)
-    // .execute(POSTGRES.deref())
-    // .await?;
 
     sqlx::query(
         r#"INSERT INTO last_login (id, login_time)

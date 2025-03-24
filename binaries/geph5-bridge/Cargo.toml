@@ -14,6 +14,7 @@ smolscale = "0.4.7"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
+serde = { version = "1", features = ["derive"] }
 nanorpc = "0.1.12"
 nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 async-trait = "0.1.80"
@@ -40,4 +41,8 @@ oneshot = "0.1.8"
 async-io-bufpool = "0.1.0"
 tikv-jemallocator = { version = "0.6.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 flate2 = "1.0.35"
+clap = "4.5.32"
+influxdb-line-protocol = "2.0.0"
+nano-influxdb = { path = "../../libraries/nano-influxdb" }
+
 #jemalloc_pprof = "0.6.0"

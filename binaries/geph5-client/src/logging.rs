@@ -1,6 +1,5 @@
 use arc_writer::ArcWriter;
 use once_cell::sync::Lazy;
-use std::sync::{Arc, Mutex};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// In-memory buffer for JSON formatted logs

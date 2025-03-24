@@ -7,13 +7,15 @@ use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
     Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
-    UserInfo, DOMAIN_EXIT_DESCRIPTOR,
+    UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
+use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
+use rand::Rng;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -22,14 +24,17 @@ use std::{
 };
 
 use crate::{
-    auth::{get_subscription_expiry, get_user_info, register_secret, validate_credential},
+    auth::{get_user_info, register_secret, validate_credential},
     log_error,
     news::fetch_news,
-    payments::{payment_sessid, PaymentClient, PaymentTransport, StartStripeArgs},
+    payments::{
+        payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs,
+        StartStripeArgs,
+    },
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
-    auth::{new_auth_token, valid_auth_token, validate_username_pwd},
+    auth::{new_auth_token, valid_auth_token},
     database::{insert_exit, query_bridges, ExitRow, POSTGRES},
     routes::bridge_to_leaf_route,
     CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
@@ -52,12 +57,22 @@ impl RpcService for WrappedBrokerService {
     ) -> Option<Result<serde_json::Value, ServerError>> {
         let start = Instant::now();
         let resp = self.0.respond(method, params).await?;
-        if let Some(client) = STATSD_CLIENT.as_ref() {
-            client.count(&format!("broker.{method}"), 1).unwrap();
-            client
-                .time(&format!("broker_resptime.{method}"), start.elapsed())
-                .unwrap();
-        }
+        let method = method.to_string();
+        smolscale::spawn(async move {
+            if let Some(endpoint) = &CONFIG_FILE.wait().influxdb {
+                let _ = endpoint
+                    .send_line(
+                        LineProtocolBuilder::new()
+                            .measurement("broker_rpc_calls")
+                            .tag("method", &method)
+                            .field("latency", start.elapsed().as_secs_f64())
+                            .close_line()
+                            .build(),
+                    )
+                    .await;
+            }
+        })
+        .detach();
         Some(resp)
     }
 }
@@ -276,6 +291,18 @@ impl BrokerProtocol for BrokerImpl {
             descriptor.verify(blake3::hash(CONFIG_FILE.wait().exit_token.as_bytes()).as_bytes())?;
         let pubkey = descriptor.pubkey;
         let descriptor = descriptor.verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)?;
+
+        // Validate that the timestamp is reasonably current
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if descriptor.expiry < now {
+            return Err(GenericError(
+                "Exit info timestamp is before current time (potential replay attack)".to_string(),
+            ));
+        }
+
         let exit = ExitRow {
             pubkey: pubkey.to_bytes(),
             c2e_listen: descriptor.c2e_listen.to_string(),
@@ -283,7 +310,7 @@ impl BrokerProtocol for BrokerImpl {
             country: descriptor.country.alpha2().into(),
             city: descriptor.city.clone(),
             load: descriptor.load,
-            expiry: descriptor.expiry as _,
+            expiry: (now + 10) as _,
         };
         insert_exit(&exit).await?;
         Ok(())
@@ -409,8 +436,62 @@ impl BrokerProtocol for BrokerImpl {
                 )
                 .await?
                 .map_err(GenericError)?),
+            "wechat" => Ok(rpc
+                .start_aliwechat(
+                    sessid,
+                    StartAliwechatArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        method: "wxpay".to_string(),
+                        mobile: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
             _ => Err(GenericError("no support for this method here".to_string())),
         }
+    }
+
+    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError> {
+        // TODO a db-driven implementation
+        let user_id = validate_credential(Credential::Secret(secret)).await?;
+        if user_id == 42 {
+            let days = rand::thread_rng().gen_range(3..10);
+            let code = PaymentClient(PaymentTransport)
+                .create_giftcard(CONFIG_FILE.wait().payment_support_secret.clone(), days)
+                .await?
+                .map_err(|e| anyhow::anyhow!(e))?;
+            Ok(Some(VoucherInfo {
+                code,
+                explanation: std::iter::once(("en".to_string(), format!("{days} days"))).collect(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {
+        // Validate the secret and get the user ID
+        let user_id = validate_credential(Credential::Secret(secret)).await?;
+
+        // Get a payment session for the user
+        let sessid = payment_sessid(user_id).await?;
+
+        // Call the payment service to spend the gift card
+        let days = PaymentClient(PaymentTransport)
+            .spend_giftcard(
+                sessid,
+                GiftcardWireInfo {
+                    gc_id: code,
+                    promo: "".to_string(),
+                },
+            )
+            .await?
+            .map_err(|e| GenericError(format!("Failed to redeem voucher: {}", e)))?;
+
+        // Return the number of days credited to the account
+        Ok(days)
     }
 
     async fn upload_debug_pack(

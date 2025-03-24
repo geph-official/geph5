@@ -44,6 +44,10 @@ pub fn get_load() -> f32 {
     cpu.max(speed)
 }
 
+pub fn get_kbps() -> f32 {
+    CURRENT_SPEED.load(Ordering::Relaxed) / 1000.0
+}
+
 pub static TOTAL_BYTE_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
 
 pub fn update_load_loop() {
@@ -81,20 +85,14 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
         AccountLevel::Free => {
             FREE_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().free_ratelimit,
-                        CONFIG_FILE.wait().free_ratelimit,
-                    )
+                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, 100)
                 })
                 .await
         }
         AccountLevel::Plus => {
             PLUS_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().plus_ratelimit,
-                        CONFIG_FILE.wait().plus_ratelimit * 5,
-                    )
+                    RateLimiter::new(CONFIG_FILE.wait().plus_ratelimit, 100)
                 })
                 .await
         }

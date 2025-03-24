@@ -2,12 +2,14 @@ use anyctx::AnyCtx;
 
 use anyhow::Context;
 use bytes::Bytes;
-use futures_util::{future::Shared, task::noop_waker, FutureExt, TryFutureExt};
+use futures_util::{
+    future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
+};
 use geph5_broker_protocol::{Credential, ExitList, UserInfo};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use smol::future::FutureExt as _;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{fs::File, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use smolscale::immortal::Immortal;
@@ -19,7 +21,6 @@ use crate::{
     control_prot::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
     },
-    database::db_read_or_wait,
     http_proxy::http_proxy_serve,
     pac::pac_serve,
     route::ExitConstraint,
@@ -44,6 +45,8 @@ pub struct Config {
 
     #[serde(default)]
     pub vpn: bool,
+    #[serde(default)]
+    pub vpn_fd: Option<i32>,
     #[serde(default)]
     pub spoof_dns: bool,
     #[serde(default)]
@@ -104,7 +107,74 @@ impl Client {
         std::env::remove_var("https_proxy");
         std::env::remove_var("HTTP_PROXY");
         std::env::remove_var("HTTPS_PROXY");
-        let ctx = AnyCtx::new(cfg);
+        let ctx = AnyCtx::new(cfg.clone());
+
+        #[cfg(unix)]
+        if let Some(fd) = cfg.vpn_fd {
+            let ctx_clone = ctx.clone();
+            smolscale::spawn(async move {
+                // Create an async file descriptor from the raw fd
+                let async_fd: smol::Async<File> =
+                    smol::Async::new(unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) })
+                        .expect("could not wrap VPN fd in Async");
+
+                // Split the file descriptor for reading and writingz
+                let (mut reader, mut writer) = async_fd.split();
+
+                // Spawn a task for reading from fd and sending to VPN
+                let read_task = async {
+                    let mut buf = vec![0u8; 65535]; // Buffer for reading packets
+                    loop {
+                        match reader.read(&mut buf).await {
+                            Ok(n) if n > 0 => {
+                                // Send the packet to the VPN
+                                send_vpn_packet(
+                                    &ctx_clone,
+                                    bytes::Bytes::copy_from_slice(&buf[..n]),
+                                )
+                                .await;
+                            }
+                            Ok(0) => {
+                                // EOF
+                                tracing::warn!("VPN fd reached EOF");
+                                break;
+                            }
+                            Err(e) => {
+                                tracing::error!("Error reading from VPN fd: {}", e);
+                                break;
+                            }
+                            _ => break,
+                        }
+                    }
+                    anyhow::Ok(())
+                };
+
+                // Spawn a task for receiving from VPN and writing to fd
+                let write_task = async {
+                    loop {
+                        // Receive a packet from the VPN
+                        let packet = recv_vpn_packet(&ctx_clone).await;
+
+                        // Write the packet to the file descriptor
+                        if let Err(e) = writer.write_all(&packet).await {
+                            tracing::error!("Error writing to VPN fd: {}", e);
+                            break;
+                        }
+
+                        if let Err(e) = writer.flush().await {
+                            tracing::error!("Error flushing VPN fd: {}", e);
+                            break;
+                        }
+                    }
+                    anyhow::Ok(())
+                };
+
+                // Wait for either task to complete (or fail)
+                let _ = read_task.race(write_task).await;
+                tracing::warn!("VPN fd handler exited");
+            })
+            .detach();
+        }
         let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
             task: task.shared(),

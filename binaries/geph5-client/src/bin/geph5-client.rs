@@ -17,6 +17,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    smolscale::permanently_single_threaded();
     // Initialize logging with JSON support
     logging::init_logging()?;
 

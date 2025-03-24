@@ -41,15 +41,21 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
+      # Add Rust cache
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
       - name: Install cross (only for arm64)
         if: ${{ matrix.target == 'aarch64-unknown-linux-musl' }}
-        run: cargo install cross
-
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-          prefix-key: "lele"
+        run: cargo install cross --locked
 
       - name: Build client
         run: |
@@ -65,9 +71,20 @@ jobs:
           mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
 
+      # Cache cargo-bundle to avoid reinstalling
+      - name: Cache cargo-bundle
+        if: matrix.os == 'macos-latest'
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/cargo-bundle
+          key: ${{ runner.os }}-cargo-bundle-0.6.0
+
       - name: Install cargo-bundle
         if: matrix.os == 'macos-latest'
-        run: cargo install cargo-bundle --locked --version "=0.6.0"  --force
+        run: |
+          if [ ! -f ~/.cargo/bin/cargo-bundle ]; then
+            cargo install cargo-bundle --locked --version "=0.6.0" --force
+          fi
 
       - name: Create macOS .app bundle
         if: matrix.os == 'macos-latest'
@@ -107,14 +124,21 @@ jobs:
           override: true
           target: x86_64-unknown-linux-musl
 
+      # Add Rust cache for bridge-exit job
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: bridge-exit-ubuntu-20.04-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            bridge-exit-ubuntu-20.04-musl-cargo-
+
       - name: Set default host
         shell: bash
         run: rustup set default-host x86_64-unknown-linux-musl
-
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: x86_64-unknown-linux-musl-bridge-exit
 
       - name: Build bridge and exit and broker
         run: |
@@ -152,7 +176,16 @@ jobs:
           mv artifacts/musl-latest-bridge/* artifacts/musl-latest/
           rmdir artifacts/musl-latest-bridge
 
+      # Cache rclone installation
+      - name: Cache rclone
+        uses: actions/cache@v3
+        id: cache-rclone
+        with:
+          path: /usr/bin/rclone
+          key: rclone-latest
+
       - name: Install rclone
+        if: steps.cache-rclone.outputs.cache-hit != 'true'
         run: |
           curl https://rclone.org/install.sh | sudo bash
 

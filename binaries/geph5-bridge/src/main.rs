@@ -1,4 +1,5 @@
 mod asn_count;
+mod influxdb;
 mod listen_forward;
 
 use std::{
@@ -10,9 +11,8 @@ use std::{
 };
 
 use anyhow::Context as _;
-use asn_count::ASN_BYTES;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
-use listen_forward::{listen_forward_loop, BYTE_COUNT};
+use listen_forward::listen_forward_loop;
 use rand::Rng;
 use sillad::{
     dialer::DialerExt,
@@ -127,84 +127,37 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
         ),
     ));
 
-    let upload_loop = async {
-        loop {
-            tracing::info!(
-                auth_token,
-                broker_addr = display(broker_addr),
-                "uploading..."
-            );
+    loop {
+        tracing::info!(
+            auth_token,
+            broker_addr = display(broker_addr),
+            "uploading..."
+        );
 
-            let res = async {
-                broker_rpc
-                    .insert_bridge(Mac::new(
-                        BridgeDescriptor {
-                            control_listen,
-                            control_cookie: control_cookie.clone(),
-                            pool: pool.clone(),
-                            expiry: SystemTime::now()
-                                .duration_since(SystemTime::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs()
-                                + 120,
-                        },
-                        blake3::hash(auth_token.as_bytes()).as_bytes(),
-                    ))
-                    .timeout(Duration::from_secs(2))
-                    .await
-                    .context("insert bridge timed out")??
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                anyhow::Ok(())
-            };
-            if let Err(err) = res.await {
-                tracing::error!(err = %err, "error in upload_loop");
-            }
-            smol::Timer::after(Duration::from_secs(10)).await;
+        let res = async {
+            broker_rpc
+                .insert_bridge(Mac::new(
+                    BridgeDescriptor {
+                        control_listen,
+                        control_cookie: control_cookie.clone(),
+                        pool: pool.clone(),
+                        expiry: SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + 120,
+                    },
+                    blake3::hash(auth_token.as_bytes()).as_bytes(),
+                ))
+                .timeout(Duration::from_secs(2))
+                .await
+                .context("insert bridge timed out")??
+                .map_err(|e| anyhow::anyhow!(e))?;
+            anyhow::Ok(())
+        };
+        if let Err(err) = res.await {
+            tracing::error!(err = %err, "error in upload_loop");
         }
-    };
-
-    let stats_loop = async {
-        loop {
-            tracing::info!(auth_token, broker_addr = display(broker_addr), "stats...");
-            let res = async {
-                let byte_count = BYTE_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
-                broker_rpc
-                    .incr_stat(format!("{bridge_key}.byte_count"), byte_count as _)
-                    .timeout(Duration::from_secs(2))
-                    .await
-                    .context("incrementing bytes timed out")??;
-
-                let asn_bytes: Vec<(u32, u64)> = ASN_BYTES
-                    .iter()
-                    .map(|item| {
-                        let asn_byte_count =
-                            item.value().swap(0, std::sync::atomic::Ordering::Relaxed);
-                        (*item.key(), asn_byte_count)
-                    })
-                    .collect();
-                ASN_BYTES.clear();
-                for (asn, bytes) in asn_bytes {
-                    let bytes = bytes.min(i32::MAX as u64) as i32;
-                    let broker_rpc = broker_rpc.clone();
-                    let bridge_key = bridge_key.clone();
-                    smolscale::spawn(async move {
-                        broker_rpc
-                            .incr_stat(format!("{bridge_key}.asn.{}", asn), bytes)
-                            .timeout(Duration::from_secs(2))
-                            .await
-                            .context("incrementing ASN timed out")??;
-                        tracing::debug!("incremented ASN {} with {} bytes", asn, bytes);
-                        anyhow::Ok(())
-                    })
-                    .detach();
-                }
-                anyhow::Ok(())
-            };
-            if let Err(err) = res.await {
-                tracing::error!(err = %err, "error in stats_loop");
-            }
-            smol::Timer::after(Duration::from_secs(3)).await;
-        }
-    };
-    upload_loop.race(stats_loop).await
+        smol::Timer::after(Duration::from_secs(10)).await;
+    }
 }

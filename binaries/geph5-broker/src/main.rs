@@ -4,6 +4,7 @@ use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
+use nano_influxdb::InfluxDbEndpoint;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -12,16 +13,21 @@ use self_stat::self_stat_loop;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock};
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod auth;
 mod database;
+
 mod news;
 mod payments;
 mod puzzle;
 mod routes;
 mod rpc_impl;
 mod self_stat;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
@@ -102,6 +108,10 @@ struct ConfigFile {
 
     #[serde(default)]
     payment_support_secret: String,
+
+    /// Optional InfluxDB configuration for metrics
+    #[serde(default)]
+    influxdb: Option<InfluxDbEndpoint>,
 }
 
 fn default_puzzle_difficulty() -> u16 {
@@ -140,6 +150,13 @@ async fn main() -> anyhow::Result<()> {
     // Parse the YAML file into our AppConfig struct
     let config: ConfigFile =
         serde_yaml::from_str(&config_contents).context("Failed to parse the config file")?;
+
+    // Log if InfluxDB is configured
+    if let Some(influxdb) = &config.influxdb {
+        tracing::info!("InfluxDB endpoint configured at {}", influxdb.url);
+    } else {
+        tracing::info!("No InfluxDB endpoint configured");
+    }
 
     let _ = CONFIG_FILE.set(config);
 

@@ -4,7 +4,7 @@ members = ["libraries/*", "binaries/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.34"
+version = "0.2.43"
 repository = "https://github.com/geph-official/geph5"
 license = "ISC"
 

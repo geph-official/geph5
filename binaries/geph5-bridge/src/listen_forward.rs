@@ -2,7 +2,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc, LazyLock,
     },
     time::Duration,
@@ -153,7 +153,7 @@ where
                     return Ok(());
                 }
                 writer.write_all(&buf).await?;
-                BYTE_COUNT.fetch_add(buf.len() as u64, Ordering::Relaxed);
+
                 incr_bytes_asn(asn, buf.len() as u64);
             }
             Some(Err(err)) => return Err(err),
@@ -161,8 +161,6 @@ where
         }
     }
 }
-
-pub static BYTE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<picomux::Stream> {
     static POOLS: Lazy<Cache<SocketAddr, Arc<SinglePool>>> = Lazy::new(|| {
