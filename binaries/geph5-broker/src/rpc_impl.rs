@@ -25,6 +25,7 @@ use std::{
 
 use crate::{
     auth::{get_user_info, register_secret, validate_credential},
+    free_voucher::get_free_voucher,
     log_error,
     news::fetch_news,
     payments::{
@@ -456,19 +457,8 @@ impl BrokerProtocol for BrokerImpl {
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError> {
         // TODO a db-driven implementation
         let user_id = validate_credential(Credential::Secret(secret)).await?;
-        if user_id == 42 {
-            let days = rand::thread_rng().gen_range(3..10);
-            let code = PaymentClient(PaymentTransport)
-                .create_giftcard(CONFIG_FILE.wait().payment_support_secret.clone(), days)
-                .await?
-                .map_err(|e| anyhow::anyhow!(e))?;
-            Ok(Some(VoucherInfo {
-                code,
-                explanation: std::iter::once(("en".to_string(), format!("{days} days"))).collect(),
-            }))
-        } else {
-            Ok(None)
-        }
+        let info = get_free_voucher(user_id).await?;
+        Ok(info)
     }
 
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {

@@ -19,6 +19,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 mod auth;
 mod database;
 
+mod free_voucher;
 mod news;
 mod payments;
 mod puzzle;
