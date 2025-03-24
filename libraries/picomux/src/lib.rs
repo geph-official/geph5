@@ -250,23 +250,6 @@ async fn picomux_inner(
                         "setting target remote send window based on bw"
                     );
 
-                    // // adjust the target remote window once per window
-                    // if last_window_adjust.elapsed().as_millis() > 250 {
-                    //     last_window_adjust = Instant::now();
-                    //     if queue_delay.as_millis() > 50 {
-                    //         target_remote_window = (target_remote_window / 2).max(3);
-                    //     } else {
-                    //         target_remote_window = (target_remote_window + 1).min(MAX_WINDOW);
-                    //     }
-                    //     tracing::debug!(
-                    //         stream_id,
-                    //         queue_delay = debug(queue_delay),
-                    //         remote_window,
-                    //         target_remote_window,
-                    //         "adjusting window"
-                    //     )
-                    // }
-
                     if remote_window + min_quantum <= target_remote_window {
                         let quantum = target_remote_window - remote_window;
                         outgoing.enqueue(Frame::new(
@@ -293,12 +276,11 @@ async fn picomux_inner(
             let outgoing = outgoing.clone();
             async move {
                 loop {
-                    let body = async_io_bufpool::pooled_read(&mut read_outgoing)
+                    let body = async_io_bufpool::pooled_read(&mut read_outgoing, 8192)
                         .await
-                        .context("could not read_outgoing")?;
-                    if body.is_empty() {
-                        anyhow::bail!("EOF on read_outgoing")
-                    }
+                        .context("could not read_outgoing")?
+                        .context("EOF on read_outgoing")?;
+
                     tracing::trace!(
                         stream_id,
                         n = body.len(),
