@@ -49,7 +49,7 @@ tachyonix = "0.3.0"
 clap = { version = "4.5.8", features = ["derive"] }
 smol-timeout2 = "0.6.1"
 flate2 = "1.0.33"
-async-io-bufpool = "0.1.0"
+async-io-bufpool = "0.2"
 
 tikv-jemallocator = "0.6"
 threadpool = "1.8.1"

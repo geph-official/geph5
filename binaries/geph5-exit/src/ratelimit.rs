@@ -152,20 +152,21 @@ impl RateLimiter {
         let mut total_bytes = 0;
 
         loop {
-            let bts = pooled_read(&mut read_stream)
+            let bts = pooled_read(&mut read_stream, 8192)
                 .timeout(Duration::from_secs(1800))
                 .await
                 .ok_or_else(|| {
                     std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout in TCP read")
                 })??;
-            if bts.is_empty() {
-                break;
+            match bts {
+                None => break,
+                Some(bts) => {
+                    self.wait(bts.len()).await;
+
+                    write_stream.write_all(&bts).await?;
+                    total_bytes += bts.len() as u64;
+                }
             }
-
-            self.wait(bts.len()).await;
-
-            write_stream.write_all(&bts).await?;
-            total_bytes += bts.len() as u64;
         }
 
         Ok(total_bytes)
