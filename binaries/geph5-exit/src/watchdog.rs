@@ -12,11 +12,11 @@ static WATCHDOG_KICK: LazyLock<Sender<()>> = LazyLock::new(|| {
                 loop {
                     if recv
                         .recv()
-                        .timeout(Duration::from_secs(120))
+                        .timeout(Duration::from_secs(600))
                         .await
                         .is_none()
                     {
-                        panic!("watchdog not kicked for 120 seconds")
+                        panic!("watchdog not kicked for 600 seconds")
                     }
                 }
             });
