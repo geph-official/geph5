@@ -20,3 +20,13 @@ pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo
         Ok(None)
     }
 }
+
+pub async fn delete_free_voucher(user_id: i32) -> anyhow::Result<bool> {
+    let result = sqlx::query("DELETE FROM free_vouchers WHERE id = $1")
+        .bind(user_id)
+        .execute(&*POSTGRES)
+        .await?;
+    
+    // Returns true if any rows were affected (i.e., a voucher was deleted)
+    Ok(result.rows_affected() > 0)
+}

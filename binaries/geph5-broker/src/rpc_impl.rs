@@ -25,7 +25,7 @@ use std::{
 
 use crate::{
     auth::{get_user_info, register_secret, validate_credential},
-    free_voucher::get_free_voucher,
+    free_voucher::{delete_free_voucher, get_free_voucher},
     log_error,
     news::fetch_news,
     payments::{
@@ -479,6 +479,9 @@ impl BrokerProtocol for BrokerImpl {
             )
             .await?
             .map_err(|e| GenericError(format!("Failed to redeem voucher: {}", e)))?;
+
+        // Delete the free voucher after successful redemption
+        delete_free_voucher(user_id).await?;
 
         // Return the number of days credited to the account
         Ok(days)
