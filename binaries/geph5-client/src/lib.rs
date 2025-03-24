@@ -143,6 +143,7 @@ mod tests {
             exit_constraint: super::ExitConstraint::Auto,
             bridge_mode: BridgeMode::Auto,
             cache: None,
+            vpn_fd: None,
             broker: Some(BrokerSource::Race(vec![
                 BrokerSource::Fronted {
                     front: "https://www.cdn77.com/".into(),
