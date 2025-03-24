@@ -30,7 +30,7 @@ pub enum BrokerSource {
         host: String,
     },
     DirectTcp(SocketAddr),
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(feature = "aws_lambda")]
     AwsLambda {
         function_name: String,
         region: String,
@@ -57,7 +57,7 @@ impl BrokerSource {
                 url: front.clone(),
                 host: Some(host.clone()),
             }),
-            #[cfg(not(target_os = "ios"))]
+            #[cfg(feature = "aws_lambda")]
             BrokerSource::AwsLambda {
                 function_name,
                 region,
