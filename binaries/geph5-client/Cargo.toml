@@ -27,8 +27,8 @@ async-event = "0.2.1"
 async-native-tls = "0.5.0"
 async-trait = "0.1.80"
 atomic_float = "1.0.0"
-aws-config = { version = "1.5.4", optional = true }
-aws-sdk-lambda = { version = "1.35.0", features = ["rustls"], optional = true }
+aws-config = { version = "=1.5.4", optional = true }
+aws-sdk-lambda = { version = "=1.35.0", features = ["rustls"], optional = true }
 aws-smithy-runtime = { version = "1", optional = true }
 base32 = "0.5.1"
 blake3 = "1.5.1"
