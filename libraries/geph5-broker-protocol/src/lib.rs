@@ -109,6 +109,8 @@ pub struct AvailabilityData {
 pub struct UserInfo {
     pub user_id: u64,
     pub plus_expires_unix: Option<u64>,
+    #[serde(default)]
+    pub recurring: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

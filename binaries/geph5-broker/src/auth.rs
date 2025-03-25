@@ -195,17 +195,17 @@ pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, Acco
 pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> {
     let plus_expires_unix = get_subscription_expiry(user_id)
         .await
-        .map_err(|_| AuthError::RateLimited)?
-        .map(|u| u as u64);
+        .map_err(|_| AuthError::RateLimited)?;
 
     Ok(Some(UserInfo {
         user_id: user_id as _,
-        plus_expires_unix,
+        plus_expires_unix: plus_expires_unix.map(|s| s.0 as _),
+        recurring: plus_expires_unix.map(|s| s.1).unwrap_or_default(),
     }))
 }
 
-pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>> {
-    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i64, Arc<BTreeMap<i32, i64>>>> =
+pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64, bool)>> {
+    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i64, Arc<BTreeMap<i32, (i64, bool)>>>> =
         LazyLock::new(|| {
             Cache::builder()
                 .time_to_idle(Duration::from_secs(60))
@@ -241,13 +241,23 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<i64>
     let mut sub_missed = false;
     let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
         .try_get_with(last_payment_timestamp, async {
-            let all_subscriptions: Vec<(i32, i64)> = sqlx::query_as(
-                "SELECT id, EXTRACT(EPOCH FROM expires)::bigint AS unix_timestamp FROM subscriptions",
+            let all_subscriptions: Vec<(i32, i64, bool)> = sqlx::query_as(
+                "SELECT 
+    s.id, 
+    EXTRACT(EPOCH FROM s.expires)::bigint AS unix_timestamp,
+    (r.user_id IS NOT NULL) AS has_recurring
+FROM subscriptions s
+LEFT JOIN recurring_subs r ON s.id = r.user_id",
             )
             .fetch_all(POSTGRES.deref())
             .await?;
-        sub_missed = true;
-            anyhow::Ok(Arc::new(all_subscriptions.into_iter().collect()))
+            sub_missed = true;
+            anyhow::Ok(Arc::new(
+                all_subscriptions
+                    .into_iter()
+                    .map(|(id, expires, recur)| (id, (expires, recur)))
+                    .collect(),
+            ))
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
