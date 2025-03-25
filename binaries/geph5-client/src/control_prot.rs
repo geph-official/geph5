@@ -84,6 +84,8 @@ pub struct ConnectedInfo {
 pub struct UserInfo {
     pub user_id: u64,
     pub level: AccountLevel,
+
+    pub recurring: bool,
     pub expiry: Option<u64>,
 }
 
@@ -154,6 +156,7 @@ impl ControlProtocol for ControlProtocolImpl {
                 AccountLevel::Free
             },
             expiry: res.plus_expires_unix,
+            recurring: res.recurring,
         })
     }
 
