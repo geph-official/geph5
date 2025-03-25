@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    sync::{Arc, LazyLock},
+    sync::LazyLock,
     time::{Duration, SystemTime},
 };
 
@@ -10,8 +10,11 @@ use geph5_broker_protocol::{
     puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem, VoucherInfo,
 };
 
-use itertools::Itertools;
+<<<<<<< HEAD
 use moka::future::Cache;
+=======
+use itertools::Itertools;
+>>>>>>> master
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -139,15 +142,44 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn user_info(&self, secret: String) -> Result<UserInfo, String> {
+<<<<<<< HEAD
+        static USER_INFO_CACHE: CtxField<Cache<String, UserInfo>> = |_| {
+            Cache::builder()
+                .time_to_live(Duration::from_secs(60))
+                .build()
+        };
+
+        let cache = self.ctx.get(USER_INFO_CACHE);
+
+        cache
+            .try_get_with(secret.clone(), async {
+                let res = broker_client(&self.ctx)
+                    .map_err(|e| format!("{:?}", e))?
+                    .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+                    .await
+                    .map_err(|e| format!("{:?}", e))?
+                    .map_err(|e| format!("{:?}", e))?
+                    .ok_or_else(|| "no such user".to_string())?;
+                Ok(UserInfo {
+                    user_id: res.user_id,
+                    level: if res.plus_expires_unix.is_some() {
+                        AccountLevel::Plus
+                    } else {
+                        AccountLevel::Free
+                    },
+                    expiry: res.plus_expires_unix,
+                })
+            })
+=======
         let res = broker_client(&self.ctx)
             .map_err(|e| format!("{:?}", e))?
             .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+>>>>>>> master
             .await
             .map_err(|e| format!("{:?}", e))?
             .map_err(|e| format!("{:?}", e))?
             .ok_or_else(|| "no such user".to_string())?;
         Ok(UserInfo {
-            user_id: res.user_id,
             level: if res.plus_expires_unix.is_some() {
                 AccountLevel::Plus
             } else {

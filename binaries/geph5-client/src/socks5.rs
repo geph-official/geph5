@@ -1,4 +1,4 @@
-use crate::{client_inner::open_conn, taskpool::add_task};
+use crate::{client_inner::open_conn, litecopy::litecopy, taskpool::add_task};
 
 use anyctx::AnyCtx;
 
@@ -51,8 +51,8 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     .await?;
                     tracing::trace!(remote_addr = display(&remote_addr), "connection opened");
                     let (read_stream, write_stream) = stream.split();
-                    smol::io::copy(read_stream, write_client)
-                        .race(smol::io::copy(read_client, write_stream))
+                    litecopy(read_stream, write_client)
+                        .race(litecopy(read_client, write_stream))
                         .await?;
                     anyhow::Ok(())
                 });

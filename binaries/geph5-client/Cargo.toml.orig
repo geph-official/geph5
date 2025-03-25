@@ -26,11 +26,18 @@ async-dup = "1.2.4"
 async-event = "0.2.1"
 async-native-tls = "0.5.0"
 async-trait = "0.1.80"
+async-io-bufpool = "0.1.0"
 atomic_float = "1.0.0"
+<<<<<<< HEAD
 aws-config = { version = "1.5.4", optional = true }
 aws-sdk-lambda = { version = "1.35.0", features = ["rustls"], optional = true }
 aws-smithy-runtime = { version = "1", optional = true }
 base32 = "0.5.1"
+=======
+aws-config = "=1.5.4"
+aws-sdk-lambda = { version = "=1.35.0", features = ["rustls"] }
+aws-smithy-runtime = "1"
+>>>>>>> master
 blake3 = "1.5.1"
 blind-rsa-signatures = "0.15.1"
 bytes = "1.6.0"
@@ -67,7 +74,7 @@ nursery_macro = "0.1.0"
 once_cell = "1.19.0"
 oneshot = "0.1.8"
 parking_lot = "0.12.3"
-picomux = { version = "0.1.12", path = "../../libraries/picomux" }
+picomux = { version = "0.1.11", path = "../../libraries/picomux" }
 pin-project = "1.1.5"
 pnet_packet = "0.35.0"
 psl = "2.1.55"
@@ -99,10 +106,16 @@ tracing = "0.1.40"
 tracing-subscriber = {version="0.3.18", features=["json"]}
 tun = "0.6.1"
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
+<<<<<<< HEAD
+=======
 minisign-verify = "0.2.3"
-async-io-bufpool = "0.1.2"
 
+>>>>>>> master
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }
 
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+aws-config = "1.5.4"
+aws-sdk-lambda = { version = "1.35.0", features = ["rustls"] }
+aws-smithy-runtime = "1"
