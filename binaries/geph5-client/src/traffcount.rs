@@ -67,14 +67,6 @@ impl TraffCount {
             return;
         }
 
-        if seconds_elapsed >= self.max_history_seconds {
-            // Too much time has passed, reset everything
-            self.bins.clear();
-            self.window_start = now;
-            self.bins.push_back(0.0);
-            return;
-        }
-
         // Add new bins for elapsed seconds
         for _ in 0..seconds_elapsed {
             // If we exceed our max history, remove the oldest bin
