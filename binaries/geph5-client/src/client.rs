@@ -95,6 +95,7 @@ impl Default for BridgeMode {
     }
 }
 
+#[derive(Clone)]
 pub struct Client {
     task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
     ctx: AnyCtx<Config>,
