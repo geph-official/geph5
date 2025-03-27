@@ -200,7 +200,7 @@ impl PublicKey {
     ) -> anyhow::Result<()> {
         let mut accumulator = blake3::hash(subkey);
         for (i, hash) in merkle_branch.iter().enumerate() {
-            if epoch >> i & 1 == 0 {
+            if (epoch >> i) & 1 == 0 {
                 // the hash is on the "odd" position
                 accumulator = blake3::keyed_hash(accumulator.as_bytes(), hash.as_bytes())
             } else {

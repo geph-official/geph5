@@ -6,8 +6,8 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
-    UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
+    Credential, ExitDescriptor, ExitList, GenericError, Mac, RouteDescriptor, Signed, UserInfo,
+    VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
@@ -15,7 +15,7 @@ use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignat
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
-use rand::Rng;
+
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -27,7 +27,6 @@ use crate::{
     auth::{get_user_info, register_secret, validate_credential},
     free_voucher::{delete_free_voucher, get_free_voucher},
     log_error,
-    news::fetch_news,
     payments::{
         payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs,
         StartStripeArgs,
@@ -399,12 +398,6 @@ impl BrokerProtocol for BrokerImpl {
         register_secret(Some(user_id))
             .map_err(|_| AuthError::RateLimited)
             .await
-    }
-
-    async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {
-        let (send, recv) = oneshot::channel();
-        smolscale::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
-        recv.await.unwrap().map_err(|e: anyhow::Error| e.into())
     }
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {

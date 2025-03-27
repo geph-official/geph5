@@ -1,18 +1,15 @@
 use std::{
     convert::Infallible,
-    sync::{Arc, LazyLock},
+    sync::LazyLock,
     time::{Duration, SystemTime},
 };
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
-use geph5_broker_protocol::{
-    puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem, VoucherInfo,
-};
+use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor, VoucherInfo};
 
 use itertools::Itertools;
-use moka::future::Cache;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -367,4 +364,11 @@ impl RpcTransport for DummyControlProtocolTransport {
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
         Ok(self.0.respond_raw(req).await)
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NewsItem {
+    pub title: String,
+    pub date_unix: u64,
+    pub contents: String,
 }

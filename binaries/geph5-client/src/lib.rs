@@ -153,6 +153,7 @@ mod tests {
                     front: "https://vuejs.org/".into(),
                     host: "svitania-naidallszei-2.netlify.app".into(),
                 },
+                #[cfg(feature = "aws_lambda")]
                 BrokerSource::AwsLambda {
                     function_name: "geph-lambda-bouncer".into(),
                     region: "us-east-1".into(),
