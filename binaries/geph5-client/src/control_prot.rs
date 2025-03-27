@@ -6,6 +6,7 @@ use std::{
 
 use anyctx::AnyCtx;
 use async_trait::async_trait;
+use chrono::{NaiveDate, NaiveDateTime};
 use geph5_broker_protocol::{
     puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NewsItem, VoucherInfo,
 };
@@ -251,12 +252,45 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .get_news(lang)
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?)
+        let (manifest, _) = get_update_manifest().await.map_err(|e| e.to_string())?;
+        let news = manifest["news"]
+            .as_array()
+            .ok_or_else(|| "No news array".to_string())?;
+
+        let mut out = Vec::new();
+
+        for item in news {
+            let date_str = item["date"]
+                .as_str()
+                .ok_or_else(|| "No or invalid 'date' field in news item".to_string())?;
+
+            let naive_date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                .map_err(|_| format!("Invalid date format: {}", date_str))?;
+
+            let naive_dt: NaiveDateTime = naive_date
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| "Unable to create NaiveDateTime from date".to_string())?;
+            let date_unix = naive_dt.and_utc().timestamp() as u64;
+
+            let localized = item[&lang]
+                .as_object()
+                .ok_or_else(|| format!("No localized data for language '{}'", lang))?;
+
+            let title = localized["title"]
+                .as_str()
+                .ok_or_else(|| "Missing 'title' in localized news data".to_string())?;
+            let contents = localized["contents"]
+                .as_str()
+                .ok_or_else(|| "Missing 'contents' in localized news data".to_string())?;
+
+            out.push(NewsItem {
+                title: title.to_string(),
+                date_unix,
+                contents: contents.to_string(),
+            });
+        }
+
+        Ok(out)
     }
 
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String> {
