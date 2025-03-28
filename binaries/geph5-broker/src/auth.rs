@@ -73,8 +73,8 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
                 .map_err(|e| anyhow::anyhow!(e))?;
             sqlx::query(
                 r#"
-            INSERT INTO free_vouchers (id, voucher, description) 
-            VALUES ($1, $2, $3)
+            INSERT INTO free_vouchers (id, voucher, description, visible_after)
+            VALUES ($1, $2, $3, (select coalesce(max(visible_after) + '1 second', NOW()) from free_vouchers))
             "#,
             )
             .bind(user_id)
