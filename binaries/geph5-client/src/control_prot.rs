@@ -257,6 +257,7 @@ impl ControlProtocol for ControlProtocolImpl {
         let mut out = Vec::new();
 
         for item in news {
+            let important = item["important"].as_bool().unwrap_or_default();
             let date_str = item["date"]
                 .as_str()
                 .ok_or_else(|| "No or invalid 'date' field in news item".to_string())?;
@@ -284,6 +285,7 @@ impl ControlProtocol for ControlProtocolImpl {
                 title: title.to_string(),
                 date_unix,
                 contents: contents.to_string(),
+                important,
             });
         }
 
@@ -371,4 +373,5 @@ pub struct NewsItem {
     pub title: String,
     pub date_unix: u64,
     pub contents: String,
+    pub important: bool,
 }
