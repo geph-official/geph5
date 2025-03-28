@@ -450,12 +450,12 @@ impl BrokerProtocol for BrokerImpl {
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError> {
         // TODO a db-driven implementation
         let user_id = validate_credential(Credential::Secret(secret)).await?;
-        if user_id == 42 {
-            let info = get_free_voucher(user_id).await?;
-            Ok(info)
-        } else {
-            Ok(None)
-        }
+        // if user_id == 42 {
+        let info = get_free_voucher(user_id).await?;
+        Ok(info)
+        // } else {
+        //     Ok(None)
+        // }
     }
 
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {
