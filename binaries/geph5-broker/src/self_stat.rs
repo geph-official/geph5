@@ -84,14 +84,15 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                 )
                 .await?;
 
-            let (plus_count,): (i64,) = sqlx::query_as("select count(*) from subscriptions")
+            let (total_users,): (i64,) = sqlx::query_as("select count(*) from subscriptions")
                 .fetch_one(&*POSTGRES)
                 .await?;
             endpoint
                 .send_line(
                     LineProtocolBuilder::new()
                         .measurement("plus")
-                        .field("count", plus_count as f64)
+                        .field("coujnt", daily_logins as f64)
+                        .field("weekly_logins", weekly_logins as f64)
                         .close_line()
                         .build(),
                 )

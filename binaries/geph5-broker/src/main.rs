@@ -141,7 +141,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    create_one_day_vouchers_for_all_users().await?;
+    // create_one_day_vouchers_for_all_users().await?;
 
     // Parse the command-line arguments
     let args = CliArgs::parse();
