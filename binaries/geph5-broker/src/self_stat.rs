@@ -83,6 +83,19 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                         .build(),
                 )
                 .await?;
+
+            let (plus_count,): (i64,) = sqlx::query_as("select count(*) from subscriptions")
+                .fetch_one(&*POSTGRES)
+                .await?;
+            endpoint
+                .send_line(
+                    LineProtocolBuilder::new()
+                        .measurement("plus")
+                        .field("count", plus_count as f64)
+                        .close_line()
+                        .build(),
+                )
+                .await?;
         }
         async_io::Timer::after(Duration::from_secs(5)).await;
     }
