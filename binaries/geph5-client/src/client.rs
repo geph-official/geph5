@@ -242,28 +242,21 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    #[derive(Serialize)]
-    struct DryRunOutput {
-        auth_token: String,
-        exits: ExitList,
-    }
-
+    let rpc_serve = async {
+        if let Some(control_listen) = ctx.init().control_listen {
+            nanorpc_sillad::rpc_serve(
+                sillad::tcp::TcpListener::bind(control_listen).await?,
+                ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
+            )
+            .await?;
+            anyhow::Ok(())
+        } else {
+            smol::future::pending().await
+        }
+    };
     if ctx.init().dry_run {
-        smol::future::pending().await
+        rpc_serve.await
     } else {
-        let rpc_serve = async {
-            if let Some(control_listen) = ctx.init().control_listen {
-                nanorpc_sillad::rpc_serve(
-                    sillad::tcp::TcpListener::bind(control_listen).await?,
-                    ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
-                )
-                .await?;
-                anyhow::Ok(())
-            } else {
-                smol::future::pending().await
-            }
-        };
-
         let vpn_loop = vpn_loop(&ctx);
 
         let _client_loop = Immortal::spawn(client_inner(ctx.clone()));
