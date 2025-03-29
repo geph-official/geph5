@@ -21,7 +21,7 @@ mod auth;
 mod database;
 
 mod free_voucher;
-
+mod news;
 mod payments;
 mod puzzle;
 mod routes;
@@ -102,6 +102,8 @@ struct ConfigFile {
 
     #[serde(default)]
     statsd_addr: Option<SocketAddr>,
+
+    openai_key: String,
 
     #[serde(default = "default_payment_service")]
     payment_url: String,

@@ -67,6 +67,8 @@ pub trait BrokerProtocol {
     ) -> Result<String, GenericError>;
     async fn upgrade_to_secret(&self, cred: Credential) -> Result<String, AuthError>;
 
+    async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError>;
+
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError>;
     async fn create_payment(
@@ -158,4 +160,11 @@ impl<T: Into<anyhow::Error>> From<T> for GenericError {
     fn from(value: T) -> Self {
         Self(value.into().to_string())
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NewsItem {
+    pub title: String,
+    pub date_unix: u64,
+    pub contents: String,
 }
