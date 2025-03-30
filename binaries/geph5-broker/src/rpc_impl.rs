@@ -180,7 +180,10 @@ impl BrokerProtocol for BrokerImpl {
             }
         };
         let start = Instant::now();
-        if user_level != level || mizaru2::unix_to_epoch(expiry as _) < epoch {
+        // when the user is Plus now, but won't be Plus then, we should return WrongLevel *if the user is claiming to be Plus*.
+        if level == AccountLevel::Plus
+            && (user_level != level || mizaru2::unix_to_epoch(expiry as _) < epoch)
+        {
             return Err(AuthError::WrongLevel);
         }
         let signed = match level {
