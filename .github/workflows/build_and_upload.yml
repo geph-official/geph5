@@ -19,9 +19,9 @@ jobs:
           # - os: windows-latest
           #   target: i686-pc-windows-msvc
           #   dir: windows
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            dir: macos
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+          #   dir: macos
 
     runs-on: ${{ matrix.os }}
 
@@ -158,7 +158,6 @@ jobs:
         with:
           name: musl-latest-bridge
           path: artifacts/musl
-
 
   upload:
     if: github.ref == 'refs/heads/master'
