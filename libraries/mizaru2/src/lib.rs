@@ -22,6 +22,11 @@ pub fn current_epoch() -> u16 {
         / 86400) as u16
 }
 
+/// Obtains the current epoch.
+pub fn unix_to_epoch(unix: u64) -> u16 {
+    (unix / 86400) as u16
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretKey {
     rsa_keys_der: Arc<Vec<Vec<u8>>>,

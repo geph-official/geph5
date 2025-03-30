@@ -166,7 +166,7 @@ impl BrokerProtocol for BrokerImpl {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError> {
-        let (_, user_level) = match valid_auth_token(auth_token).await {
+        let (expiry, user_level) = match valid_auth_token(auth_token).await {
             Ok(auth) => {
                 if let Some(level) = auth {
                     level
@@ -180,7 +180,7 @@ impl BrokerProtocol for BrokerImpl {
             }
         };
         let start = Instant::now();
-        if user_level != level {
+        if user_level != level || mizaru2::unix_to_epoch(expiry as _) < epoch {
             return Err(AuthError::WrongLevel);
         }
         let signed = match level {
