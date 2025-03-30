@@ -433,7 +433,7 @@ impl BrokerProtocol for BrokerImpl {
                         promo: "".to_string(),
                         days: days as _,
                         item: crate::payments::Item::Plus,
-                        is_recurring: false,
+                        is_recurring: true,
                     },
                 )
                 .await?
