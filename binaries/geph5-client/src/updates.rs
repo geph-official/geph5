@@ -3,7 +3,7 @@ use std::{sync::LazyLock, time::Duration};
 
 pub async fn get_update_manifest() -> anyhow::Result<(serde_json::Value, String)> {
     let urls = [
-        "https://pub-a02e86bb722a4b079127aeee6d399e5d.r2.dev/geph-releases",
+        // "https://artifacts.geph.io/geph-releases",
         "https://f001.backblazeb2.com/file/geph4-dl/geph-releases",
     ];
     for url in urls {
