@@ -3,8 +3,8 @@ use std::{sync::LazyLock, time::Duration};
 
 pub async fn get_update_manifest() -> anyhow::Result<(serde_json::Value, String)> {
     let urls = [
-        "https://sos-ch-dk-2.exo.io/utopia/geph-releases-new",
         "https://f001.backblazeb2.com/file/geph4-dl/geph-releases",
+        "https://sos-ch-dk-2.exo.io/utopia/geph-releases-new",
     ];
     for url in urls {
         match get_update_manifest_inner(url).await {
