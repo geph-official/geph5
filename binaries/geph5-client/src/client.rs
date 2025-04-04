@@ -23,7 +23,7 @@ use crate::{
     },
     http_proxy::http_proxy_serve,
     pac::pac_serve,
-    route::ExitConstraint,
+    get_dialer::ExitConstraint,
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };

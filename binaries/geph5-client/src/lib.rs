@@ -12,7 +12,7 @@ pub use control_prot::{ConnInfo, ControlClient};
 use nanorpc::JrpcRequest;
 use nanorpc::RpcTransport;
 use once_cell::sync::OnceCell;
-pub use route::ExitConstraint;
+pub use get_dialer::ExitConstraint;
 
 mod auth;
 mod broker;
@@ -26,7 +26,7 @@ mod litecopy;
 pub mod logging;
 
 mod pac;
-mod route;
+mod get_dialer;
 mod socks5;
 mod spoof_dns;
 mod stats;

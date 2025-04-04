@@ -3,13 +3,15 @@ use std::time::{Duration, SystemTime};
 use anyctx::AnyCtx;
 use anyhow::Context;
 
+use arrayref::array_ref;
 use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
 
 use geph5_broker_protocol::{
-    AccountLevel, ExitDescriptor, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, ExitDescriptor, ExitList, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
+use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sillad::{
@@ -23,7 +25,7 @@ use smol_timeout2::TimeoutExt as _;
 
 use crate::{
     auth::get_connect_token,
-    broker::broker_client,
+    broker::broker_client, // example: define/alias type that has .all_exits
     client::{Config, CtxField},
     vpn::smart_vpn_whitelist,
 };
@@ -79,67 +81,55 @@ pub async fn get_dialer(
 async fn get_dialer_inner(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
-    let mut country_constraint = None;
-    let mut city_constraint = None;
-    let mut hostname_constraint = None;
-    match &ctx.init().exit_constraint {
-        ExitConstraint::Direct(dir) => {
-            let (dir, pubkey) = dir
-                .split_once('/')
-                .context("did not find / in a direct constraint")?;
-            let pubkey = VerifyingKey::from_bytes(
-                hex::decode(pubkey)
-                    .context("cannot decode pubkey as hex")?
-                    .as_slice()
-                    .try_into()
-                    .context("pubkey wrong length")?,
-            )?;
-            let dest_addr = *smol::net::resolve(dir)
-                .await?
-                .choose(&mut rand::thread_rng())
-                .context("could not resolve destination for direct exit connection")?;
-            smart_vpn_whitelist(ctx, dest_addr.ip());
-            return Ok((
-                pubkey,
-                ExitDescriptor {
-                    c2e_listen: "0.0.0.0:0".parse()?,
-                    b2e_listen: "0.0.0.0:0".parse()?,
-                    country: CountryCode::ABW,
-                    city: "".to_string(),
-                    load: 0.0,
-                    expiry: 0,
-                },
-                ConnTestDialer {
-                    ping_count: 1,
-                    inner: TcpDialer { dest_addr },
-                }
-                .dynamic(),
-            ));
-        }
-        ExitConstraint::Country(country) => country_constraint = Some(*country),
-        ExitConstraint::CountryCity(country, city) => {
-            country_constraint = Some(*country);
-            city_constraint = Some(city.clone())
-        }
-        ExitConstraint::Hostname(hostname) => {
-            hostname_constraint = Some(hostname.clone());
-        }
-        ExitConstraint::Auto => {}
+    // If the user specified a direct constraint, handle that path immediately:
+    if let ExitConstraint::Direct(dir) = &ctx.init().exit_constraint {
+        let (dir, pubkey_hex) = dir
+            .split_once('/')
+            .context("did not find / in a direct constraint")?;
+        let pubkey = VerifyingKey::from_bytes(
+            hex::decode(pubkey_hex)
+                .context("cannot decode pubkey as hex")?
+                .as_slice()
+                .try_into()
+                .context("pubkey wrong length")?,
+        )?;
+        let dest_addr = *smol::net::resolve(dir)
+            .await?
+            .choose(&mut rand::thread_rng())
+            .context("could not resolve destination for direct exit connection")?;
+        smart_vpn_whitelist(ctx, dest_addr.ip());
+        return Ok((
+            pubkey,
+            ExitDescriptor {
+                c2e_listen: "0.0.0.0:0".parse()?,
+                b2e_listen: "0.0.0.0:0".parse()?,
+                country: CountryCode::ABW,
+                city: "".to_string(),
+                load: 0.0,
+                expiry: 0,
+            },
+            ConnTestDialer {
+                ping_count: 1,
+                inner: TcpDialer { dest_addr },
+            }
+            .dynamic(),
+        ));
     }
 
-    // First get the conn token
+    // Otherwise, we need to pick an exit from the broker based on user constraints.
     let (level, conn_token, sig) = get_connect_token(ctx)
         .await
         .context("could not get connect token")?;
 
     let broker = broker_client(ctx).context("could not get broker client")?;
-    let exits = match level {
+    let exits_response = match level {
         AccountLevel::Plus => broker.get_exits().await,
         AccountLevel::Free => broker.get_free_exits().await,
     }?
     .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
 
-    let exits = exits
+    // Verify the broker's signature over the exit list:
+    let exits_verified = exits_response
         .verify(DOMAIN_EXIT_DESCRIPTOR, |their_pk| {
             if let Some(broker_pk) = &ctx.init().broker_keys {
                 hex::encode(their_pk.as_bytes()) == broker_pk.master
@@ -147,41 +137,14 @@ async fn get_dialer_inner(
                 true
             }
         })
-        .context("could not verify")?;
-    // filter for things that fit
-    let (pubkey, exit) = if let Some(min) = exits
-        .all_exits
-        .iter()
-        .filter(|(_, exit)| {
-            let country_pass = if let Some(country) = &country_constraint {
-                exit.country == *country
-            } else {
-                true
-            };
-            let city_pass = if let Some(city) = &city_constraint {
-                &exit.city == city
-            } else {
-                true
-            };
-            let hostname_pass = if let Some(hostname) = &hostname_constraint {
-                &exit.b2e_listen.ip().to_string() == hostname
-            } else {
-                true
-            };
-            country_pass && city_pass && hostname_pass
-        })
-        .min_by_key(|e| (e.1.load * 1000.0) as u64)
-    {
-        min
-    } else {
-        exits
-            .all_exits
-            .iter()
-            .min_by_key(|e| (e.1.load * 1000.0) as u64)
-            .context("no exits that fit the criterion")?
-    };
+        .context("could not verify exits")?;
 
-    tracing::debug!(exit = debug(&exit), "narrowed down choice of exit");
+    // Use our new helper function to pick the best exit:
+    let rendezvous_key = blake3::hash(serde_json::to_string(&ctx.init().credentials)?.as_bytes());
+    let (pubkey, exit) =
+        pick_exit_with_constraint(rendezvous_key, &ctx.init().exit_constraint, &exits_verified)?;
+
+    tracing::debug!(exit = ?exit, "narrowed down choice of exit");
     smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
 
     let exit_c2e = exit.c2e_listen;
@@ -192,9 +155,9 @@ async fn get_dialer_inner(
         },
     };
 
-    tracing::debug!(token = display(&conn_token), "CONN TOKEN");
+    tracing::debug!(token = %conn_token, "CONN TOKEN");
 
-    // also get bridges
+    // Also get potential “bridge routes”:
     let bridge_routes = broker
         .get_routes(conn_token, sig, exit.b2e_listen)
         .await?
@@ -217,91 +180,74 @@ async fn get_dialer_inner(
     Ok((*pubkey, exit.clone(), final_dialer))
 }
 
-// async fn reachability_test(
-//     ctx: AnyCtx<Config>,
-//     dialers: BTreeMap<String, DynDialer>,
-// ) -> anyhow::Result<()> {
-//     let nfo = IP_INFO.get().unwrap();
-//     let country = nfo["country"].as_str().context("country code not found")?;
-//     let asn = nfo["org"]
-//         .as_str()
-//         .context("no org")?
-//         .split_ascii_whitespace()
-//         .next()
-//         .unwrap();
+/// A helper that filters the verified exits by the user’s `ExitConstraint`,
+/// then picks the exit with the lowest load.
+fn pick_exit_with_constraint<'a>(
+    rendezvous_key: blake3::Hash,
+    constraint: &ExitConstraint,
+    exits_verified: &'a ExitList,
+) -> anyhow::Result<(&'a VerifyingKey, &'a ExitDescriptor)> {
+    // Extract the underlying HashMap from your verification struct
+    let all_exits = &exits_verified.all_exits;
 
-//     for (name, dialer) in dialers {
-//         tracing::debug!(name = display(&name), "doing a reachability test");
-//         let ctx = ctx.clone();
-//         smolscale::spawn(async move {
-//             let broker = broker_client(&ctx).context("could not get broker client")?;
-//             let success = if let Err(err) = dialer.timeout(Duration::from_secs(10)).dial().await {
-//                 tracing::warn!(
-//                     name = display(&name),
-//                     err = debug(err),
-//                     "could not reach something"
-//                 );
-//                 false
-//             } else {
-//                 true
-//             };
-//             broker
-//                 .upload_available(AvailabilityData {
-//                     listen: name,
-//                     country: country.to_string(),
-//                     asn: asn.to_string(),
-//                     success,
-//                 })
-//                 .await?;
-//             anyhow::Ok(())
-//         })
-//         .detach();
-//     }
+    // Figure out which fields we need to match
+    let mut country_constraint = None;
+    let mut city_constraint = None;
+    let mut hostname_constraint = None;
 
-//     Ok(())
-// }
+    match constraint {
+        ExitConstraint::Hostname(host) => {
+            hostname_constraint = Some(host.clone());
+        }
+        ExitConstraint::Country(country) => {
+            country_constraint = Some(*country);
+        }
+        ExitConstraint::CountryCity(country, city) => {
+            country_constraint = Some(*country);
+            city_constraint = Some(city.clone());
+        }
+        ExitConstraint::Auto => {}
+        ExitConstraint::Direct(_) => panic!("should not reach here"),
+    }
 
-// fn route_to_flat_dialers(route: &RouteDescriptor) -> BTreeMap<String, DynDialer> {
-//     match route {
-//         RouteDescriptor::Tcp(socket_addr) => std::iter::once((
-//             socket_addr.ip().to_string(),
-//             TcpDialer {
-//                 dest_addr: *socket_addr,
-//             }
-//             .dynamic(),
-//         ))
-//         .collect(),
-//         RouteDescriptor::Sosistab3 { cookie, lower } => route_to_flat_dialers(lower)
-//             .into_iter()
-//             .map(|(k, inner)| {
-//                 (
-//                     k,
-//                     SosistabDialer {
-//                         inner,
-//                         cookie: Cookie::new(cookie),
-//                     }
-//                     .dynamic(),
-//                 )
-//             })
-//             .collect(),
-//         RouteDescriptor::Race(vec) | RouteDescriptor::Fallback(vec) => vec
-//             .iter()
-//             .flat_map(|v| route_to_flat_dialers(v).into_iter())
-//             .collect(),
-//         RouteDescriptor::Timeout {
-//             milliseconds: _,
-//             lower,
-//         }
-//         | RouteDescriptor::Delay {
-//             milliseconds: _,
-//             lower,
-//         } => route_to_flat_dialers(lower),
+    // Filter down to those that match. If none match, we pick the global minimum load.
+    let mut filtered = all_exits
+        .iter()
+        .filter(|(_, exit)| {
+            let country_pass = match country_constraint {
+                Some(c) => exit.country == c,
+                None => true,
+            };
+            let city_pass = match &city_constraint {
+                Some(city) => exit.city == *city,
+                None => true,
+            };
+            let hostname_pass = match &hostname_constraint {
+                Some(hn) => exit.b2e_listen.ip().to_string() == *hn,
+                None => true,
+            };
+            country_pass && city_pass && hostname_pass
+        })
+        .collect::<Vec<_>>();
 
-//         _ => BTreeMap::new(),
-//     }
-// }
+    if filtered.is_empty() {
+        anyhow::bail!("no exits match the constraints")
+    }
+
+    // If any matched, we use load-sensitive rendezvous hashing
+
+    let (_, first, _) = filtered.select_nth_unstable_by_key(0, |rh| {
+        let hash = blake3::keyed_hash(rendezvous_key.as_bytes(), &rh.0.as_bytes()[..]);
+        let hash = &hash.as_bytes()[..];
+        let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
+        OrderedFloat(-hash.ln() / (rh.1.load as f64))
+    });
+    Ok((&first.0, &first.1))
+}
 
 fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
+    use sillad_native_tls::TlsDialer;
+
     match route {
         RouteDescriptor::Tcp(addr) => {
             smart_vpn_whitelist(ctx, addr.ip());
@@ -350,7 +296,7 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {
             let lower = route_to_dialer(ctx, lower);
-            sillad_native_tls::TlsDialer::new(
+            TlsDialer::new(
                 lower,
                 TlsConnector::new()
                     .use_sni(sni_domain.is_some())
