@@ -462,7 +462,7 @@ impl BrokerProtocol for BrokerImpl {
                         promo: "".to_string(),
                         days: days as _,
                         item: crate::payments::Item::Plus,
-                        method: "wxpay".to_string(),
+                        method: "alipay".to_string(),
                         mobile: false,
                     },
                 )
