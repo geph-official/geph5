@@ -13,7 +13,12 @@ pub struct FrontedHttpTransport {
 impl RpcTransport for FrontedHttpTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::debug!(method = req.method, "calling broker through http");
+        tracing::debug!(
+            method = req.method,
+            url = self.url,
+            host = debug(&self.host),
+            "calling broker through http"
+        );
         let start = Instant::now();
         let mut request_builder = reqwest::Client::new()
             .post(&self.url)
@@ -33,10 +38,11 @@ impl RpcTransport for FrontedHttpTransport {
         let resp_bytes = response.bytes().await?;
         tracing::debug!(
             method = req.method,
+            url = self.url,
+            host = debug(&self.host),
             resp_len = resp_bytes.len(),
             elapsed = debug(start.elapsed()),
-            "response received through http: {:?}",
-            String::from_utf8_lossy(&resp_bytes)
+            "response received through http",
         );
         Ok(serde_json::from_slice(&resp_bytes)?)
     }

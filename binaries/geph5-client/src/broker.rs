@@ -1,4 +1,5 @@
 mod fronted_http;
+mod priority_race;
 mod race;
 
 #[cfg(feature = "aws_lambda")]
@@ -13,11 +14,12 @@ use fronted_http::FrontedHttpTransport;
 use geph5_broker_protocol::BrokerClient;
 use itertools::Itertools;
 use nanorpc::DynRpcTransport;
+use priority_race::PriorityRaceTransport;
 use race::RaceTransport;
 
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
-use std::net::SocketAddr;
+use std::{collections::BTreeMap, net::SocketAddr};
 
 use crate::client::{Config, CtxField};
 
@@ -38,6 +40,7 @@ pub enum BrokerSource {
         secret_access_key: String,
     },
     Race(Vec<BrokerSource>),
+    PriorityRace(BTreeMap<u64, BrokerSource>),
 }
 
 impl BrokerSource {
@@ -75,6 +78,10 @@ impl BrokerSource {
                     .map(|bs| bs.rpc_transport())
                     .collect_vec();
                 DynRpcTransport::new(RaceTransport::new(transports))
+            }
+            BrokerSource::PriorityRace(inner) => {
+                let inner = inner.iter().map(|(k, v)| (*k, v.rpc_transport())).collect();
+                DynRpcTransport::new(PriorityRaceTransport::new(inner))
             }
         }
     }

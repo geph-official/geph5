@@ -5,7 +5,7 @@ use bytes::Bytes;
 use futures_util::{
     future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
 };
-use geph5_broker_protocol::{Credential, ExitList, UserInfo};
+use geph5_broker_protocol::{Credential, UserInfo};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use smol::future::FutureExt as _;
@@ -23,7 +23,7 @@ use crate::{
     },
     http_proxy::http_proxy_serve,
     pac::pac_serve,
-    route::ExitConstraint,
+    get_dialer::ExitConstraint,
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };

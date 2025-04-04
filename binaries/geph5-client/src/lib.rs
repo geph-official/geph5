@@ -9,10 +9,10 @@ use bytes::Bytes;
 pub use client::Client;
 pub use client::{BridgeMode, BrokerKeys, Config};
 pub use control_prot::{ConnInfo, ControlClient};
+pub use get_dialer::ExitConstraint;
 use nanorpc::JrpcRequest;
 use nanorpc::RpcTransport;
 use once_cell::sync::OnceCell;
-pub use route::ExitConstraint;
 
 mod auth;
 mod broker;
@@ -25,8 +25,8 @@ mod http_proxy;
 mod litecopy;
 pub mod logging;
 
+mod get_dialer;
 mod pac;
-mod route;
 mod socks5;
 mod spoof_dns;
 mod stats;
@@ -152,26 +152,6 @@ mod tests {
                 BrokerSource::Fronted {
                     front: "https://vuejs.org/".into(),
                     host: "svitania-naidallszei-2.netlify.app".into(),
-                },
-                BrokerSource::AwsLambda {
-                    function_name: "geph-lambda-bouncer".into(),
-                    region: "us-east-1".into(),
-                    access_key_id: String::from_utf8_lossy(
-                        &base32::decode(
-                            base32::Alphabet::Crockford,
-                            "855MJGAMB58MCPJBB97K4P2C6NC36DT8",
-                        )
-                        .unwrap(),
-                    )
-                    .to_string(),
-                    secret_access_key: String::from_utf8_lossy(
-                        &base32::decode(
-                            base32::Alphabet::Crockford,
-                            "8SQ7ECABES132WT4B9GQEN356XQ6GRT36NS64GBK9HP42EAGD8W6JRA39DTKAP2J",
-                        )
-                        .unwrap(),
-                    )
-                    .to_string(),
                 },
             ])),
             broker_keys: Some(BrokerKeys {

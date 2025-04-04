@@ -413,7 +413,11 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError> {
-        Ok(vec![])
+        Ok(vec![
+            "credit-card".into(),
+            "wechat".to_string(),
+            "alipay".to_string(),
+        ])
     }
 
     async fn create_payment(
@@ -439,6 +443,19 @@ impl BrokerProtocol for BrokerImpl {
                 .await?
                 .map_err(GenericError)?),
             "wechat" => Ok(rpc
+                .start_aliwechat(
+                    sessid,
+                    StartAliwechatArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        method: "wxpay".to_string(),
+                        mobile: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
+            "alipay" => Ok(rpc
                 .start_aliwechat(
                     sessid,
                     StartAliwechatArgs {

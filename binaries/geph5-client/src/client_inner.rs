@@ -26,7 +26,7 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, route::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, traffcount::TRAFF_COUNT, vpn::smart_vpn_whitelist, ConnInfo
+    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, get_dialer::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, traffcount::TRAFF_COUNT, vpn::smart_vpn_whitelist, ConnInfo
 };
 
 use super::Config;
