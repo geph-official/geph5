@@ -5,7 +5,7 @@ use bytes::Bytes;
 use futures_util::{
     future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
 };
-use geph5_broker_protocol::{Credential, ExitList, UserInfo};
+use geph5_broker_protocol::{Credential, UserInfo};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use smol::future::FutureExt as _;

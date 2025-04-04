@@ -164,7 +164,7 @@ async fn get_dialer_inner(
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
     tracing::debug!(
         "bridge routes obtained: {}",
-        serde_yaml::to_string(&serde_json::to_value(&bridge_routes)?)?
+        serde_json::to_string(&bridge_routes)?
     );
 
     let bridge_dialer = route_to_dialer(ctx, &bridge_routes);
@@ -211,7 +211,7 @@ fn pick_exit_with_constraint<'a>(
     }
 
     // Filter down to those that match. If none match, we pick the global minimum load.
-    let mut filtered = all_exits
+    let filtered = all_exits
         .iter()
         .filter(|(_, exit)| {
             let country_pass = match country_constraint {
@@ -236,12 +236,23 @@ fn pick_exit_with_constraint<'a>(
 
     // If any matched, we use load-sensitive rendezvous hashing
 
-    let (_, first, _) = filtered.select_nth_unstable_by_key(0, |rh| {
-        let hash = blake3::keyed_hash(rendezvous_key.as_bytes(), &rh.0.as_bytes()[..]);
-        let hash = &hash.as_bytes()[..];
-        let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
-        OrderedFloat(-hash.ln() / (rh.1.load as f64))
-    });
+    let first = filtered
+        .iter()
+        .min_by_key(|rh| {
+            let hash = blake3::keyed_hash(rendezvous_key.as_bytes(), &rh.0.as_bytes()[..]);
+            let hash = &hash.as_bytes()[..];
+            let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
+            let picker = -hash.ln() / (rh.1.load as f64);
+            tracing::debug!(
+                "picking exit, {}/{}/{} => {:.5}",
+                rh.1.country,
+                rh.1.city,
+                rh.1.b2e_listen.ip(),
+                hash
+            );
+            OrderedFloat(picker)
+        })
+        .unwrap();
     Ok((&first.0, &first.1))
 }
 

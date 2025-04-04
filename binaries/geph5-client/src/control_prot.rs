@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    sync::{Arc, LazyLock},
+    sync::LazyLock,
     time::{Duration, SystemTime},
 };
 
@@ -9,8 +9,6 @@ use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
 use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, ExitDescriptor, VoucherInfo};
 
-use itertools::Itertools;
-use moka::future::Cache;
 use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -46,6 +44,7 @@ pub trait ControlProtocol {
     async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
     async fn price_points(&self) -> Result<Vec<(u32, f64)>, String>;
+    async fn payment_methods(&self) -> Result<Vec<String>, String>;
     async fn create_payment(
         &self,
         secret: String,
@@ -323,6 +322,15 @@ impl ControlProtocol for ControlProtocolImpl {
             .into_iter()
             .map(|(a, b)| (a, b as f64 / 100.0))
             .collect())
+    }
+
+    async fn payment_methods(&self) -> Result<Vec<String>, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .payment_methods()
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?)
     }
 
     async fn create_payment(
