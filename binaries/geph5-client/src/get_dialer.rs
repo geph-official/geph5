@@ -249,7 +249,7 @@ fn pick_exit_with_constraint<'a>(
                 rh.1.country,
                 rh.1.city,
                 rh.1.b2e_listen.ip(),
-                hash
+                picker
             );
             OrderedFloat(picker)
         })
