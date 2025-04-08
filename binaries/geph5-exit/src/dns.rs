@@ -120,13 +120,14 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
             .build()
     });
 
+    // If 'name' is already an IP:port, just parse and return it
     if let Ok(addr) = SocketAddr::from_str(name) {
         return Ok(vec![addr]);
     }
 
-    // Split into "host:port"
+    // Split "host:port"
     let (host, port_str) = name
-        .rsplit_once(":")
+        .rsplit_once(':')
         .context("could not split into host:port")?;
     let port: u16 = port_str.parse()?;
 
@@ -136,42 +137,60 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
     // Use the cache to avoid repetitive lookups
     let addrs = CACHE
         .try_get_with(name.to_string(), async move {
-            // Build a DNS query for A and AAAA
-            let query_data = build_dns_query(host)?;
+            // Kick off both DNS queries in parallel (A and AAAA)
+            let (res_a, res_aaaa) = futures_util::future::join(
+                async {
+                    let packet = build_dns_query(host, false)?;
+                    let resp = raw_dns_respond(packet, filter).await?;
+                    parse_dns_response(&resp, port)
+                },
+                async {
+                    let packet = build_dns_query(host, true)?;
+                    let resp = raw_dns_respond(packet, filter).await?;
+                    parse_dns_response(&resp, port)
+                },
+            )
+            .await;
 
-            // Dispatch the query via DoH
-            let resp_bytes = raw_dns_respond(query_data, filter).await?;
+            // Merge the results
+            let mut ips = vec![];
+            ips.extend_from_slice(&res_aaaa?);
+            ips.extend_from_slice(&res_a?);
 
-            // Parse out IP addresses
-            let ips = parse_dns_response(&resp_bytes, port)?;
+            // tracing::debug!(name, ?ips, "ips received!");
             anyhow::Ok(ips)
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
+    if addrs.is_empty() {
+        anyhow::bail!("no addrs")
+    }
+
     Ok(addrs)
 }
 
 /// Build a simple DNS query packet for both A and AAAA:
-fn build_dns_query(host: &str) -> anyhow::Result<Bytes> {
+fn build_dns_query(host: &str, aaaa: bool) -> anyhow::Result<Bytes> {
     let mut packet = Packet::new_query(rand::random());
     packet.set_flags(PacketFlag::RECURSION_DESIRED);
 
-    // Ask for A
-    packet.questions.push(Question::new(
-        Name::new_unchecked(host),
-        QTYPE::TYPE(TYPE::A),
-        QCLASS::CLASS(CLASS::IN),
-        false,
-    ));
-
     // Ask for AAAA
-    packet.questions.push(Question::new(
-        Name::new_unchecked(host),
-        QTYPE::TYPE(TYPE::AAAA),
-        QCLASS::CLASS(CLASS::IN),
-        false,
-    ));
+    if aaaa {
+        packet.questions.push(Question::new(
+            Name::new_unchecked(host),
+            QTYPE::TYPE(TYPE::AAAA),
+            QCLASS::CLASS(CLASS::IN),
+            false,
+        ));
+    } else {
+        packet.questions.push(Question::new(
+            Name::new_unchecked(host),
+            QTYPE::TYPE(TYPE::A),
+            QCLASS::CLASS(CLASS::IN),
+            false,
+        ));
+    }
 
     let bytes = packet.build_bytes_vec()?;
     Ok(bytes.into())
@@ -180,6 +199,7 @@ fn build_dns_query(host: &str) -> anyhow::Result<Bytes> {
 /// Parse a raw DNS response to gather all A/AAAA records.
 fn parse_dns_response(packet_data: &[u8], port: u16) -> anyhow::Result<Vec<SocketAddr>> {
     let packet = Packet::parse(packet_data)?;
+
     let mut addrs = Vec::new();
 
     for answer in packet.answers.iter() {
@@ -196,74 +216,8 @@ fn parse_dns_response(packet_data: &[u8], port: u16) -> anyhow::Result<Vec<Socke
         }
     }
 
-    if addrs.is_empty() {
-        anyhow::bail!("No A or AAAA records found in DNS response: {:?}", packet);
-    }
-
     Ok(addrs)
 }
-
-// /// A udp-socket-efficient DNS responder.
-// pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Result<Bytes> {
-//     if let Ok(packet) = Packet::parse(&req) {
-//         for q in packet.questions.iter() {
-//             let qname = q.qname.to_string();
-//             filter.check_host(&qname).await?;
-//         }
-//     }
-//     let (send_resp, recv_resp) = oneshot::channel();
-//     DNS_RESPONDER
-//         .send((req, send_resp))
-//         .await
-//         .ok()
-//         .context("could not send")?;
-//     Ok(recv_resp.await?)
-// }
-
-// static DNS_RESPONDER: LazyLock<Sender<(Bytes, oneshot::Sender<Bytes>)>> = LazyLock::new(|| {
-//     let (send_req, recv_req) = smol::channel::bounded(1);
-//     for _ in 0..500 {
-//         smolscale::spawn(dns_respond_loop(recv_req.clone())).detach();
-//     }
-//     send_req
-// });
-
-// async fn dns_respond_loop(recv_req: Receiver<(Bytes, oneshot::Sender<Bytes>)>) {
-//     let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-//     socket.connect("8.8.8.8:53").await.unwrap();
-//     let outstanding_reqs = Mutex::new(HashMap::new());
-//     let upload = async {
-//         loop {
-//             let (req, send_resp) = recv_req.recv().await.unwrap();
-//             if let Ok(packet) = Packet::parse(&req) {
-//                 outstanding_reqs
-//                     .lock()
-//                     .unwrap()
-//                     .insert(packet.id(), send_resp);
-//                 let _ = socket.send(&req).await;
-//             }
-//         }
-//     };
-//     let download = async {
-//         let mut buf = [0u8; 65536];
-//         loop {
-//             let n = socket.recv(&mut buf).await;
-//             match n {
-//                 Err(err) => tracing::error!(err = debug(err), "cannot receive"),
-//                 Ok(n) => {
-//                     if let Ok(packet) = Packet::parse(&buf[..n]) {
-//                         if let Some(resp) = outstanding_reqs.lock().unwrap().remove(&packet.id()) {
-//                             let _ = resp.send(Bytes::copy_from_slice(&buf[..n]));
-//                         } else {
-//                             tracing::warn!(id = packet.id(), "DNS response with mismatching ID")
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     };
-//     upload.race(download).await
-// }
 
 #[cfg(test)]
 mod tests {
@@ -273,7 +227,7 @@ mod tests {
     fn resolve_google() {
         smolscale::block_on(async move {
             let res = dns_resolve(
-                "xkcd.com:443",
+                "google.com:443",
                 super::FilterOptions {
                     nsfw: false,
                     ads: false,

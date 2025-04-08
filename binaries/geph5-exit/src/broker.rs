@@ -47,7 +47,11 @@ impl BrokerRpcTransport {
 impl RpcTransport for BrokerRpcTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::debug!(method = req.method, "calling broker");
+        tracing::debug!(
+            method = req.method,
+            params = display(serde_json::to_string(&req.params).unwrap()),
+            "calling broker"
+        );
 
         let resp = self
             .client
