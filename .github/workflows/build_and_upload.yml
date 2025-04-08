@@ -132,9 +132,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: bridge-exit-ubuntu-20.04-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: bridge-exit-ubuntu-24.04-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            bridge-exit-ubuntu-20.04-musl-cargo-
+            bridge-exit-ubuntu-24.04-musl-cargo-
 
       - name: Set default host
         shell: bash
@@ -162,7 +162,7 @@ jobs:
   upload:
     if: github.ref == 'refs/heads/master'
     needs: [build, build-bridge-exit]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download all artifacts
