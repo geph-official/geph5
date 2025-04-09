@@ -235,7 +235,6 @@ fn pick_exit_with_constraint<'a>(
     }
 
     // If any matched, we use load-sensitive rendezvous hashing
-
     let first = filtered
         .iter()
         .min_by_key(|rh| {
