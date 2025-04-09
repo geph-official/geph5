@@ -85,19 +85,15 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if host.is_empty() || host.contains("[") {
         return false;
     }
+    if ctx.init().passthrough_china && is_chinese_host(host) {
+        return true;
+    }
     if let Ok(ip) = IpAddr::from_str(host) {
         match ip {
             IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
             IpAddr::V6(v6) => v6.is_loopback(),
         }
     } else {
-        if ctx.init().passthrough_china {
-            if let Some(domain) = psl::domain_str(host) {
-                if is_chinese_host(domain) {
-                    return true;
-                }
-            }
-        }
         match psl::suffix(host.as_bytes()) {
             None => false,
             Some(suf) => !suf.is_known(),
