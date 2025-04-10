@@ -98,8 +98,12 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
         }
     }
 
-    static CLIENT: LazyLock<reqwest::Client> =
-        LazyLock::new(|| reqwest::Client::builder().build().unwrap());
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap()
+    });
 
     let start = Instant::now();
     let resp = CLIENT
@@ -154,10 +158,10 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
 
             // Merge the results
             let mut ips = vec![];
-            ips.extend_from_slice(&res_aaaa?);
+            // ips.extend_from_slice(&res_aaaa?);
             ips.extend_from_slice(&res_a?);
 
-            // tracing::debug!(name, ?ips, "ips received!");
+            tracing::debug!(name, ?ips, "ips received!");
             anyhow::Ok(ips)
         })
         .await
