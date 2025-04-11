@@ -1,11 +1,15 @@
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        LazyLock,
+    },
+    time::{Duration, Instant},
 };
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
 use blind_rsa_signatures as brs;
+use futures_intrusive::sync::ManualResetEvent;
 use geph5_broker_protocol::{AccountLevel, AuthError};
 use mizaru2::{ClientToken, UnblindedSignature};
 use rand::Rng;
@@ -18,19 +22,41 @@ use crate::{
     database::{db_read, db_read_or_wait, db_remove, db_write},
 };
 
-static CONN_TOKEN_READY: AtomicBool = AtomicBool::new(false);
+static ACCOUNT_STATUS_CHECKED: LazyLock<ManualResetEvent> =
+    LazyLock::new(|| ManualResetEvent::new(false));
 
 pub async fn get_connect_token(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
-    while !CONN_TOKEN_READY.load(Ordering::SeqCst) {
-        tracing::debug!("waiting for connection token");
-        smol::Timer::after(Duration::from_secs(1)).await;
-    }
+    tracing::debug!("waiting for connection token");
+    let start = Instant::now();
+    ACCOUNT_STATUS_CHECKED.wait().await;
+    tracing::debug!(elapsed = debug(start.elapsed()), "account status checked");
     let epoch = mizaru2::current_epoch();
-    Ok(stdcode::deserialize(
-        &db_read_or_wait(ctx, &format!("conn_token_{epoch}")).await?,
-    )?)
+    let res = get_conn_token_inner(ctx, epoch, true).await?;
+    tracing::debug!(
+        elapsed = debug(start.elapsed()),
+        "connection token obtained"
+    );
+    Ok(res)
+}
+
+async fn get_conn_token_inner(
+    ctx: &AnyCtx<Config>,
+    epoch: u16,
+    wait: bool,
+) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
+    if !wait {
+        Ok(stdcode::deserialize(
+            &db_read(ctx, &format!("conn_token_{epoch}"))
+                .await?
+                .context("absent right now")?,
+        )?)
+    } else {
+        Ok(stdcode::deserialize(
+            &db_read_or_wait(ctx, &format!("conn_token_{epoch}")).await?,
+        )?)
+    }
 }
 
 pub async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
@@ -69,10 +95,6 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
         let epoch = mizaru2::current_epoch();
         let broker_client = broker_client(ctx)?;
 
-        let last_plus_expiry: u64 = db_read(ctx, "plus_expiry")
-            .await?
-            .and_then(|b| stdcode::deserialize(&b).ok())
-            .unwrap_or_default();
         let plus_expiry = broker_client
             .get_user_info(auth_token.to_string())
             .await??
@@ -80,14 +102,20 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
             .plus_expires_unix
             .unwrap_or_default();
 
-        if plus_expiry > 0 && last_plus_expiry == 0 {
+        let currently_plus =
+            if let Ok(inner) = get_conn_token_inner(ctx, mizaru2::current_epoch(), false).await {
+                inner.0 == AccountLevel::Plus
+            } else {
+                false
+            };
+
+        if plus_expiry > 0 && !currently_plus {
             tracing::debug!("we gained a plus! gonna clean up the conn token cache here");
             db_remove(ctx, &format!("conn_token_{}", epoch)).await?;
             db_remove(ctx, &format!("conn_token_{}", epoch + 1)).await?;
-            db_write(ctx, "plus_expiry", &plus_expiry.stdcode()).await?;
         }
 
-        CONN_TOKEN_READY.store(true, Ordering::SeqCst);
+        ACCOUNT_STATUS_CHECKED.set();
 
         for epoch in [epoch, epoch + 1] {
             if db_read(ctx, &format!("conn_token_{epoch}"))
@@ -155,6 +183,7 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
                 }
             }
         }
+
         anyhow::Ok(())
     };
     inner
