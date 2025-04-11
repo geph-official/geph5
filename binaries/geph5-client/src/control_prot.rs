@@ -13,6 +13,7 @@ use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTranspor
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
+use tap::Tap;
 
 use crate::{
     broker_client, client::CtxField, logging::get_json_logs, stats::stat_get_num,
@@ -42,6 +43,7 @@ pub trait ControlProtocol {
     ) -> Result<String, String>;
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
     async fn exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
+    async fn free_exit_list(&self) -> Result<Vec<ExitDescriptor>, String>;
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
     async fn price_points(&self) -> Result<Vec<(u32, f64)>, String>;
     async fn payment_methods(&self) -> Result<Vec<String>, String>;
@@ -246,6 +248,21 @@ impl ControlProtocol for ControlProtocolImpl {
             .map_err(|e| format!("{:?}", e))?
             .map_err(|e| format!("{:?}", e))?;
         Ok(resp.inner.all_exits.iter().map(|s| s.1.clone()).collect())
+    }
+
+    async fn free_exit_list(&self) -> Result<Vec<ExitDescriptor>, String> {
+        let resp = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .get_free_exits()
+            .await
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?;
+        Ok(resp
+            .inner
+            .all_exits
+            .iter()
+            .map(|s| s.1.clone().tap_mut(|e| e.load = e.load.powf(0.5)))
+            .collect())
     }
 
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String> {
