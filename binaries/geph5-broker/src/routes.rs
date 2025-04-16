@@ -40,7 +40,10 @@ pub async fn bridge_to_leaf_route(
                 let plain_route = bridge_to_leaf_route_inner(
                     bridge.clone(),
                     exit_b2e,
-                    ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
+                    ObfsProtocol::Sosistab3New(
+                        gencookie(),
+                        ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into(),
+                    ),
                 )
                 .await?;
                 // let obfs_route = bridge_to_leaf_route_inner(
