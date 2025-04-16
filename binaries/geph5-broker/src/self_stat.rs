@@ -73,6 +73,12 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
             .fetch_one(&*POSTGRES)
             .await?;
 
+            let (daily_logins_old2new,): (i64,) = sqlx::query_as(
+                "select count(id) from last_login join auth_password on id=user_id natural join auth_secret where login_time > NOW() - INTERVAL '24 hours'",
+            )
+            .fetch_one(&*POSTGRES)
+            .await?;
+
             let (weekly_logins,): (i64,) = sqlx::query_as(
                 "select count(id) from last_login where login_time > NOW() - INTERVAL '7 days'",
             )
@@ -86,6 +92,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                         .measurement("broker_logins")
                         .field("daily_logins", daily_logins as f64)
                         .field("daily_logins_new", daily_logins_new as f64)
+                        .field("daily_logins_old2new", daily_logins_old2new as f64)
                         .field("weekly_logins", weekly_logins as f64)
                         .close_line()
                         .build(),
