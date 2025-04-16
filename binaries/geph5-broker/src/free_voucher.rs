@@ -10,11 +10,12 @@ use crate::{
 };
 
 pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo>> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("select voucher,description from free_vouchers natural join users where id = $1 and createtime < '2025-03-29' limit 1")
-            .bind(user_id)
-            .fetch_optional(&*POSTGRES)
-            .await?;
+    let row: Option<(String, String)> = sqlx::query_as(
+        "select voucher,description from free_vouchers natural join users where id = $1 limit 1",
+    )
+    .bind(user_id)
+    .fetch_optional(&*POSTGRES)
+    .await?;
     if let Some((voucher, description)) = row {
         let map: BTreeMap<String, String> = serde_json::from_str(&description)?;
         Ok(Some(VoucherInfo {
