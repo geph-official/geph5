@@ -8,9 +8,9 @@ use argh::FromArgs;
 use client::client_main;
 use server::server_main;
 
-/// picomux-test: A tool with server and client subcommands.
+/// geph5-prototest: A tool with server and client subcommands.
 #[derive(FromArgs)]
-struct PicomuxTest {
+struct Args {
     #[argh(subcommand)]
     subcommand: Subcommand,
 }
@@ -51,9 +51,9 @@ struct ClientCmd {
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let picomux_test: PicomuxTest = argh::from_env();
+    let args: Args = argh::from_env();
 
-    match picomux_test.subcommand {
+    match args.subcommand {
         Subcommand::Server(cmd) => smolscale::block_on(server_main(cmd.listen, cmd.sosistab3)),
         Subcommand::Client(cmd) => smolscale::block_on(client_main(cmd.connect, cmd.sosistab3)),
     }

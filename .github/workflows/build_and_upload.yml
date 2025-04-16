@@ -16,12 +16,6 @@ jobs:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             dir: gnu
-          # - os: windows-latest
-          #   target: i686-pc-windows-msvc
-          #   dir: windows
-          # - os: macos-latest
-          #   target: x86_64-apple-darwin
-          #   dir: macos
 
     runs-on: ${{ matrix.os }}
 
@@ -85,19 +79,6 @@ jobs:
           if [ ! -f ~/.cargo/bin/cargo-bundle ]; then
             cargo install cargo-bundle --locked --version "=0.6.0" --force
           fi
-
-      - name: Create macOS .app bundle
-        if: matrix.os == 'macos-latest'
-        run: |
-          cd binaries/geph5-client-gui
-          cargo bundle --release --target ${{ matrix.target }}
-
-      - name: Create macOS .app zip
-        if: matrix.os == 'macos-latest'
-        run: |
-          cd target/${{ matrix.target }}/release/bundle/osx/
-          zip -r "geph5-client-gui.app.zip" "Geph5.app"
-          mv "geph5-client-gui.app.zip" ../../../../../artifacts/${{ matrix.dir }}/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

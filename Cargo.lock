@@ -3576,6 +3576,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "geph5-prototest"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argh",
+ "async-event",
+ "async-io 2.4.0",
+ "async-io-bufpool 0.2.0",
+ "async-native-tls",
+ "async-trait",
+ "atomic_float",
+ "blake3",
+ "bytes",
+ "clap",
+ "crossbeam-queue",
+ "dashmap 6.1.0",
+ "fastrand 2.3.0",
+ "futures-concurrency",
+ "futures-util",
+ "hex",
+ "native-tls",
+ "once_cell",
+ "oneshot",
+ "picomux",
+ "rand 0.8.5",
+ "rcgen",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "sillad",
+ "sillad-conntest",
+ "sillad-native-tls",
+ "sillad-sosistab3",
+ "smol 2.0.2",
+ "smol-timeout2",
+ "smolscale",
+ "socket2 0.5.9",
+ "tachyonix",
+ "tap",
+ "tracing",
+ "tracing-subscriber",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "gethostname"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

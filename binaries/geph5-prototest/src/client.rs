@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_lite::FutureExt as _;
+use futures_concurrency::future::FutureExt;
 use futures_util::AsyncReadExt;
 use picomux::{LivenessConfig, PicoMux};
 use sillad::dialer::{Dialer, DialerExt};
@@ -25,12 +25,6 @@ pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyh
     .dial()
     .await?;
     eprintln!("wire dialed in {:?}", start.elapsed());
-
-    // loop {
-    //     let mut buf = b"aaaaaaaaaaaaaaaaaaaaaaa".to_vec();
-
-    //     wire.write_all(&buf).await?;
-    // }
 
     let (read, write) = wire.split();
     let mut mux = PicoMux::new(read, write);

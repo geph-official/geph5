@@ -37,20 +37,20 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit_b2e),
             async {
-                // let plain_route = bridge_to_leaf_route_inner(
-                //     bridge.clone(),
-                //     exit_b2e,
-                //     ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
-                // )
-                // .await?;
-                let obfs_route = bridge_to_leaf_route_inner(
+                let plain_route = bridge_to_leaf_route_inner(
                     bridge.clone(),
                     exit_b2e,
-                    ObfsProtocol::ConnTest(
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
-                    ),
+                    ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
                 )
                 .await?;
+                // let obfs_route = bridge_to_leaf_route_inner(
+                //     bridge.clone(),
+                //     exit_b2e,
+                //     ObfsProtocol::ConnTest(
+                //         ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
+                //     ),
+                // )
+                // .await?;
                 // let new_route = RouteDescriptor::Race(vec![
                 //     plain_route,
                 //     RouteDescriptor::Delay {
@@ -64,7 +64,7 @@ pub async fn bridge_to_leaf_route(
                         .await?;
                 anyhow::Ok(RouteDescriptor::Delay {
                     milliseconds: delay_ms,
-                    lower: RouteDescriptor::Fallback(vec![obfs_route, legacy_route]).into(),
+                    lower: RouteDescriptor::Fallback(vec![plain_route, legacy_route]).into(),
                 })
             }
             .map(|res| {
