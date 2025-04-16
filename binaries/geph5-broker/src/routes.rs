@@ -62,12 +62,12 @@ pub async fn bridge_to_leaf_route(
                 //     },
                 // ]);
 
-                let legacy_route =
-                    bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
-                        .await?;
+                // let legacy_route =
+                //     bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
+                //         .await?;
                 anyhow::Ok(RouteDescriptor::Delay {
                     milliseconds: delay_ms,
-                    lower: RouteDescriptor::Fallback(vec![plain_route, legacy_route]).into(),
+                    lower: plain_route.into(),
                 })
             }
             .map(|res| {
