@@ -170,7 +170,10 @@ impl<A: Dialer, B: Dialer> Dialer for FallbackDialer<A, B> {
     async fn dial(&self) -> std::io::Result<Self::P> {
         match self.primary.dial().await {
             Ok(pipe) => Ok(EitherPipe::Left(pipe)),
-            Err(_) => self.fallback.dial().await.map(EitherPipe::Right),
+            Err(err) => {
+                tracing::warn!(err = debug(err), "falling back due to error");
+                self.fallback.dial().await.map(EitherPipe::Right)
+            }
         }
     }
 }

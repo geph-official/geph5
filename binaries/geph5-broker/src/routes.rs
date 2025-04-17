@@ -37,15 +37,6 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit_b2e),
             async {
-                let plain_route = bridge_to_leaf_route_inner(
-                    bridge.clone(),
-                    exit_b2e,
-                    ObfsProtocol::Sosistab3New(
-                        gencookie(),
-                        ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into(),
-                    ),
-                )
-                .await?;
                 // let obfs_route = bridge_to_leaf_route_inner(
                 //     bridge.clone(),
                 //     exit_b2e,
@@ -63,11 +54,29 @@ pub async fn bridge_to_leaf_route(
                 // ]);
 
                 if bridge.pool.contains("waw") {
+                    let plain_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit_b2e,
+                        ObfsProtocol::Sosistab3New(
+                            gencookie(),
+                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                        ),
+                    )
+                    .await?;
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: plain_route.into(),
                     })
                 } else {
+                    let plain_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit_b2e,
+                        ObfsProtocol::Sosistab3New(
+                            gencookie(),
+                            ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into(),
+                        ),
+                    )
+                    .await?;
                     let legacy_route =
                         bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
                             .await?;
