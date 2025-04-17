@@ -62,13 +62,20 @@ pub async fn bridge_to_leaf_route(
                 //     },
                 // ]);
 
-                let legacy_route =
-                    bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
-                        .await?;
-                anyhow::Ok(RouteDescriptor::Delay {
-                    milliseconds: delay_ms,
-                    lower: RouteDescriptor::Fallback(vec![plain_route, legacy_route]).into(),
-                })
+                if bridge.pool.contains("waw") {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: plain_route.into(),
+                    })
+                } else {
+                    let legacy_route =
+                        bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
+                            .await?;
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: RouteDescriptor::Fallback(vec![plain_route, legacy_route]).into(),
+                    })
+                }
             }
             .map(|res| {
                 if let Err(err) = res.as_ref() {
