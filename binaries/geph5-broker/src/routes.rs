@@ -53,7 +53,7 @@ pub async fn bridge_to_leaf_route(
                 //     },
                 // ]);
 
-                if bridge.pool.contains("waw") {
+                if bridge.pool.contains("ovh") {
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit_b2e,
