@@ -149,7 +149,7 @@ async fn get_dialer_inner(
 
     let exit_c2e = exit.c2e_listen;
     let direct_dialer = ConnTestDialer {
-        ping_count: 2,
+        ping_count: 1,
         inner: TcpDialer {
             dest_addr: exit_c2e,
         },

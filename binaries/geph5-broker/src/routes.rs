@@ -57,9 +57,12 @@ pub async fn bridge_to_leaf_route(
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit_b2e,
-                        ObfsProtocol::Sosistab3New(
-                            gencookie(),
-                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                        ObfsProtocol::ConnTest(
+                            ObfsProtocol::Sosistab3New(
+                                gencookie(),
+                                ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                            )
+                            .into(),
                         ),
                     )
                     .await?;
@@ -71,9 +74,9 @@ pub async fn bridge_to_leaf_route(
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit_b2e,
-                        ObfsProtocol::Sosistab3New(
-                            gencookie(),
-                            ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into(),
+                        ObfsProtocol::ConnTest(
+                            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
+                                .into(),
                         ),
                     )
                     .await?;
@@ -149,7 +152,7 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         },
         ObfsProtocol::None => RouteDescriptor::Tcp(addr),
         ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
-            ping_count: 2,
+            ping_count: 1,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
