@@ -70,6 +70,17 @@ pub async fn bridge_to_leaf_route(
                         milliseconds: delay_ms,
                         lower: plain_route.into(),
                     })
+                } else if bridge.pool.contains("rbxa") {
+                    let plain_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit_b2e,
+                        ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
+                    )
+                    .await?;
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: plain_route.into(),
+                    })
                 } else {
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
