@@ -53,7 +53,7 @@ pub async fn bridge_to_leaf_route(
                 //     },
                 // ]);
 
-                if bridge.pool.contains("waw") {
+                if bridge.pool.contains("waw") || bridge.pool.contains("scaleway") {
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit_b2e,
@@ -64,17 +64,6 @@ pub async fn bridge_to_leaf_route(
                             )
                             .into(),
                         ),
-                    )
-                    .await?;
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: plain_route.into(),
-                    })
-                } else if bridge.pool.contains("rbxa") {
-                    let plain_route = bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit_b2e,
-                        ObfsProtocol::ConnTest(ObfsProtocol::None.into()),
                     )
                     .await?;
                     anyhow::Ok(RouteDescriptor::Delay {
