@@ -220,7 +220,7 @@ impl PublicKey {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 /// A random, unblinded client token.
 pub struct ClientToken([u8; 32]);
 

@@ -11,6 +11,7 @@ use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 use smol_timeout2::TimeoutExt;
 use std::{
+    collections::BTreeMap,
     net::SocketAddr,
     sync::{Arc, LazyLock},
     time::{Duration, SystemTime},
@@ -20,6 +21,7 @@ pub async fn bridge_to_leaf_route(
     bridge: BridgeDescriptor,
     delay_ms: u32,
     exit_b2e: SocketAddr,
+    client_metadata: &BTreeMap<String, String>,
 ) -> anyhow::Result<RouteDescriptor> {
     // for cache coherence
     let mut bridge = bridge;
@@ -37,22 +39,6 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit_b2e),
             async {
-                // let obfs_route = bridge_to_leaf_route_inner(
-                //     bridge.clone(),
-                //     exit_b2e,
-                //     ObfsProtocol::ConnTest(
-                //         ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
-                //     ),
-                // )
-                // .await?;
-                // let new_route = RouteDescriptor::Race(vec![
-                //     plain_route,
-                //     RouteDescriptor::Delay {
-                //         milliseconds: 500,
-                //         lower: obfs_route.into(),
-                //     },
-                // ]);
-
                 if bridge.pool.contains("waw") || bridge.pool.contains("scaleway") {
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),

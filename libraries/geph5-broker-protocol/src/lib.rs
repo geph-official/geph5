@@ -45,6 +45,8 @@ pub trait BrokerProtocol {
         exit_b2e: SocketAddr,
     ) -> Result<RouteDescriptor, GenericError>;
 
+    async fn get_routes_v2(&self, args: GetRoutesArgs) -> Result<RouteDescriptor, GenericError>;
+
     async fn insert_exit(
         &self,
         descriptor: Mac<Signed<ExitDescriptor>>,
@@ -95,6 +97,14 @@ pub trait BrokerProtocol {
 pub struct VoucherInfo {
     pub code: String,
     pub explanation: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GetRoutesArgs {
+    pub token: ClientToken,
+    pub sig: UnblindedSignature,
+    pub exit_b2e: SocketAddr,
+    pub client_metadata: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

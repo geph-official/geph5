@@ -6,8 +6,8 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitDescriptor, ExitList, GenericError, Mac, NewsItem, RouteDescriptor, Signed,
-    UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
+    Credential, ExitDescriptor, ExitList, GenericError, GetRoutesArgs, Mac, NewsItem,
+    RouteDescriptor, Signed, UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
@@ -229,26 +229,23 @@ impl BrokerProtocol for BrokerImpl {
         get_user_info(user_id?).await
     }
 
-    async fn get_routes(
-        &self,
-        token: ClientToken,
-        sig: UnblindedSignature,
-        exit: SocketAddr,
-    ) -> Result<RouteDescriptor, GenericError> {
+    async fn get_routes_v2(&self, args: GetRoutesArgs) -> Result<RouteDescriptor, GenericError> {
         // authenticate the token
         let account_level = if PLUS_MIZARU_SK
             .to_public_key()
-            .blind_verify(token, &sig)
+            .blind_verify(args.token, &args.sig)
             .is_ok()
         {
             AccountLevel::Plus
         } else {
-            FREE_MIZARU_SK.to_public_key().blind_verify(token, &sig)?;
+            FREE_MIZARU_SK
+                .to_public_key()
+                .blind_verify(args.token, &args.sig)?;
 
             AccountLevel::Free
         };
 
-        let raw_descriptors = query_bridges(&format!("{:?}", token)).await?;
+        let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
 
         let raw_descriptors = if account_level == AccountLevel::Free {
             raw_descriptors
@@ -265,14 +262,15 @@ impl BrokerProtocol for BrokerImpl {
                 .into_iter()
                 .map(|(desc, delay_ms, _is_plus)| {
                     let bridge = desc.control_listen;
-                    bridge_to_leaf_route(desc, delay_ms, exit).inspect_err(move |err| {
-                        tracing::warn!(
-                            err = debug(err),
-                            bridge = debug(bridge),
-                            exit = debug(exit),
-                            "failed to call bridge_to_leaf_route"
-                        )
-                    })
+                    bridge_to_leaf_route(desc, delay_ms, args.exit_b2e, &args.client_metadata)
+                        .inspect_err(move |err| {
+                            tracing::warn!(
+                                err = debug(err),
+                                bridge = debug(bridge),
+                                exit = debug(args.exit_b2e),
+                                "failed to call bridge_to_leaf_route"
+                            )
+                        })
                 }),
         )
         .await)
@@ -283,6 +281,21 @@ impl BrokerProtocol for BrokerImpl {
         }
 
         Ok(RouteDescriptor::Race(routes))
+    }
+
+    async fn get_routes(
+        &self,
+        token: ClientToken,
+        sig: UnblindedSignature,
+        exit_b2e: SocketAddr,
+    ) -> Result<RouteDescriptor, GenericError> {
+        self.get_routes_v2(GetRoutesArgs {
+            token,
+            sig,
+            exit_b2e,
+            client_metadata: Default::default(),
+        })
+        .await
     }
 
     async fn insert_exit(
