@@ -104,7 +104,7 @@ pub struct GetRoutesArgs {
     pub token: ClientToken,
     pub sig: UnblindedSignature,
     pub exit_b2e: SocketAddr,
-    pub client_metadata: BTreeMap<String, String>,
+    pub client_metadata: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

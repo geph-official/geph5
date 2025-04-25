@@ -21,7 +21,7 @@ pub async fn bridge_to_leaf_route(
     bridge: BridgeDescriptor,
     delay_ms: u32,
     exit_b2e: SocketAddr,
-    client_metadata: &BTreeMap<String, String>,
+    client_metadata: &serde_json::Value,
 ) -> anyhow::Result<RouteDescriptor> {
     // for cache coherence
     let mut bridge = bridge;

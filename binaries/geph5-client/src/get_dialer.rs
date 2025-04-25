@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -8,7 +8,7 @@ use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
 
 use geph5_broker_protocol::{
-    AccountLevel, ExitDescriptor, ExitList, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
+    AccountLevel, ExitDescriptor, ExitList, GetRoutesArgs, RouteDescriptor, DOMAIN_EXIT_DESCRIPTOR,
 };
 use isocountry::CountryCode;
 use ordered_float::OrderedFloat;
@@ -25,8 +25,9 @@ use smol_timeout2::TimeoutExt as _;
 
 use crate::{
     auth::get_connect_token,
-    broker::broker_client, // example: define/alias type that has .all_exits
+    broker::broker_client,
     client::{Config, CtxField},
+    device_metadata::get_device_metadata,
     vpn::smart_vpn_whitelist,
 };
 
@@ -157,9 +158,27 @@ async fn get_dialer_inner(
 
     tracing::debug!(token = %conn_token, "CONN TOKEN");
 
+    let start = Instant::now();
+    let metadata = if let Ok(metadata) = get_device_metadata(ctx).await {
+        tracing::info!(
+            metadata = debug(&metadata),
+            elapsed = debug(start.elapsed()),
+            "DEVICE METADATA OBTAINED"
+        );
+        serde_json::to_value(&metadata)?
+    } else {
+        tracing::warn!("CANNOT GET DEVICE METADATA, PROCEEDING NONETHELESS");
+        serde_json::Value::Null
+    };
+
     // Also get potential “bridge routes”:
     let bridge_routes = broker
-        .get_routes(conn_token, sig, exit.b2e_listen)
+        .get_routes_v2(GetRoutesArgs {
+            token: conn_token,
+            sig,
+            exit_b2e: exit.b2e_listen,
+            client_metadata: metadata,
+        })
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
     tracing::debug!(

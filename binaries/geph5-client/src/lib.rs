@@ -21,6 +21,7 @@ mod client;
 mod client_inner;
 mod control_prot;
 mod database;
+mod device_metadata;
 mod http_proxy;
 mod litecopy;
 pub mod logging;
