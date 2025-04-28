@@ -1,3 +1,4 @@
+use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
 use cadence::prelude::*;
@@ -15,7 +16,6 @@ use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignat
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
-use rand::Rng;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -166,7 +166,7 @@ impl BrokerProtocol for BrokerImpl {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError> {
-        let (expiry, user_level) = match valid_auth_token(auth_token).await {
+        let (_, user_level) = match valid_auth_token(auth_token).await {
             Ok(auth) => {
                 if let Some(level) = auth {
                     level
@@ -245,6 +245,16 @@ impl BrokerProtocol for BrokerImpl {
             AccountLevel::Free
         };
 
+        // get the exit
+        let exit = self
+            .get_all_exits()
+            .await?
+            .all_exits
+            .into_iter()
+            .map(|s| s.1)
+            .find(|exit| exit.b2e_listen == args.exit_b2e)
+            .context("cannot find this exit")?;
+
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
 
         let raw_descriptors = if account_level == AccountLevel::Free {
@@ -262,7 +272,7 @@ impl BrokerProtocol for BrokerImpl {
                 .into_iter()
                 .map(|(desc, delay_ms, _is_plus)| {
                     let bridge = desc.control_listen;
-                    bridge_to_leaf_route(desc, delay_ms, args.exit_b2e, &args.client_metadata)
+                    bridge_to_leaf_route(desc, delay_ms, exit.clone(), &args.client_metadata)
                         .inspect_err(move |err| {
                             tracing::warn!(
                                 err = debug(err),

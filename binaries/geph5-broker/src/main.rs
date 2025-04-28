@@ -4,7 +4,6 @@ use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
-use free_voucher::create_one_day_vouchers_for_all_users;
 use nano_influxdb::InfluxDbEndpoint;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};

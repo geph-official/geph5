@@ -116,8 +116,6 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
         "starting upload loop"
     );
 
-    let bridge_key = format!("bridges.{pool}");
-
     let broker_rpc = Arc::new(geph5_broker_protocol::BrokerClient(
         nanorpc_sillad::DialerTransport(
             TcpDialer {

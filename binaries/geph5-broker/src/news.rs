@@ -25,10 +25,7 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
 
     // First, try to read the cached data regardless of age
     let cached_news = match smol::fs::read_to_string(&cache_path).await {
-        Ok(cached_data) => match serde_json::from_str::<Vec<NewsItem>>(&cached_data) {
-            Ok(news) => Some(news),
-            Err(_) => None,
-        },
+        Ok(cached_data) => serde_json::from_str::<Vec<NewsItem>>(&cached_data).ok(),
         Err(_) => None,
     };
 

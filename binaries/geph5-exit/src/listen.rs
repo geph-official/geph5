@@ -2,6 +2,7 @@ use anyhow::Context;
 use ed25519_dalek::Signer;
 use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::AccountLevel;
+use geph5_ip_to_asn::ip_to_asn_country;
 use geph5_misc_rpc::{
     bridge::B2eMetadata,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
@@ -22,7 +23,6 @@ mod b2e_process;
 mod tls;
 
 use crate::{
-    asn::ip_to_asn_country,
     auth::verify_user,
     broker::{broker_loop, ACCEPT_FREE},
     ipv6::{configure_ipv6_routing, EyeballDialer},

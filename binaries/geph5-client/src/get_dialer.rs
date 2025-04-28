@@ -148,14 +148,6 @@ async fn get_dialer_inner(
     tracing::debug!(exit = ?exit, "narrowed down choice of exit");
     smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
 
-    let exit_c2e = exit.c2e_listen;
-    let direct_dialer = ConnTestDialer {
-        ping_count: 1,
-        inner: TcpDialer {
-            dest_addr: exit_c2e,
-        },
-    };
-
     tracing::debug!(token = %conn_token, "CONN TOKEN");
 
     let start = Instant::now();
@@ -188,15 +180,7 @@ async fn get_dialer_inner(
 
     let bridge_dialer = route_to_dialer(ctx, &bridge_routes);
 
-    let final_dialer = match ctx.init().bridge_mode {
-        crate::BridgeMode::Auto => direct_dialer
-            .race(bridge_dialer.delay(Duration::from_millis(1000)))
-            .dynamic(),
-        crate::BridgeMode::ForceBridges => bridge_dialer,
-        crate::BridgeMode::ForceDirect => direct_dialer.dynamic(),
-    };
-
-    Ok((*pubkey, exit.clone(), final_dialer))
+    Ok((*pubkey, exit.clone(), bridge_dialer))
 }
 
 /// A helper that filters the verified exits by the user’s `ExitConstraint`,

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use futures_util::{FutureExt as _, TryFutureExt};
-use geph5_broker_protocol::{BridgeDescriptor, RouteDescriptor};
+use geph5_broker_protocol::{BridgeDescriptor, ExitDescriptor, RouteDescriptor};
+use geph5_ip_to_asn::ip_to_asn_country;
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
 
 use moka::future::Cache;
@@ -11,8 +12,8 @@ use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 use smol_timeout2::TimeoutExt;
 use std::{
-    collections::BTreeMap,
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
+    str::FromStr,
     sync::{Arc, LazyLock},
     time::{Duration, SystemTime},
 };
@@ -20,9 +21,28 @@ use std::{
 pub async fn bridge_to_leaf_route(
     bridge: BridgeDescriptor,
     delay_ms: u32,
-    exit_b2e: SocketAddr,
+    exit: ExitDescriptor,
     client_metadata: &serde_json::Value,
 ) -> anyhow::Result<RouteDescriptor> {
+    if let Some(ip_addr) = client_metadata["ip_addr"]
+        .as_str()
+        .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
+    {
+        let (asn, country) = ip_to_asn_country(ip_addr).await?;
+        tracing::debug!(
+            asn,
+            country = display(&country),
+            "obtaining route with metadata"
+        );
+        if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
+            // return a DIRECT route!
+            return Ok(RouteDescriptor::ConnTest {
+                ping_count: 0,
+                lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
+            });
+        }
+    }
+
     // for cache coherence
     let mut bridge = bridge;
     bridge.expiry = 0;
@@ -37,12 +57,12 @@ pub async fn bridge_to_leaf_route(
 
     CACHE
         .get_with(
-            (bridge.clone(), exit_b2e),
+            (bridge.clone(), exit.b2e_listen),
             async {
                 if bridge.pool.contains("waw") || bridge.pool.contains("scaleway") {
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
-                        exit_b2e,
+                        exit.b2e_listen,
                         ObfsProtocol::ConnTest(
                             ObfsProtocol::Sosistab3New(
                                 gencookie(),
@@ -59,16 +79,19 @@ pub async fn bridge_to_leaf_route(
                 } else {
                     let plain_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
-                        exit_b2e,
+                        exit.b2e_listen,
                         ObfsProtocol::ConnTest(
                             ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
                                 .into(),
                         ),
                     )
                     .await?;
-                    let legacy_route =
-                        bridge_to_leaf_route_inner(bridge.clone(), exit_b2e, ObfsProtocol::None)
-                            .await?;
+                    let legacy_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        ObfsProtocol::None,
+                    )
+                    .await?;
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: RouteDescriptor::Fallback(vec![plain_route, legacy_route]).into(),
@@ -80,7 +103,7 @@ pub async fn bridge_to_leaf_route(
                     tracing::warn!(
                         "failed to find {} => {}: {:?}",
                         bridge.control_listen.ip(),
-                        exit_b2e,
+                        exit.b2e_listen,
                         err
                     )
                 }

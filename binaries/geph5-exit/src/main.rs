@@ -1,4 +1,3 @@
-mod asn;
 mod dns;
 mod ipv6;
 mod tasklimit;

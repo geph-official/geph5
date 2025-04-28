@@ -54,3 +54,4 @@ smol = "2.0.2"
 influxdb-line-protocol = "2.0.0"
 nano-influxdb = { path = "../../libraries/nano-influxdb" }
 tikv-jemallocator = "0.6.0"
+geph5-ip-to-asn = { path = "../../libraries/geph5-ip-to-asn" }

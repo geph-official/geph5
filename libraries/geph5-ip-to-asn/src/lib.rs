@@ -1,9 +1,14 @@
-use std::{collections::BTreeMap, io::BufRead, net::Ipv4Addr, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    io::BufRead,
+    net::Ipv4Addr,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 use anyhow::Context;
 use flate2::bufread::GzDecoder;
 use moka::future::Cache;
-use once_cell::sync::Lazy;
 
 async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
     let url = "https://iptoasn.com/data/ip2asn-v4-u32.tsv.gz";
@@ -31,7 +36,7 @@ async fn get_ip_to_asn_map() -> anyhow::Result<BTreeMap<u32, (u32, String)>> {
     Ok(map)
 }
 
-static CACHE: Lazy<Cache<(), Arc<BTreeMap<u32, (u32, String)>>>> = Lazy::new(|| {
+static CACHE: LazyLock<Cache<(), Arc<BTreeMap<u32, (u32, String)>>>> = LazyLock::new(|| {
     Cache::builder()
         .time_to_live(Duration::from_secs(86400))
         .build()
