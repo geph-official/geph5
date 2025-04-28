@@ -98,6 +98,7 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
             .context("no such user")?
             .plus_expires_unix
             .unwrap_or_default();
+        tracing::debug!(plus_expiry, "got latest plus expiry");
 
         let currently_plus =
             if let Ok(inner) = get_conn_token_inner(ctx, mizaru2::current_epoch(), false).await {
@@ -106,8 +107,8 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
                 false
             };
 
-        if plus_expiry > 0 && !currently_plus {
-            tracing::debug!("we gained a plus! gonna clean up the conn token cache here");
+        if (plus_expiry > 0 && !currently_plus) || (currently_plus && plus_expiry == 0) {
+            tracing::info!("we gained or lost a plus! gonna clean up the conn token cache here");
             db_remove(ctx, &format!("conn_token_{}", epoch)).await?;
             db_remove(ctx, &format!("conn_token_{}", epoch + 1)).await?;
         }

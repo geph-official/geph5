@@ -31,7 +31,7 @@ pub async fn get_device_metadata(ctx: &AnyCtx<Config>) -> anyhow::Result<DeviceM
 
 async fn get_ip_address(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
     let today = Utc::now().date_naive().to_string();
-    let cache_key = format!("device_ip_address_{}", today);
+    let cache_key = format!("device_ip_address_redacted_{}", today);
 
     if let Ok(Some(cached_data)) = database::db_read(ctx, &cache_key).await {
         return Ok(String::from_utf8_lossy(&cached_data).into());
