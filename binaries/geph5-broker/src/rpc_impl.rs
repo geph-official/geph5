@@ -10,12 +10,15 @@ use geph5_broker_protocol::{
     Credential, ExitDescriptor, ExitList, GenericError, GetRoutesArgs, Mac, NewsItem,
     RouteDescriptor, Signed, UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
 };
+use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
+use std::net::Ipv4Addr;
+use std::str::FromStr as _;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -254,6 +257,25 @@ impl BrokerProtocol for BrokerImpl {
             .map(|s| s.1)
             .find(|exit| exit.b2e_listen == args.exit_b2e)
             .context("cannot find this exit")?;
+
+        if let Some(ip_addr) = args.client_metadata["ip_addr"]
+            .as_str()
+            .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
+        {
+            let (asn, country) = ip_to_asn_country(ip_addr).await?;
+            tracing::debug!(
+                asn,
+                country = display(&country),
+                "obtaining route with metadata"
+            );
+            if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
+                // return a DIRECT route!
+                return Ok(RouteDescriptor::ConnTest {
+                    ping_count: 0,
+                    lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
+                });
+            }
+        }
 
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
 

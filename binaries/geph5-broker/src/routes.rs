@@ -24,25 +24,6 @@ pub async fn bridge_to_leaf_route(
     exit: ExitDescriptor,
     client_metadata: &serde_json::Value,
 ) -> anyhow::Result<RouteDescriptor> {
-    if let Some(ip_addr) = client_metadata["ip_addr"]
-        .as_str()
-        .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
-    {
-        let (asn, country) = ip_to_asn_country(ip_addr).await?;
-        tracing::debug!(
-            asn,
-            country = display(&country),
-            "obtaining route with metadata"
-        );
-        if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
-            // return a DIRECT route!
-            return Ok(RouteDescriptor::ConnTest {
-                ping_count: 0,
-                lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
-            });
-        }
-    }
-
     // for cache coherence
     let mut bridge = bridge;
     bridge.expiry = 0;
