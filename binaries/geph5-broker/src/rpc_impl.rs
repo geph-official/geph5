@@ -258,6 +258,7 @@ impl BrokerProtocol for BrokerImpl {
             .find(|exit| exit.b2e_listen == args.exit_b2e)
             .context("cannot find this exit")?;
 
+        // for known good countries, we return a direct route!
         if let Some(ip_addr) = args.client_metadata["ip_addr"]
             .as_str()
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())

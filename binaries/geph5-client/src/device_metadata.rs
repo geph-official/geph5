@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use anyctx::AnyCtx;
@@ -46,7 +47,9 @@ async fn fetch_ip_from_service() -> anyhow::Result<String> {
     static SEMAPH: Semaphore = Semaphore::new(1);
 
     let _guard = SEMAPH.acquire().await;
+    // we MUST use ipv4 here, because the server cannot handle Ipv6 addresses yet
     let client = reqwest::Client::builder()
+        .local_address(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
         .timeout(Duration::from_secs(5))
         .build()?;
     let response = client
