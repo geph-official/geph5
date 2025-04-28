@@ -2,6 +2,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use anyctx::AnyCtx;
+use anyhow::Context;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -59,10 +60,17 @@ async fn fetch_ip_from_service() -> anyhow::Result<String> {
         .text()
         .await?;
 
-    let ip = response.trim();
-    if ip.is_empty() {
-        Err(anyhow::anyhow!("Failed to parse IP address from response"))
-    } else {
-        Ok(ip.to_string())
+    let ip_str = response.trim();
+    if ip_str.is_empty() {
+        return Err(anyhow::anyhow!("Failed to parse IP address from response"));
     }
+
+    // Parse as IPv4, zero the last octet, and return
+    let addr: Ipv4Addr = ip_str
+        .parse()
+        .context("invalid IPv4 address from service")?;
+    let octs = addr.octets();
+    let redacted = Ipv4Addr::new(octs[0], octs[1], octs[2], 0);
+
+    Ok(redacted.to_string())
 }
