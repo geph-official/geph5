@@ -259,7 +259,7 @@ impl BrokerProtocol for BrokerImpl {
             .context("cannot find this exit")?;
 
         // for known good countries, we return a direct route!
-        if let Some(ip_addr) = args.client_metadata["ip_addr"]
+        let country = if let Some(ip_addr) = args.client_metadata["ip_addr"]
             .as_str()
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
         {
@@ -276,7 +276,10 @@ impl BrokerProtocol for BrokerImpl {
                     lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
                 });
             }
-        }
+            country
+        } else {
+            "".to_string()
+        };
 
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
 
@@ -295,15 +298,14 @@ impl BrokerProtocol for BrokerImpl {
                 .into_iter()
                 .map(|(desc, delay_ms, _is_plus)| {
                     let bridge = desc.control_listen;
-                    bridge_to_leaf_route(desc, delay_ms, exit.clone(), &args.client_metadata)
-                        .inspect_err(move |err| {
-                            tracing::warn!(
-                                err = debug(err),
-                                bridge = debug(bridge),
-                                exit = debug(args.exit_b2e),
-                                "failed to call bridge_to_leaf_route"
-                            )
-                        })
+                    bridge_to_leaf_route(desc, delay_ms, &exit, &country).inspect_err(move |err| {
+                        tracing::warn!(
+                            err = debug(err),
+                            bridge = debug(bridge),
+                            exit = debug(args.exit_b2e),
+                            "failed to call bridge_to_leaf_route"
+                        )
+                    })
                 }),
         )
         .await)

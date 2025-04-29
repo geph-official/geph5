@@ -2300,6 +2300,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
 
 [[package]]
+name = "defmac"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5592fca31e96d8a748d03080b58be78c5383617aa4bd89e69f30607d8769891"
+
+[[package]]
 name = "der"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3277,6 +3283,7 @@ dependencies = [
  "cached",
  "cadence",
  "clap",
+ "defmac",
  "ed25519-dalek",
  "futures-util",
  "geph5-broker-protocol",

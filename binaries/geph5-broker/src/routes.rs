@@ -1,9 +1,8 @@
 use anyhow::Context;
+use defmac::defmac;
 use futures_util::{FutureExt as _, TryFutureExt};
 use geph5_broker_protocol::{BridgeDescriptor, ExitDescriptor, RouteDescriptor};
-use geph5_ip_to_asn::ip_to_asn_country;
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
-
 use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
@@ -12,8 +11,7 @@ use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 use smol_timeout2::TimeoutExt;
 use std::{
-    net::{Ipv4Addr, SocketAddr},
-    str::FromStr,
+    net::SocketAddr,
     sync::{Arc, LazyLock},
     time::{Duration, SystemTime},
 };
@@ -21,15 +19,15 @@ use std::{
 pub async fn bridge_to_leaf_route(
     bridge: BridgeDescriptor,
     delay_ms: u32,
-    exit: ExitDescriptor,
-    client_metadata: &serde_json::Value,
+    exit: &ExitDescriptor,
+    country: &str,
 ) -> anyhow::Result<RouteDescriptor> {
     // for cache coherence
     let mut bridge = bridge;
     bridge.expiry = 0;
 
     static CACHE: LazyLock<
-        Cache<(BridgeDescriptor, SocketAddr), Result<RouteDescriptor, Arc<anyhow::Error>>>,
+        Cache<(BridgeDescriptor, SocketAddr, String), Result<RouteDescriptor, Arc<anyhow::Error>>>,
     > = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(600))
@@ -38,44 +36,54 @@ pub async fn bridge_to_leaf_route(
 
     CACHE
         .get_with(
-            (bridge.clone(), exit.b2e_listen),
+            (bridge.clone(), exit.b2e_listen, country.to_string()),
             async {
-                if bridge.pool.contains("waw") || bridge.pool.contains("scaleway") {
-                    let plain_route = bridge_to_leaf_route_inner(
+                defmac!(tls_route => {
+                    bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::ConnTest(
-                            ObfsProtocol::Sosistab3New(
-                                gencookie(),
-                                ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-                            )
-                            .into(),
-                        ),
+                        ObfsProtocol::Sosistab3New(
+                            gencookie(),
+                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                        )
                     )
-                    .await?;
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: plain_route.into(),
-                    })
-                } else {
-                    let plain_route = bridge_to_leaf_route_inner(
+                    .await?
+                });
+                defmac!(sosistab3_route => {
+                    bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::ConnTest(
-                            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
-                                .into(),
-                        ),
+                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
                     )
-                    .await?;
-                    let legacy_route = bridge_to_leaf_route_inner(
+                    .await?
+                });
+                defmac!(legacy_route => {
+                    bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
                         ObfsProtocol::None,
                     )
-                    .await?;
+                    .await?
+                });
+
+                if bridge.pool.contains("waw")
+                    || bridge.pool.contains("scaleway")
+                    || country == "IR"
+                {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![plain_route, legacy_route]).into(),
+                        lower: tls_route!().into(),
+                    })
+                } else if !country.is_empty() {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: sosistab3_route!().into(),
+                    })
+                } else {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: RouteDescriptor::Fallback(vec![sosistab3_route!(), legacy_route!()])
+                            .into(),
                     })
                 }
             }

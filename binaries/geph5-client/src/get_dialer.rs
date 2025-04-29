@@ -58,7 +58,7 @@ pub async fn get_dialer(
     }
 
     let res = get_dialer_inner(ctx)
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
         .await
         .ok_or_else(|| anyhow::anyhow!("get_dialer_inner timed out"))
         .and_then(|x| x);
