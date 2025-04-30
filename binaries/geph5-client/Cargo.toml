@@ -63,7 +63,7 @@ isocountry = "0.3.2"
 itertools = "0.13.0"
 libc = "0.2.155"
 minisign-verify = "0.2.3"
-mizaru2 = { version= "0.2.7", path = "../../libraries/mizaru2" }
+mizaru2 = { version= "0.2.13", path = "../../libraries/mizaru2" }
 moka = { version = "0.12.7", features = ["future", "sync"] }
 nanorpc = "0.1.12"
 nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }
