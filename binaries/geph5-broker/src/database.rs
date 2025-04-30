@@ -90,21 +90,22 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
-    static CACHE: LazyLock<Cache<String, Vec<(BridgeDescriptor, u32, bool)>>> =
-        LazyLock::new(|| {
-            Cache::builder()
-                .time_to_live(Duration::from_secs(300))
-                .build()
-        });
+    static CACHE: LazyLock<Cache<u64, Vec<(BridgeDescriptor, u32, bool)>>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(300))
+            .build()
+    });
 
-    // // shuffle
-    // let key = format!(
-    //     "{key}-{}",
-    //     SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() / 3600
-    // );
+    let key = u64::from_le_bytes(
+        blake3::hash(key.as_bytes()).as_bytes()[..8]
+            .try_into()
+            .unwrap(),
+    );
+    // increase cache hit rate by making there be at most 10000 different keys
+    let key = key % 10000;
 
     CACHE
-        .try_get_with(key.to_string(), async {
+        .try_get_with(key, async {
             let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
                 r"
 WITH selected_bridges AS (
@@ -141,7 +142,7 @@ JOIN updated u ON u.listen = sb.listen;
 
         ",
             )
-            .bind(key)
+            .bind(key.to_string())
             .fetch_all(POSTGRES.deref())
             .await?;
             anyhow::Ok(
