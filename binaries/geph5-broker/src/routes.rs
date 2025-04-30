@@ -67,7 +67,7 @@ pub async fn bridge_to_leaf_route(
                 });
 
                 if bridge.pool.contains("waw")
-                    || bridge.pool.contains("scaleway")
+                    // || bridge.pool.contains("scaleway")
                     || country == "IR"
                 {
                     anyhow::Ok(RouteDescriptor::Delay {
