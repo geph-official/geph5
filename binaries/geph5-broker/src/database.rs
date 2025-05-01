@@ -92,7 +92,7 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
     static CACHE: LazyLock<Cache<u64, Vec<(BridgeDescriptor, u32, bool)>>> = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(300))
+            .time_to_live(Duration::from_secs(30))
             .build()
     });
 
@@ -101,7 +101,7 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
             .try_into()
             .unwrap(),
     );
-    // increase cache hit rate by making there be at most 10000 different keys
+    // increase cache hit rate limiting number of different keys
     let key = key % 10000;
 
     CACHE
