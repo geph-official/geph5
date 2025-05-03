@@ -259,6 +259,7 @@ impl BrokerProtocol for BrokerImpl {
             .context("cannot find this exit")?;
 
         // for known good countries, we return a direct route!
+        let mut direct_route = None;
         let country = if let Some(ip_addr) = args.client_metadata["ip_addr"]
             .as_str()
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
@@ -271,8 +272,8 @@ impl BrokerProtocol for BrokerImpl {
             );
             if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
                 // return a DIRECT route!
-                return Ok(RouteDescriptor::ConnTest {
-                    ping_count: 0,
+                direct_route = Some(RouteDescriptor::ConnTest {
+                    ping_count: 1,
                     lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
                 });
             }
@@ -315,7 +316,11 @@ impl BrokerProtocol for BrokerImpl {
             routes.push(route)
         }
 
-        Ok(RouteDescriptor::Race(routes))
+        Ok(if let Some(route) = direct_route {
+            RouteDescriptor::Race(vec![route, RouteDescriptor::Race(routes)])
+        } else {
+            RouteDescriptor::Race(routes)
+        })
     }
 
     async fn get_routes(
