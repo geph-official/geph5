@@ -317,7 +317,11 @@ impl BrokerProtocol for BrokerImpl {
         }
 
         Ok(if let Some(route) = direct_route {
-            RouteDescriptor::Race(vec![route, RouteDescriptor::Race(routes)])
+            RouteDescriptor::Race(vec![
+                route,
+                RouteDescriptor::Delay(RouteDescriptor::Race(routes), Duration::from_secs(2))
+                    .into(),
+            ])
         } else {
             RouteDescriptor::Race(routes)
         })
