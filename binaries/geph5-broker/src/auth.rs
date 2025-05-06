@@ -260,7 +260,7 @@ LEFT JOIN recurring_subs r ON s.id = r.user_id",
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    if rand::random::<f64>() < 0.001 {
+    if rand::random::<f64>() < 0.1 {
         tracing::debug!("sub expiry missed? {ts_missed} {sub_missed}")
     }
     Ok(all_subscriptions.get(&user_id).cloned())
