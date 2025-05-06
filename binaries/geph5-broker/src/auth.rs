@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     ops::Deref as _,
     sync::{Arc, LazyLock},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use moka::future::Cache;
@@ -214,6 +214,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
             .time_to_idle(Duration::from_secs(60))
             .build()
     });
+    let start = Instant::now();
 
     let mut ts_missed = false;
     let last_payment_timestamp = LAST_PAYMENT_TIMESTAMP_CACHE
@@ -261,7 +262,10 @@ LEFT JOIN recurring_subs r ON s.id = r.user_id",
         .map_err(|e| anyhow::anyhow!(e))?;
 
     if rand::random::<f64>() < 0.1 {
-        tracing::debug!("sub expiry missed? {ts_missed} {sub_missed}")
+        tracing::debug!(
+            "sub expiry missed? {ts_missed} {sub_missed} elapsed={:?}",
+            start.elapsed()
+        )
     }
     Ok(all_subscriptions.get(&user_id).cloned())
 }
