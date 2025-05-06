@@ -223,7 +223,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis()
-                / 50,
+                / 150,
             async {
                 let ts = sqlx::query_scalar::<_, i64>(
                     "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
