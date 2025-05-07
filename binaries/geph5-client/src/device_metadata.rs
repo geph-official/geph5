@@ -20,6 +20,9 @@ pub struct DeviceMetadata {
 /// Get device metadata information including package version and IP address.
 /// The IP address is fetched from checkip.amazonaws.com and cached for 24 hours.
 pub async fn get_device_metadata(ctx: &AnyCtx<Config>) -> anyhow::Result<DeviceMetadata> {
+    if ctx.init().vpn {
+        anyhow::bail!("cannot get device metadata if VPN is on")
+    }
     // Get the version from Cargo package
     let version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -51,6 +54,7 @@ async fn fetch_ip_from_service() -> anyhow::Result<String> {
     // we MUST use ipv4 here, because the server cannot handle Ipv6 addresses yet
     let client = reqwest::Client::builder()
         .local_address(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+        .no_proxy()
         .timeout(Duration::from_secs(5))
         .build()?;
     let response = client
