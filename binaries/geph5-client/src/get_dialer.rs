@@ -241,7 +241,10 @@ fn pick_exit_with_constraint<'a>(
     let first = filtered
         .iter()
         .min_by_key(|rh| {
-            let hash = blake3::keyed_hash(rendezvous_key.as_bytes(), &rh.0.as_bytes()[..]);
+            let hash = blake3::keyed_hash(
+                rendezvous_key.as_bytes(),
+                &rh.1.b2e_listen.ip().to_string().as_bytes()[..],
+            );
             let hash = &hash.as_bytes()[..];
             let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
             let weight = (1.0 - (rh.1.load as f64)).powi(2);
