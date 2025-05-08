@@ -293,14 +293,6 @@ impl BrokerProtocol for BrokerImpl {
             raw_descriptors
         };
 
-        let raw_descriptors = raw_descriptors.into_iter().filter(|desc| {
-            // TM-only bridges
-            if desc.0.pool.contains("rbxa") {
-                return country == "TM";
-            }
-            true
-        });
-
         let mut routes = vec![];
         for route in (join_all(
             raw_descriptors
