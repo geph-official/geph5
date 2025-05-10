@@ -83,7 +83,7 @@ scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.120"
 serde_yaml = "0.9.34"
-sillad = { version= "0.2.5", path = "../../libraries/sillad" }
+sillad = { version= "0.2.6", path = "../../libraries/sillad" }
 sillad-conntest = { version = "0.2", path = "../../libraries/sillad-conntest" }
 sillad-native-tls = {version="0.2", path="../../libraries/sillad-native-tls"}
 sillad-sosistab3 = { version = "0.2.7", path = "../../libraries/sillad-sosistab3" }
