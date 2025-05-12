@@ -13,14 +13,26 @@ use serde::Deserialize;
 pub struct AwsLambdaTransport {
     pub function_name: String,
     pub region: String,
-    pub access_key_id: String,
-    pub secret_access_key: String,
+    pub obfs_key: String,
 }
 
 #[async_trait]
 impl RpcTransport for AwsLambdaTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        let (access_key_id_b32, secret_access_key_b32) =
+            self.obfs_key.split_once(':').context("cannot split")?;
+        let access_key_id = String::from_utf8_lossy(
+            &base32::decode(base32::Alphabet::Crockford, access_key_id_b32)
+                .context("cannot decode access key")?,
+        )
+        .to_string();
+        let secret_access_key = String::from_utf8_lossy(
+            &base32::decode(base32::Alphabet::Crockford, secret_access_key_b32)
+                .context("cannot decode secret access key")?,
+        )
+        .to_string();
+
         tracing::debug!(method = req.method, "calling broker through lambda");
         let start = Instant::now();
         // To use webpki-roots we need to create a custom http client, as explained here: https://github.com/smithy-lang/smithy-rs/discussions/3022
@@ -39,8 +51,8 @@ impl RpcTransport for AwsLambdaTransport {
             &aws_config::defaults(BehaviorVersion::v2024_03_28())
                 .region(string_to_static_str(self.region.clone()))
                 .credentials_provider(Credentials::new(
-                    self.access_key_id.clone(),
-                    self.secret_access_key.clone(),
+                    access_key_id,
+                    secret_access_key,
                     None,
                     None,
                     "test",

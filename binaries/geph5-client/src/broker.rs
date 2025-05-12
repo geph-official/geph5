@@ -36,8 +36,7 @@ pub enum BrokerSource {
     AwsLambda {
         function_name: String,
         region: String,
-        access_key_id: String,
-        secret_access_key: String,
+        obfs_key: String,
     },
     Race(Vec<BrokerSource>),
     PriorityRace(BTreeMap<u64, BrokerSource>),
@@ -64,13 +63,11 @@ impl BrokerSource {
             BrokerSource::AwsLambda {
                 function_name,
                 region,
-                access_key_id,
-                secret_access_key,
+                obfs_key,
             } => DynRpcTransport::new(AwsLambdaTransport {
                 function_name: function_name.clone(),
                 region: region.clone(),
-                access_key_id: access_key_id.clone(),
-                secret_access_key: secret_access_key.clone(),
+                obfs_key: obfs_key.clone(),
             }),
             BrokerSource::Race(race_between) => {
                 let transports = race_between

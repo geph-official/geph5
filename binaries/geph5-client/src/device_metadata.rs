@@ -23,6 +23,7 @@ pub async fn get_device_metadata(ctx: &AnyCtx<Config>) -> anyhow::Result<DeviceM
     if ctx.init().vpn {
         anyhow::bail!("cannot get device metadata if VPN is on")
     }
+
     // Get the version from Cargo package
     let version = env!("CARGO_PKG_VERSION").to_string();
 
