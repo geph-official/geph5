@@ -30,6 +30,8 @@ pub enum BrokerSource {
     Fronted {
         front: String,
         host: String,
+        #[serde(default)]
+        override_dns: Option<Vec<SocketAddr>>,
     },
     DirectTcp(SocketAddr),
     #[cfg(feature = "aws_lambda")]
@@ -49,15 +51,21 @@ impl BrokerSource {
             BrokerSource::Direct(s) => DynRpcTransport::new(FrontedHttpTransport {
                 url: s.clone(),
                 host: None,
+                dns: None,
             }),
             BrokerSource::DirectTcp(dest_addr) => {
                 DynRpcTransport::new(nanorpc_sillad::DialerTransport(TcpDialer {
                     dest_addr: *dest_addr,
                 }))
             }
-            BrokerSource::Fronted { front, host } => DynRpcTransport::new(FrontedHttpTransport {
+            BrokerSource::Fronted {
+                front,
+                host,
+                override_dns,
+            } => DynRpcTransport::new(FrontedHttpTransport {
                 url: front.clone(),
                 host: Some(host.clone()),
+                dns: override_dns.clone(),
             }),
             #[cfg(feature = "aws_lambda")]
             BrokerSource::AwsLambda {
