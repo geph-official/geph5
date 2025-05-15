@@ -302,21 +302,17 @@ impl BrokerProtocol for BrokerImpl {
         });
 
         let mut routes = vec![];
-        for route in (join_all(
-            raw_descriptors
-                .into_iter()
-                .map(|(desc, delay_ms, _is_plus)| {
-                    let bridge = desc.control_listen;
-                    bridge_to_leaf_route(desc, delay_ms, &exit, &country).inspect_err(move |err| {
-                        tracing::warn!(
-                            err = debug(err),
-                            bridge = debug(bridge),
-                            exit = debug(args.exit_b2e),
-                            "failed to call bridge_to_leaf_route"
-                        )
-                    })
-                }),
-        )
+        for route in (join_all(raw_descriptors.into_iter().map(|(desc, delay_ms, _)| {
+            let bridge = desc.control_listen;
+            bridge_to_leaf_route(desc, delay_ms, &exit, &country).inspect_err(move |err| {
+                tracing::warn!(
+                    err = debug(err),
+                    bridge = debug(bridge),
+                    exit = debug(args.exit_b2e),
+                    "failed to call bridge_to_leaf_route"
+                )
+            })
+        }))
         .await)
             .into_iter()
             .flatten()

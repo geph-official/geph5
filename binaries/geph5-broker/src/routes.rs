@@ -66,10 +66,7 @@ pub async fn bridge_to_leaf_route(
                     .await?
                 });
 
-                if bridge.pool.contains("waw")
-                    // || bridge.pool.contains("scaleway")
-                    || country == "IR"
-                {
+                if bridge.pool.contains("waw") || country == "IR" || country == "TM" {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: tls_route!().into(),
