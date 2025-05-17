@@ -17,7 +17,7 @@ use crate::CONFIG_FILE;
 pub static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     smolscale::block_on(
         PoolOptions::new()
-            .max_connections(500)
+            .max_connections(1500)
             .acquire_timeout(Duration::from_secs(60))
             .max_lifetime(Duration::from_secs(600))
             .connect_with({
