@@ -18,7 +18,8 @@ impl BwEstimate {
         let now = Instant::now();
         let delta_t = now
             .saturating_duration_since(self.last_update)
-            .as_secs_f64();
+            .as_secs_f64()
+            * 3.0;
         let speed_sample = delta as f64 / delta_t;
         let decay_ratio = 1.0 / 2.0f64.powf(delta_t); // decay exponentially
         tracing::debug!(
