@@ -19,6 +19,8 @@ use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
 use std::net::Ipv4Addr;
 use std::str::FromStr as _;
+use std::sync::atomic::AtomicU64;
+use std::sync::LazyLock;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -169,7 +171,7 @@ impl BrokerProtocol for BrokerImpl {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError> {
-        let (_, user_level) = match valid_auth_token(auth_token).await {
+        let (user_id, user_level) = match valid_auth_token(auth_token).await {
             Ok(auth) => {
                 if let Some(level) = auth {
                     level
@@ -182,6 +184,35 @@ impl BrokerProtocol for BrokerImpl {
                 return Err(AuthError::RateLimited);
             }
         };
+        static LOGIN_COUNT_CACHE: LazyLock<Cache<String, Arc<AtomicU64>>> = LazyLock::new(|| {
+            Cache::builder()
+                .time_to_idle(Duration::from_secs(864000))
+                .build()
+        });
+        let counter = LOGIN_COUNT_CACHE
+            .get_with(
+                format!(
+                    "{user_id}-{}",
+                    (SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        / 86400)
+                ),
+                async { Default::default() },
+            )
+            .await;
+        let count = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tracing::debug!(user_id, count, "authenticated auth token");
+        if count > 20 {
+            tracing::warn!(
+                user_id,
+                count,
+                "more than 20 auths in the last day, rejecting"
+            );
+            counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            return Err(AuthError::RateLimited);
+        }
         let start = Instant::now();
         // when the user is Plus now, but won't be Plus then, we should return WrongLevel *if the user is claiming to be Plus*.
         if level == AccountLevel::Plus && (user_level != level) {
