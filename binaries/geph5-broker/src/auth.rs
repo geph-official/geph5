@@ -6,7 +6,7 @@ use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
 use std::{
     collections::BTreeMap,
     ops::Deref as _,
-    sync::{Arc, LazyLock},
+    sync::{atomic::AtomicU64, Arc, LazyLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -174,7 +174,13 @@ async fn get_user_id_from_token(token: String) -> anyhow::Result<Option<i32>> {
 
 // Refactored function that uses the helper without caching its own result
 pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, AccountLevel)>> {
-    let user_id = match get_user_id_from_token(token).await? {
+    static LOGIN_COUNT_CACHE: LazyLock<Cache<String, Arc<AtomicU64>>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_idle(Duration::from_secs(864000))
+            .build()
+    });
+
+    let user_id = match get_user_id_from_token(token.clone()).await? {
         Some(id) => id,
         None => return Ok(None),
     };
@@ -182,6 +188,25 @@ pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, Acco
     let expiry = get_subscription_expiry(user_id).await?;
     tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
     smolscale::spawn(record_auth(user_id)).detach();
+
+    let count = LOGIN_COUNT_CACHE
+        .get_with(
+            format!(
+                "{token}-{}",
+                (SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    / 86400)
+            ),
+            async { Default::default() },
+        )
+        .await;
+    let count = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    tracing::debug!(user_id, count, "authenticated auth token");
+    if count > 20 {
+        anyhow::bail!("more than 20 auths in the last day, rejecting")
+    }
 
     if expiry.is_none() {
         Ok(Some((user_id, AccountLevel::Free)))
