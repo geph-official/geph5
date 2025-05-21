@@ -325,6 +325,10 @@ impl BrokerProtocol for BrokerImpl {
         };
 
         let raw_descriptors = raw_descriptors.into_iter().filter(|desc| {
+            // for China Plus users, filter out ovh
+            if account_level == AccountLevel::Plus && country == "CN" {
+                return !desc.0.pool.contains("ovh");
+            }
             // TM-only bridges
             if desc.0.pool.contains("TM") {
                 return country == "TM";
