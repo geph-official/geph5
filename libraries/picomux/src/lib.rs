@@ -196,8 +196,6 @@ async fn picomux_inner(
     let (send_pong, recv_pong) = async_channel::unbounded();
     let buffer_table = BufferTable::new();
 
-    let last_bw_estimate = Arc::new(AtomicF64::new(1_000_000.0));
-
     let create_stream = |stream_id, metadata: Bytes| {
         let mut buffer_recv = buffer_table.create_entry(stream_id);
         let (mut write_incoming, read_incoming) = bipe::bipe(MSS * 2);
@@ -213,12 +211,12 @@ async fn picomux_inner(
         // jelly bean movers
         let outgoing_task = {
             let outgoing = outgoing.clone();
-            let last_bw_estimate = last_bw_estimate.clone();
+
             async move {
                 let mut remote_window = INIT_WINDOW;
                 let mut target_remote_window = MAX_WINDOW;
 
-                let mut bw_estimate = BwEstimate::new(last_bw_estimate.load(Ordering::Relaxed));
+                let mut bw_estimate = BwEstimate::new(1_000_000.0);
                 loop {
                     let min_quantum = (target_remote_window / 10).clamp(1, 500);
                     let frame = buffer_recv.recv().await;
@@ -240,11 +238,9 @@ async fn picomux_inner(
                         .context("could not write to incoming")?;
                     remote_window -= 1;
 
-                    // assume the delay is 500ms
-                    let estimate = bw_estimate.read();
-                    last_bw_estimate.store(estimate, Ordering::Relaxed);
-                    target_remote_window =
-                        ((estimate / MSS as f64 / 2.0) as usize).clamp(INIT_WINDOW, MAX_WINDOW);
+                    // assume the delay is 2000ms, very generously
+                    target_remote_window = ((bw_estimate.read() / MSS as f64 * 2.0) as usize)
+                        .clamp(INIT_WINDOW, MAX_WINDOW);
                     tracing::debug!(
                         target_remote_window,
                         "setting target remote send window based on bw"
