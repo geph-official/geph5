@@ -1,10 +1,13 @@
 use std::{ops::Deref, str::FromStr, sync::LazyLock, time::Duration};
 
+use anyhow::Context;
 use async_io::Timer;
 use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
 
 use rand::Rng;
+use smol::lock::Semaphore;
+use smol_timeout2::TimeoutExt;
 use sqlx::{
     pool::PoolOptions,
     postgres::{PgConnectOptions, PgSslMode},
@@ -90,6 +93,15 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
+    // avoid unnecessarily overloading the backend by limiting concurrent route gets.
+    static SEMAPH: Semaphore = Semaphore::new(100);
+
+    let _guard = SEMAPH
+        .acquire()
+        .timeout(Duration::from_millis(200))
+        .await
+        .context("too many users trying to get routes right now, try again later")?;
+
     static CACHE: LazyLock<Cache<u64, Vec<(BridgeDescriptor, u32, bool)>>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(30))
