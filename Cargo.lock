@@ -5783,7 +5783,7 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 
 [[package]]
 name = "picomux"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "ahash",
  "anyhow",
