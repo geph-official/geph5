@@ -179,6 +179,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
     let (client_read, client_write) = client.split();
     let mux = PicoMux::new(client_read, client_write);
+    mux.set_debloat(true);
 
     let mut sess_metadata = Arc::new(serde_json::Value::Null);
     let dialer = EyeballDialer::new();

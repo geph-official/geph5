@@ -204,6 +204,7 @@ async fn proxy_loop(
         ping_interval: Duration::from_secs(1800),
         timeout: Duration::from_secs(3),
     });
+    mux.set_debloat(true);
     let mux = Arc::new(mux);
 
     // we first register the session metadata

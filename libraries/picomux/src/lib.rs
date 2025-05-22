@@ -10,7 +10,7 @@ use std::{
     ops::Deref,
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     task::Poll,
@@ -71,6 +71,8 @@ pub struct PicoMux {
     liveness: LivenessConfig,
 
     last_ping: Arc<Mutex<Option<Duration>>>,
+
+    debloat: Arc<AtomicBool>,
 }
 
 impl PicoMux {
@@ -85,6 +87,7 @@ impl PicoMux {
         let liveness = LivenessConfig::default();
         send_liveness.try_send(liveness).unwrap();
         let last_ping = Arc::new(Mutex::new(None));
+        let debloat: Arc<AtomicBool> = Arc::new(Default::default());
         let task = smolscale::spawn(
             picomux_inner(
                 read,
@@ -93,6 +96,7 @@ impl PicoMux {
                 recv_open_req,
                 recv_liveness,
                 last_ping.clone(),
+                debloat.clone(),
             )
             .map(Arc::new),
         )
@@ -106,12 +110,23 @@ impl PicoMux {
             liveness,
 
             last_ping,
+            debloat,
         }
     }
 
     /// Returns whether the mux is alive.
     pub fn is_alive(&self) -> bool {
         self.task.peek().is_none()
+    }
+
+    /// Returns whether debloat mode is on. Turning on debloat mode activates a **receive-side** anti-bufferbloat algorithm.
+    pub fn is_debloat(&self) -> bool {
+        self.debloat.load(Ordering::SeqCst)
+    }
+
+    /// Turns debloat mode on or off. Turning on debloat mode activates a **receive-side** anti-bufferbloat algorithm.
+    pub fn set_debloat(&self, is_on: bool) {
+        self.debloat.store(is_on, Ordering::SeqCst)
     }
 
     /// Waits for the whole mux to die of some error.
@@ -188,6 +203,7 @@ async fn picomux_inner(
     mut recv_open_req: Receiver<(Bytes, oneshot::Sender<Stream>)>,
     recv_liveness: async_channel::Receiver<LivenessConfig>,
     last_ping: Arc<Mutex<Option<Duration>>>,
+    debloat: Arc<AtomicBool>,
 ) -> Result<Infallible, std::io::Error> {
     let reaper = TaskReaper::new();
     let mut inner_read = BufReader::with_capacity(MSS * 4, read);
@@ -211,7 +227,7 @@ async fn picomux_inner(
         // jelly bean movers
         let outgoing_task = {
             let outgoing = outgoing.clone();
-
+            let debloat = debloat.clone();
             async move {
                 let mut remote_window = INIT_WINDOW;
                 let mut target_remote_window = MAX_WINDOW;
@@ -238,13 +254,15 @@ async fn picomux_inner(
                         .context("could not write to incoming")?;
                     remote_window -= 1;
 
-                    // assume the delay is 2000ms, very generously
-                    target_remote_window = ((bw_estimate.read() / MSS as f64 * 2.0) as usize)
-                        .clamp(INIT_WINDOW, MAX_WINDOW);
-                    tracing::debug!(
-                        target_remote_window,
-                        "setting target remote send window based on bw"
-                    );
+                    // assume the delay is 1s, very generously
+                    if debloat.load(Ordering::Relaxed) {
+                        target_remote_window = ((bw_estimate.read() / MSS as f64 * 1.0) as usize)
+                            .clamp(INIT_WINDOW, MAX_WINDOW);
+                        tracing::debug!(
+                            target_remote_window,
+                            "setting target remote send window based on bw"
+                        );
+                    }
 
                     if remote_window + min_quantum <= target_remote_window {
                         let quantum = target_remote_window - remote_window;
