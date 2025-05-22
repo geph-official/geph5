@@ -200,7 +200,6 @@ impl Settings {
                 let mode_label = |bm: BridgeMode| match bm {
                     BridgeMode::Auto => "Auto",
                     BridgeMode::ForceBridges => "Force bridges",
-                    BridgeMode::ForceDirect => "Force direct",
                 };
                 ui.horizontal(|ui| {
                     ui.label("Bridge mode");
@@ -208,11 +207,7 @@ impl Settings {
                     egui::ComboBox::from_id_source("bridge")
                         .selected_text(mode_label(*bridge_mode))
                         .show_ui(ui, |ui| {
-                            for this_mode in [
-                                BridgeMode::Auto,
-                                BridgeMode::ForceBridges,
-                                BridgeMode::ForceDirect,
-                            ] {
+                            for this_mode in [BridgeMode::Auto, BridgeMode::ForceBridges] {
                                 ui.selectable_value(bridge_mode, this_mode, mode_label(this_mode));
                             }
                         });

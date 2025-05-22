@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use smol::lock::Semaphore;
 
 use crate::client::Config;
-use crate::database;
+use crate::{database, BridgeMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceMetadata {
@@ -22,6 +22,10 @@ pub struct DeviceMetadata {
 pub async fn get_device_metadata(ctx: &AnyCtx<Config>) -> anyhow::Result<DeviceMetadata> {
     if ctx.init().vpn {
         anyhow::bail!("cannot get device metadata if VPN is on")
+    }
+
+    if ctx.init().bridge_mode == BridgeMode::ForceBridges {
+        anyhow::bail!("intentionally failing to provide device metadata to force bridges")
     }
 
     // Get the version from Cargo package

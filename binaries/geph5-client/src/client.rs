@@ -21,9 +21,9 @@ use crate::{
     control_prot::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
     },
+    get_dialer::ExitConstraint,
     http_proxy::http_proxy_serve,
     pac::pac_serve,
-    get_dialer::ExitConstraint,
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };
@@ -86,7 +86,6 @@ impl Config {
 pub enum BridgeMode {
     Auto,
     ForceBridges,
-    ForceDirect,
 }
 
 impl Default for BridgeMode {
