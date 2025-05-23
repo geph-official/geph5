@@ -224,10 +224,7 @@ fn pick_exit_with_constraint<'a>(
                 None => true,
             };
             if matches!(constraint, ExitConstraint::Auto) {
-                pass &= meta
-                    .category
-                    .iter()
-                    .any(|c| matches!(c, ExitCategory::Core));
+                pass &= meta.category == ExitCategory::Core;
             }
             pass &= meta.allowed_levels.contains(&level);
             pass
