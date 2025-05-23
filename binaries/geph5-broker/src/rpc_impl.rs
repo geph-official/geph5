@@ -239,6 +239,7 @@ impl BrokerProtocol for BrokerImpl {
         let all_exits = ns
             .exits
             .into_values()
+            .filter(|(_, _, meta)| meta.category == ExitCategory::Core)
             .map(|(vk, desc, _)| (vk, desc))
             .collect();
         let exit_list = ExitList {
