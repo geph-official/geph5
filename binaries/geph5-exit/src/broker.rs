@@ -11,14 +11,13 @@ use std::{
 use async_trait::async_trait;
 use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
-    BrokerClient, ExitDescriptor, JsonSigned, Mac, DOMAIN_EXIT_DESCRIPTOR,
+    BrokerClient, ExitDescriptor, Mac, StdcodeSigned, DOMAIN_EXIT_DESCRIPTOR,
 };
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use tap::Tap;
 
 use crate::{
-    exit_metadata,
     ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
@@ -162,19 +161,14 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs()
-                            + 120,
+                            + 30,
                     };
-                    let metadata = exit_metadata();
                     let to_upload = Mac::new(
-                        JsonSigned::new(
-                            (descriptor, metadata),
-                            DOMAIN_EXIT_DESCRIPTOR,
-                            &SIGNING_SECRET,
-                        ),
+                        StdcodeSigned::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
                         blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
                     );
                     client
-                        .insert_exit_v2(to_upload)
+                        .insert_exit(to_upload)
                         .await?
                         .map_err(|e| anyhow::anyhow!(e.0))?;
                     anyhow::Ok(())
