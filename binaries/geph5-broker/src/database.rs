@@ -106,7 +106,7 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
 }
 
 pub async fn insert_exit_metadata(pubkey: [u8; 32], metadata: ExitMetadata) -> anyhow::Result<()> {
-    sqlx::query("insert into exits_new (pubkey, metadata) values ($1, $2) on conflict (pubkey) do update set metadata = excluded.metadata")
+    sqlx::query("insert into exit_metadata (pubkey, metadata) values ($1, $2) on conflict (pubkey) do update set metadata = excluded.metadata")
     .bind(pubkey)
     .bind(Json(metadata))
     .execute(POSTGRES.deref())
