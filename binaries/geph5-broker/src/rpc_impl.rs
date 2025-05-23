@@ -98,9 +98,10 @@ impl BrokerImpl {
 
         let ns = CACHE
             .try_get_with((), async {
-                let exits: Vec<ExitRowWithMetadata> = sqlx::query_as("select * from exits_new")
-                    .fetch_all(POSTGRES.deref())
-                    .await?;
+                let exits: Vec<ExitRowWithMetadata> =
+                    sqlx::query_as("select * from exits_new natural left join exit_metadata")
+                        .fetch_all(POSTGRES.deref())
+                        .await?;
                 let exits = exits
                     .into_iter()
                     .map(|row| {
