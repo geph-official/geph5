@@ -21,7 +21,6 @@ use anyhow::Context;
 
 use async_task::Task;
 
-use atomic_float::AtomicF64;
 use bdp::BwEstimate;
 use buffer_table::BufferTable;
 use bytes::Bytes;

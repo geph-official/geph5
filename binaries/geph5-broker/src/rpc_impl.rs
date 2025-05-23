@@ -12,7 +12,6 @@ use geph5_broker_protocol::{
     DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
-use hex;
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
 use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};

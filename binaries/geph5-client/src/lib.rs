@@ -149,10 +149,12 @@ mod tests {
                 BrokerSource::Fronted {
                     front: "https://www.cdn77.com/".into(),
                     host: "1826209743.rsc.cdn77.org".into(),
+                    override_dns: None,
                 },
                 BrokerSource::Fronted {
                     front: "https://vuejs.org/".into(),
                     host: "svitania-naidallszei-2.netlify.app".into(),
+                    override_dns: None,
                 },
             ])),
             broker_keys: Some(BrokerKeys {

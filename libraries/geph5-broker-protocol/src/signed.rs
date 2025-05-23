@@ -77,7 +77,7 @@ impl<T: Serialize + DeserializeOwned> JsonSigned<T> {
             signature,
             pubkey: seckey.verifying_key(),
 
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 

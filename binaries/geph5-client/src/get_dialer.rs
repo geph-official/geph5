@@ -250,7 +250,7 @@ fn pick_exit_with_constraint<'a>(
             let (_, exit, _) = **rh;
             let hash = blake3::keyed_hash(
                 rendezvous_key.as_bytes(),
-                &exit.b2e_listen.ip().to_string().as_bytes()[..],
+                exit.b2e_listen.ip().to_string().as_bytes(),
             );
             let hash = &hash.as_bytes()[..];
             let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
@@ -266,7 +266,7 @@ fn pick_exit_with_constraint<'a>(
             OrderedFloat(picker)
         })
         .unwrap();
-    Ok((&(*first).0, &(*first).1))
+    Ok((&first.0, &first.1))
 }
 
 fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
