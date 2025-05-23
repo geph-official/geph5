@@ -31,6 +31,7 @@ mod schedlag;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use crate::ratelimit::update_load_loop;
+use geph5_broker_protocol::{AccountLevel, ExitCategory, ExitMetadata};
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
@@ -48,6 +49,9 @@ struct ConfigFile {
 
     country: CountryCode,
     city: String,
+
+    #[serde(default)]
+    metadata: Option<ExitMetadata>,
 
     #[serde(default = "default_country_blacklist")]
     country_blacklist: Vec<String>,
@@ -96,6 +100,25 @@ fn default_country_blacklist() -> Vec<String> {
     vec![]
 }
 
+fn default_exit_metadata() -> ExitMetadata {
+    let cfg = CONFIG_FILE.wait();
+    let mut allowed_levels = vec![AccountLevel::Plus];
+    if matches!(
+        cfg.country,
+        CountryCode::CAN
+            | CountryCode::NLD
+            | CountryCode::FRA
+            | CountryCode::POL
+            | CountryCode::DEU
+    ) {
+        allowed_levels.push(AccountLevel::Free);
+    }
+    ExitMetadata {
+        allowed_levels,
+        category: vec![ExitCategory::Core],
+    }
+}
+
 #[derive(Deserialize)]
 struct BrokerConfig {
     url: String,
@@ -119,6 +142,14 @@ static SIGNING_SECRET: Lazy<SigningKey> = Lazy::new(|| {
         }
     }
 });
+
+fn exit_metadata() -> ExitMetadata {
+    CONFIG_FILE
+        .wait()
+        .metadata
+        .clone()
+        .unwrap_or_else(default_exit_metadata)
+}
 
 /// Run the Geph5 broker.
 #[derive(Parser)]

@@ -1,7 +1,9 @@
 use std::{sync::LazyLock, time::Duration};
 
 use egui::mutex::Mutex;
-use geph5_broker_protocol::{BrokerClient, ExitList, UserInfo};
+use geph5_broker_protocol::{
+    BrokerClient, ExitList, UserInfo, AccountLevel, NetStatus, DOMAIN_NET_STATUS,
+};
 use geph5_client::{BridgeMode, Client};
 use itertools::Itertools as _;
 use smol_str::format_smolstr;
@@ -106,17 +108,25 @@ impl Settings {
                     let client = BrokerClient::from(rpc_transport);
                     loop {
                         let fallible = async {
-                            let all_exits =
-                                client.get_exits().await?.map_err(|e| anyhow::anyhow!(e))?;
-                            let all_free_exits = client
-                                .get_free_exits()
+                            let ns = client
+                                .get_net_status()
                                 .await?
                                 .map_err(|e| anyhow::anyhow!(e))?;
-
-                            let mut exits = if is_plus {
-                                all_exits.inner
-                            } else {
-                                all_free_exits.inner
+                            let ns = ns.verify(DOMAIN_NET_STATUS, |_| true)?;
+                            let mut exits: ExitList = ExitList {
+                                all_exits: ns
+                                    .exits
+                                    .into_values()
+                                    .filter(|(_, _, meta)| {
+                                        if is_plus {
+                                            true
+                                        } else {
+                                            meta.allowed_levels.contains(&AccountLevel::Free)
+                                        }
+                                    })
+                                    .map(|(vk, desc, _)| (vk, desc))
+                                    .collect(),
+                                city_names: serde_yaml::from_str(include_str!("../../../../binaries/geph5-broker/src/city_names.yaml")).unwrap(),
                             };
                             exits
                                 .all_exits
