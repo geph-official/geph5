@@ -2,7 +2,7 @@ use std::{ops::Deref, str::FromStr, sync::LazyLock, time::Duration};
 
 use anyhow::Context;
 use async_io::Timer;
-use geph5_broker_protocol::BridgeDescriptor;
+use geph5_broker_protocol::{BridgeDescriptor, ExitMetadata};
 use moka::future::Cache;
 
 use rand::Rng;
@@ -12,6 +12,7 @@ use sqlx::{
     pool::PoolOptions,
     postgres::{PgConnectOptions, PgSslMode},
     prelude::FromRow,
+    types::Json,
     PgPool,
 };
 
@@ -67,6 +68,18 @@ pub struct ExitRow {
     pub expiry: i64,
 }
 
+#[derive(FromRow)]
+pub struct ExitRowWithMetadata {
+    pub pubkey: [u8; 32],
+    pub c2e_listen: String,
+    pub b2e_listen: String,
+    pub country: String,
+    pub city: String,
+    pub load: f32,
+    pub expiry: i64,
+    pub metadata: Option<Json<ExitMetadata>>,
+}
+
 pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     sqlx::query(
         r"INSERT INTO exits_new (pubkey, c2e_listen, b2e_listen, country, city, load, expiry)
@@ -87,6 +100,15 @@ pub async fn insert_exit(exit: &ExitRow) -> anyhow::Result<()> {
     .bind(&exit.city)
     .bind(exit.load)
     .bind(exit.expiry)
+    .execute(POSTGRES.deref())
+    .await?;
+    Ok(())
+}
+
+pub async fn insert_exit_metadata(pubkey: [u8; 32], metadata: ExitMetadata) -> anyhow::Result<()> {
+    sqlx::query("insert into exits_new (pubkey, metadata) values ($1, $2) on conflict (pubkey) do update set metadata = excluded.metadata")
+    .bind(pubkey)
+    .bind(Json(metadata))
     .execute(POSTGRES.deref())
     .await?;
     Ok(())

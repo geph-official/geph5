@@ -24,3 +24,4 @@ mizaru2 = {version = "0.2.13", path = "../mizaru2" }
 tracing = "0.1.40"
 melpow = "0.1.1"
 base64 = "0.22.1"
+olpc-cjson = "0.1.4"

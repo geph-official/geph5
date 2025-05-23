@@ -36,20 +36,28 @@ pub trait BrokerProtocol {
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError>;
 
-    async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError>;
-    async fn get_free_exits(&self) -> Result<Signed<ExitList>, GenericError>;
+    async fn get_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError>;
+    async fn get_free_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError>;
+
+    /// Gets the network status. This is the newer endpoint that clients should use.
+    async fn get_net_status(&self) -> Result<JsonSigned<NetStatus>, GenericError>;
+
     async fn get_routes(
         &self,
         token: ClientToken,
         sig: UnblindedSignature,
         exit_b2e: SocketAddr,
     ) -> Result<RouteDescriptor, GenericError>;
-
     async fn get_routes_v2(&self, args: GetRoutesArgs) -> Result<RouteDescriptor, GenericError>;
 
     async fn insert_exit(
         &self,
-        descriptor: Mac<Signed<ExitDescriptor>>,
+        descriptor: Mac<StdcodeSigned<ExitDescriptor>>,
+    ) -> Result<(), GenericError>;
+
+    async fn insert_exit_v2(
+        &self,
+        descriptor: Mac<JsonSigned<(ExitDescriptor, ExitMetadata)>>,
     ) -> Result<(), GenericError>;
 
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
@@ -155,6 +163,8 @@ impl Default for Credential {
 }
 
 pub const DOMAIN_EXIT_DESCRIPTOR: &str = "exit-descriptor";
+
+pub const DOMAIN_NET_STATUS: &str = "net-status";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(transparent)]

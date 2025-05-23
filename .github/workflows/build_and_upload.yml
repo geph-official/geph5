@@ -1,6 +1,9 @@
 name: Build and Upload
 
-on: [push]
+on:
+  push:
+    branches:
+      - master
 
 jobs:
   build:

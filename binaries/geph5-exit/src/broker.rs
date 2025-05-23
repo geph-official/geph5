@@ -10,7 +10,7 @@ use std::{
 
 use async_trait::async_trait;
 use ed25519_dalek::VerifyingKey;
-use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, Signed, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, StdcodeSigned, DOMAIN_EXIT_DESCRIPTOR};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use tap::Tap;
@@ -163,7 +163,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             + 30,
                     };
                     let to_upload = Mac::new(
-                        Signed::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
+                        StdcodeSigned::new(descriptor, DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
                         blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
                     );
                     client

@@ -7,8 +7,9 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitDescriptor, ExitList, GenericError, GetRoutesArgs, Mac, NewsItem,
-    RouteDescriptor, Signed, UserInfo, VoucherInfo, DOMAIN_EXIT_DESCRIPTOR,
+    Credential, ExitDescriptor, ExitList, ExitMetadata, GenericError, GetRoutesArgs, JsonSigned,
+    Mac, NetStatus, NewsItem, RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
+    DOMAIN_EXIT_DESCRIPTOR,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
@@ -17,8 +18,7 @@ use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignat
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
-use smol::lock::Semaphore;
-use smol_timeout2::TimeoutExt;
+
 use std::net::Ipv4Addr;
 use std::str::FromStr as _;
 use std::sync::atomic::AtomicU64;
@@ -30,6 +30,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use crate::database::{insert_exit_metadata, ExitRowWithMetadata};
 use crate::{
     auth::{get_user_info, register_secret, validate_credential},
     free_voucher::{delete_free_voucher, get_free_voucher},
@@ -98,11 +99,11 @@ impl BrokerImpl {
         let exit_list = EXIT_CACHE
             .try_get_with((), async {
                 let exits: Vec<(VerifyingKey, ExitDescriptor)> =
-                    sqlx::query_as("select * from exits_new")
+                    sqlx::query_as("select * from exits_new natural left join exit_metadata on exits_new.pubkey=exit_metadata.pubkey")
                         .fetch_all(POSTGRES.deref())
                         .await?
                         .into_iter()
-                        .map(|row: ExitRow| {
+                        .map(|row: ExitRowWithMetadata| {
                             (
                                 VerifyingKey::from_bytes(&row.pubkey).unwrap(),
                                 ExitDescriptor {
@@ -209,7 +210,6 @@ impl BrokerProtocol for BrokerImpl {
         // exempt special testing account
         if count > 10 && user_id != 9311416 {
             tracing::warn!(user_id, count, "too many auths in the last day, rejecting");
-            counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             return Err(AuthError::RateLimited);
         }
         let start = Instant::now();
@@ -226,20 +226,20 @@ impl BrokerProtocol for BrokerImpl {
         Ok(signed)
     }
 
-    async fn get_exits(&self) -> Result<Signed<ExitList>, GenericError> {
+    async fn get_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError> {
         let exit_list = self.get_all_exits().await?;
 
-        Ok(Signed::new(
+        Ok(StdcodeSigned::new(
             exit_list,
             DOMAIN_EXIT_DESCRIPTOR,
             MASTER_SECRET.deref(),
         ))
     }
 
-    async fn get_free_exits(&self) -> Result<Signed<ExitList>, GenericError> {
+    async fn get_free_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError> {
         let mut exit_list = self.get_all_exits().await?;
         exit_list.all_exits.retain(|(_, e)| !is_plus_exit(e));
-        Ok(Signed::new(
+        Ok(StdcodeSigned::new(
             exit_list,
             DOMAIN_EXIT_DESCRIPTOR,
             MASTER_SECRET.deref(),
@@ -384,7 +384,7 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn insert_exit(
         &self,
-        descriptor: Mac<Signed<ExitDescriptor>>,
+        descriptor: Mac<StdcodeSigned<ExitDescriptor>>,
     ) -> Result<(), GenericError> {
         let descriptor =
             descriptor.verify(blake3::hash(CONFIG_FILE.wait().exit_token.as_bytes()).as_bytes())?;
@@ -409,10 +409,47 @@ impl BrokerProtocol for BrokerImpl {
             country: descriptor.country.alpha2().into(),
             city: descriptor.city.clone(),
             load: descriptor.load,
-            expiry: (now + 10) as _,
+            expiry: (now + 60) as _,
         };
         insert_exit(&exit).await?;
         Ok(())
+    }
+
+    async fn insert_exit_v2(
+        &self,
+        descriptor: Mac<JsonSigned<(ExitDescriptor, ExitMetadata)>>,
+    ) -> Result<(), GenericError> {
+        let descriptor =
+            descriptor.verify(blake3::hash(CONFIG_FILE.wait().exit_token.as_bytes()).as_bytes())?;
+        let pubkey = descriptor.pubkey();
+        let (descriptor, metadata) = descriptor.verify(DOMAIN_EXIT_DESCRIPTOR, |_| true)?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if descriptor.expiry < now {
+            return Err(GenericError(
+                "Exit info timestamp is before current time (potential replay attack)".to_string(),
+            ));
+        }
+
+        let exit = ExitRow {
+            pubkey: pubkey.to_bytes(),
+            c2e_listen: descriptor.c2e_listen.to_string(),
+            b2e_listen: descriptor.b2e_listen.to_string(),
+            country: descriptor.country.alpha2().into(),
+            city: descriptor.city.clone(),
+            load: descriptor.load,
+            expiry: (now + 60) as _,
+        };
+        insert_exit(&exit).await?;
+        insert_exit_metadata(pubkey.to_bytes(), metadata).await?;
+        Ok(())
+    }
+
+    async fn get_net_status(&self) -> Result<JsonSigned<NetStatus>, GenericError> {
+        todo!()
     }
 
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
