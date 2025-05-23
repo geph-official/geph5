@@ -53,9 +53,9 @@ impl<T: Serialize> StdcodeSigned<T> {
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
-/// A signed value that internally uses canonical JSON, allowing it to work with types that can grow over time.
+/// A signed value that internally uses a fixed JSON string, allowing it to work with types that can grow over time.
 pub struct JsonSigned<T> {
-    inner_literal: serde_json::Value,
+    inner_literal: String,
 
     signature: Signature,
     pubkey: VerifyingKey,
@@ -66,10 +66,10 @@ pub struct JsonSigned<T> {
 impl<T: Serialize + DeserializeOwned> JsonSigned<T> {
     /// Creates a new FlexiSigned instance, which represents a piece of data signed by an ed25519 key.
     pub fn new(inner: T, domain: &str, seckey: &SigningKey) -> Self {
-        let inner_literal = serde_json::to_value(inner).unwrap();
+        let inner_literal = serde_json::to_string(&inner).unwrap();
         let to_sign = blake3::keyed_hash(
             blake3::hash(domain.as_bytes()).as_bytes(),
-            &to_canonjs(&inner_literal),
+            &inner_literal.as_bytes(),
         );
         let signature = seckey.sign(to_sign.as_bytes());
         JsonSigned {
@@ -97,13 +97,13 @@ impl<T: Serialize + DeserializeOwned> JsonSigned<T> {
         }
         let to_sign = blake3::keyed_hash(
             blake3::hash(domain.as_bytes()).as_bytes(),
-            &to_canonjs(&self.inner_literal),
+            self.inner_literal.as_bytes(),
         );
         self.pubkey
             .verify_strict(to_sign.as_bytes(), &self.signature)
             .ok()
             .ok_or(VerifyError::InvalidSignature)?;
-        serde_json::from_value(self.inner_literal).map_err(|_| VerifyError::CannotDeserialize)
+        serde_json::from_str(&self.inner_literal).map_err(|_| VerifyError::CannotDeserialize)
     }
 }
 
@@ -117,11 +117,4 @@ pub enum VerifyError {
 
     #[error("Could not deserialize interior value")]
     CannotDeserialize,
-}
-
-fn to_canonjs(t: &serde_json::Value) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let mut ser = serde_json::Serializer::with_formatter(&mut buf, CanonicalFormatter::new());
-    t.serialize(&mut ser).unwrap();
-    buf
 }
