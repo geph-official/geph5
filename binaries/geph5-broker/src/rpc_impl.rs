@@ -18,6 +18,7 @@ use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignat
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
+use serde_json::error::Category;
 
 use std::net::Ipv4Addr;
 use std::str::FromStr as _;
@@ -143,7 +144,7 @@ fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
     }
     ExitMetadata {
         allowed_levels,
-        category: vec![ExitCategory::Core],
+        category: ExitCategory::Core,
     }
 }
 
@@ -232,6 +233,7 @@ impl BrokerProtocol for BrokerImpl {
         Ok(signed)
     }
 
+    /// This is a LEGACY endpoint!!
     async fn get_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError> {
         let ns = self.net_status_inner().await?;
         let all_exits = ns
@@ -250,12 +252,16 @@ impl BrokerProtocol for BrokerImpl {
         ))
     }
 
+    /// This is a LEGACY endpoint!!
     async fn get_free_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError> {
         let ns = self.net_status_inner().await?;
         let all_exits = ns
             .exits
             .into_values()
-            .filter(|(_, _, meta)| meta.allowed_levels.contains(&AccountLevel::Free))
+            .filter(|(_, _, meta)| {
+                meta.allowed_levels.contains(&AccountLevel::Free)
+                    && meta.category == ExitCategory::Core
+            })
             .map(|(vk, desc, _)| (vk, desc))
             .collect();
         let exit_list = ExitList {

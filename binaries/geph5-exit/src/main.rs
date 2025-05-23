@@ -115,7 +115,7 @@ fn default_exit_metadata() -> ExitMetadata {
     }
     ExitMetadata {
         allowed_levels,
-        category: vec![ExitCategory::Core],
+        category: ExitCategory::Core,
     }
 }
 

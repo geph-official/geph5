@@ -74,10 +74,10 @@ impl NetStatus {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ExitMetadata {
     pub allowed_levels: Vec<AccountLevel>,
-    pub category: Vec<ExitCategory>,
+    pub category: ExitCategory,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExitCategory {
     Core,
