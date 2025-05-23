@@ -18,10 +18,11 @@ use reqwest::Method;
 use tap::Tap;
 
 use crate::{
+    exit_metadata,
     ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
-    CONFIG_FILE, SIGNING_SECRET, exit_metadata,
+    CONFIG_FILE, SIGNING_SECRET,
 };
 
 pub static ACCEPT_FREE: AtomicBool = AtomicBool::new(false);
@@ -161,11 +162,15 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs()
-                            + 30,
+                            + 120,
                     };
                     let metadata = exit_metadata();
                     let to_upload = Mac::new(
-                        JsonSigned::new((descriptor, metadata), DOMAIN_EXIT_DESCRIPTOR, &SIGNING_SECRET),
+                        JsonSigned::new(
+                            (descriptor, metadata),
+                            DOMAIN_EXIT_DESCRIPTOR,
+                            &SIGNING_SECRET,
+                        ),
                         blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
                     );
                     client
