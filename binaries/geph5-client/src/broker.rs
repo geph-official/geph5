@@ -11,7 +11,7 @@ use anyhow::Context;
 #[cfg(feature = "aws_lambda")]
 use aws_lambda::AwsLambdaTransport;
 use fronted_http::FrontedHttpTransport;
-use geph5_broker_protocol::BrokerClient;
+use geph5_broker_protocol::{BrokerClient, NetStatus, DOMAIN_NET_STATUS};
 use itertools::Itertools;
 use nanorpc::DynRpcTransport;
 use priority_race::PriorityRaceTransport;
@@ -104,3 +104,25 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
         .as_ref()
         .map(|src| BrokerClient::from(src.rpc_transport()))
 };
+
+pub async fn get_net_status(ctx: &AnyCtx<Config>) -> anyhow::Result<NetStatus> {
+    let broker = broker_client(ctx).context("could not get broker client")?;
+    let net_status_response = broker
+        .get_net_status()
+        .await?
+        .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
+
+    // Verify the broker's signature over the net status:
+    let net_status_verified = net_status_response
+        .verify(DOMAIN_NET_STATUS, |their_pk| {
+            if let Some(broker_pk) = &ctx.init().broker_keys {
+                hex::encode(their_pk.as_bytes()) == broker_pk.master
+            } else {
+                tracing::warn!("trusting netstatus blindly since broker_keys was not provided");
+                true
+            }
+        })
+        .context("could not verify net status")?;
+
+    Ok(net_status_verified)
+}

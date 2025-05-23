@@ -9,7 +9,6 @@ use ed25519_dalek::VerifyingKey;
 
 use geph5_broker_protocol::{
     AccountLevel, ExitCategory, ExitDescriptor, GetRoutesArgs, NetStatus, RouteDescriptor,
-    DOMAIN_NET_STATUS,
 };
 use isocountry::CountryCode;
 use itertools::Itertools;
@@ -27,7 +26,7 @@ use smol_timeout2::TimeoutExt as _;
 
 use crate::{
     auth::get_connect_token,
-    broker::broker_client,
+    broker::{broker_client, get_net_status},
     client::{Config, CtxField},
     device_metadata::get_device_metadata,
     vpn::smart_vpn_whitelist,
@@ -123,23 +122,7 @@ async fn get_dialer_inner(
         .await
         .context("could not get connect token")?;
 
-    let broker = broker_client(ctx).context("could not get broker client")?;
-    let net_status_response = broker
-        .get_net_status()
-        .await?
-        .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
-
-    // Verify the broker's signature over the net status:
-    let net_status_verified = net_status_response
-        .verify(DOMAIN_NET_STATUS, |their_pk| {
-            if let Some(broker_pk) = &ctx.init().broker_keys {
-                hex::encode(their_pk.as_bytes()) == broker_pk.master
-            } else {
-                tracing::warn!("trusting netstatus blindly since broker_keys was not provided");
-                true
-            }
-        })
-        .context("could not verify net status")?;
+    let net_status_verified = get_net_status(ctx).await?;
 
     tracing::debug!(
         "verified netstatus: {}",
@@ -180,6 +163,7 @@ async fn get_dialer_inner(
     };
 
     // Also get potential “bridge routes”:
+    let broker = broker_client(ctx)?;
     let bridge_routes = broker
         .get_routes_v2(GetRoutesArgs {
             token: conn_token,
