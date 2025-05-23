@@ -135,16 +135,18 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                         let start = Instant::now();
                         let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
                         tracing::debug!(
+                            instance,
                             elapsed = debug(start.elapsed()),
                             protocol = raw_pipe.protocol(),
                             "dial completed"
                         );
 
-                        let authed_pipe = client_auth(&ctx, raw_pipe, pubkey)
+                        let authed_pipe = client_auth(&ctx, raw_pipe, pubkey, instance)
                             .await
                             .context("could not client auth")?;
 
                         tracing::debug!(
+                            instance,
                             elapsed = debug(start.elapsed()),
                             "authentication done, starting mux system"
                         );
@@ -169,7 +171,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
 
                 };
                 if let Err(err) = once.await {
-                    let wait_time = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0..10.0));
+                    let wait_time = Duration::from_secs_f64(rand::thread_rng().gen_range(0.0..1.0));
                     tracing::warn!(instance, err = debug(err), wait_time=debug(wait_time), "individual client thread failed");
                     smol::Timer::after(wait_time).await;
                 }
@@ -241,11 +243,12 @@ async fn proxy_loop(
     .await
 }
 
-#[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
+#[tracing::instrument(skip_all, fields(instance=instance, pubkey = hex::encode(pubkey.as_bytes())))]
 async fn client_auth(
     ctx: &AnyCtx<Config>,
     mut pipe: impl Pipe,
     pubkey: VerifyingKey,
+    instance: usize
 ) -> anyhow::Result<impl Pipe> {
     let server = pipe.remote_addr().unwrap_or("").to_string();
 

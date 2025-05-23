@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use olpc_cjson::CanonicalFormatter;
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 use stdcode::StdcodeSerializeExt;
@@ -69,7 +69,7 @@ impl<T: Serialize + DeserializeOwned> JsonSigned<T> {
         let inner_literal = serde_json::to_string(&inner).unwrap();
         let to_sign = blake3::keyed_hash(
             blake3::hash(domain.as_bytes()).as_bytes(),
-            &inner_literal.as_bytes(),
+            inner_literal.as_bytes(),
         );
         let signature = seckey.sign(to_sign.as_bytes());
         JsonSigned {

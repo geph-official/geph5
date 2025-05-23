@@ -1,7 +1,4 @@
-use std::{
-    sync::LazyLock,
-    time::{Duration, Instant},
-};
+use std::{sync::LazyLock, time::Duration};
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
@@ -25,16 +22,9 @@ static ACCOUNT_STATUS_CHECKED: LazyLock<ManualResetEvent> =
 pub async fn get_connect_token(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
-    tracing::debug!("waiting for connection token");
-    let start = Instant::now();
     ACCOUNT_STATUS_CHECKED.wait().await;
-    tracing::debug!(elapsed = debug(start.elapsed()), "account status checked");
     let epoch = mizaru2::current_epoch();
     let res = get_conn_token_inner(ctx, epoch, true).await?;
-    tracing::debug!(
-        elapsed = debug(start.elapsed()),
-        "connection token obtained"
-    );
     Ok(res)
 }
 

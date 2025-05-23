@@ -12,6 +12,7 @@ use geph5_broker_protocol::{
     DOMAIN_NET_STATUS,
 };
 use isocountry::CountryCode;
+use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,6 @@ pub async fn get_dialer(
 
     if let Some(inner) = cached_value.clone() {
         if inner.3.elapsed()? < Duration::from_secs(10) {
-            tracing::debug!("returning very recently cached dialer");
             return Ok((inner.0, inner.1, inner.2));
         }
     }
@@ -140,6 +140,17 @@ async fn get_dialer_inner(
             }
         })
         .context("could not verify net status")?;
+
+    tracing::debug!(
+        "verified netstatus: {}",
+        serde_json::to_string(
+            &net_status_verified
+                .exits
+                .iter()
+                .map(|s| &s.1 .1)
+                .collect_vec()
+        )?
+    );
 
     // Use our new helper function to pick the best exit:
     let rendezvous_key = blake3::hash(serde_json::to_string(&ctx.init().credentials)?.as_bytes());
@@ -256,13 +267,6 @@ fn pick_exit_with_constraint<'a>(
             let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
             let weight = (1.0 - (exit.load as f64)).powi(2);
             let picker = -hash.ln() / weight;
-            tracing::debug!(
-                "picking exit, {}/{}/{} => {:.5}",
-                exit.country,
-                exit.city,
-                exit.b2e_listen.ip(),
-                picker
-            );
             OrderedFloat(picker)
         })
         .unwrap();
