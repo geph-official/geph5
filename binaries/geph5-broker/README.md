@@ -15,7 +15,6 @@ postgres_url: postgres://geph:password@localhost/geph
 bridge_token: bridge_secret
 exit_token: exit_secret
 puzzle_difficulty: 24
-openai_key: your-openai-key
 payment_url: https://web-backend.geph.io/rpc
 payment_support_secret: support-secret
 ```
