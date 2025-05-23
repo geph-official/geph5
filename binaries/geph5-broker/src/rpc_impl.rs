@@ -7,10 +7,11 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitDescriptor, ExitList, ExitMetadata, GenericError, GetRoutesArgs, JsonSigned,
+    Credential, ExitDescriptor, ExitList, ExitMetadata, ExitCategory, GenericError, GetRoutesArgs, JsonSigned,
     Mac, NetStatus, NewsItem, RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
-    DOMAIN_EXIT_DESCRIPTOR,
+    DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS,
 };
+use hex;
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
@@ -89,56 +90,58 @@ impl RpcService for WrappedBrokerService {
 struct BrokerImpl {}
 
 impl BrokerImpl {
-    async fn get_all_exits(&self) -> Result<ExitList, GenericError> {
-        static EXIT_CACHE: Lazy<Cache<(), ExitList>> = Lazy::new(|| {
+    async fn net_status_inner(&self) -> Result<NetStatus, GenericError> {
+        static CACHE: Lazy<Cache<(), NetStatus>> = Lazy::new(|| {
             Cache::builder()
                 .time_to_live(Duration::from_secs(10))
                 .build()
         });
 
-        let exit_list = EXIT_CACHE
+        let ns = CACHE
             .try_get_with((), async {
-                let exits: Vec<(VerifyingKey, ExitDescriptor)> =
-                    sqlx::query_as("select * from exits_new natural left join exit_metadata on exits_new.pubkey=exit_metadata.pubkey")
+                let exits: Vec<ExitRowWithMetadata> =
+                    sqlx::query_as("select * from exits_new")
                         .fetch_all(POSTGRES.deref())
-                        .await?
-                        .into_iter()
-                        .map(|row: ExitRowWithMetadata| {
-                            (
-                                VerifyingKey::from_bytes(&row.pubkey).unwrap(),
-                                ExitDescriptor {
-                                    c2e_listen: row.c2e_listen.parse().unwrap(),
-                                    b2e_listen: row.b2e_listen.parse().unwrap(),
-                                    country: CountryCode::for_alpha2_caseless(&row.country)
-                                        .unwrap(),
-                                    city: row.city,
-                                    load: row.load,
-                                    expiry: row.expiry as _,
-                                },
-                            )
-                        })
-                        .collect();
-                let exit_list = ExitList {
-                    all_exits: exits,
-                    city_names: serde_yaml::from_str(include_str!("city_names.yaml")).unwrap(),
-                };
-                Ok(exit_list)
+                        .await?;
+                let exits = exits
+                    .into_iter()
+                    .map(|row| {
+                        let vk = VerifyingKey::from_bytes(&row.pubkey).unwrap();
+                        let desc = ExitDescriptor {
+                            c2e_listen: row.c2e_listen.parse().unwrap(),
+                            b2e_listen: row.b2e_listen.parse().unwrap(),
+                            country: CountryCode::for_alpha2_caseless(&row.country).unwrap(),
+                            city: row.city,
+                            load: row.load,
+                            expiry: row.expiry as _,
+                        };
+                        let meta = row
+                            .metadata
+                            .map(|j| j.0)
+                            .unwrap_or_else(|| default_exit_metadata(&desc.country));
+                        (hex::encode(vk.as_bytes()), (vk, desc, meta))
+                    })
+                    .collect();
+                Ok(NetStatus { exits })
             })
             .await
             .map_err(|e: Arc<GenericError>| e.deref().clone())?;
-        Ok(exit_list)
+        Ok(ns)
     }
 }
 
-fn is_plus_exit(exit: &ExitDescriptor) -> bool {
-    !matches!(
-        exit.country,
-        CountryCode::CAN
-            | CountryCode::NLD
-            | CountryCode::FRA
-            | CountryCode::POL
-            | CountryCode::DEU
-    )
+fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
+    let mut allowed_levels = vec![AccountLevel::Plus];
+    if matches!(
+        country,
+        CountryCode::CAN | CountryCode::NLD | CountryCode::FRA | CountryCode::POL | CountryCode::DEU
+    ) {
+        allowed_levels.push(AccountLevel::Free);
+    }
+    ExitMetadata {
+        allowed_levels,
+        category: vec![ExitCategory::Core],
+    }
 }
 
 #[async_trait]
@@ -227,8 +230,16 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError> {
-        let exit_list = self.get_all_exits().await?;
-
+        let ns = self.net_status_inner().await?;
+        let all_exits = ns
+            .exits
+            .into_values()
+            .map(|(vk, desc, _)| (vk, desc))
+            .collect();
+        let exit_list = ExitList {
+            all_exits,
+            city_names: serde_yaml::from_str(include_str!("city_names.yaml")).unwrap(),
+        };
         Ok(StdcodeSigned::new(
             exit_list,
             DOMAIN_EXIT_DESCRIPTOR,
@@ -237,8 +248,17 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_free_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError> {
-        let mut exit_list = self.get_all_exits().await?;
-        exit_list.all_exits.retain(|(_, e)| !is_plus_exit(e));
+        let ns = self.net_status_inner().await?;
+        let all_exits = ns
+            .exits
+            .into_values()
+            .filter(|(_, _, meta)| meta.allowed_levels.contains(&AccountLevel::Free))
+            .map(|(vk, desc, _)| (vk, desc))
+            .collect();
+        let exit_list = ExitList {
+            all_exits,
+            city_names: serde_yaml::from_str(include_str!("city_names.yaml")).unwrap(),
+        };
         Ok(StdcodeSigned::new(
             exit_list,
             DOMAIN_EXIT_DESCRIPTOR,
@@ -280,11 +300,11 @@ impl BrokerProtocol for BrokerImpl {
 
         // get the exit
         let exit = self
-            .get_all_exits()
+            .net_status_inner()
             .await?
-            .all_exits
-            .into_iter()
-            .map(|s| s.1)
+            .exits
+            .into_values()
+            .map(|(_, d, _)| d)
             .find(|exit| exit.b2e_listen == args.exit_b2e)
             .context("cannot find this exit")?;
 
@@ -449,7 +469,12 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn get_net_status(&self) -> Result<JsonSigned<NetStatus>, GenericError> {
-        todo!()
+        let ns = self.net_status_inner().await?;
+        Ok(JsonSigned::new(
+            ns,
+            DOMAIN_NET_STATUS,
+            MASTER_SECRET.deref(),
+        ))
     }
 
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
