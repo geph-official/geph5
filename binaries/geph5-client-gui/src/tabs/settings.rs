@@ -1,9 +1,7 @@
 use std::{sync::LazyLock, time::Duration};
 
 use egui::mutex::Mutex;
-use geph5_broker_protocol::{
-    BrokerClient, ExitList, UserInfo, AccountLevel, NetStatus, DOMAIN_NET_STATUS,
-};
+use geph5_broker_protocol::{AccountLevel, BrokerClient, ExitList, UserInfo, DOMAIN_NET_STATUS};
 use geph5_client::{BridgeMode, Client};
 use itertools::Itertools as _;
 use smol_str::format_smolstr;
@@ -126,7 +124,10 @@ impl Settings {
                                     })
                                     .map(|(vk, desc, _)| (vk, desc))
                                     .collect(),
-                                city_names: serde_yaml::from_str(include_str!("../../../../binaries/geph5-broker/src/city_names.yaml")).unwrap(),
+                                city_names: serde_yaml::from_str(include_str!(
+                                    "../../../../binaries/geph5-broker/src/city_names.yaml"
+                                ))
+                                .unwrap(),
                             };
                             exits
                                 .all_exits

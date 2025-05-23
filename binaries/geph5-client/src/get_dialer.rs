@@ -8,7 +8,7 @@ use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
 
 use geph5_broker_protocol::{
-    AccountLevel, ExitDescriptor, ExitCategory, NetStatus, GetRoutesArgs, RouteDescriptor,
+    AccountLevel, ExitCategory, ExitDescriptor, GetRoutesArgs, NetStatus, RouteDescriptor,
     DOMAIN_NET_STATUS,
 };
 use isocountry::CountryCode;
@@ -124,7 +124,9 @@ async fn get_dialer_inner(
         .context("could not get connect token")?;
 
     let broker = broker_client(ctx).context("could not get broker client")?;
-    let net_status_response = broker.get_net_status().await?
+    let net_status_response = broker
+        .get_net_status()
+        .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve exits: {e}"))?;
 
     // Verify the broker's signature over the net status:
@@ -133,6 +135,7 @@ async fn get_dialer_inner(
             if let Some(broker_pk) = &ctx.init().broker_keys {
                 hex::encode(their_pk.as_bytes()) == broker_pk.master
             } else {
+                tracing::warn!("trusting netstatus blindly since broker_keys was not provided");
                 true
             }
         })
@@ -229,9 +232,9 @@ fn pick_exit_with_constraint<'a>(
                 pass &= meta
                     .category
                     .iter()
-                    .any(|c| matches!(c, ExitCategory::Core))
-                    && meta.allowed_levels.contains(&level);
+                    .any(|c| matches!(c, ExitCategory::Core));
             }
+            pass &= meta.allowed_levels.contains(&level);
             pass
         })
         .collect();
