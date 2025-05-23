@@ -27,15 +27,15 @@ impl TraffCount {
         }
     }
 
-    /// Create a new traffic counter with custom history length
-    pub fn with_history(max_seconds: usize) -> Self {
-        let now = Instant::now();
-        Self {
-            bins: VecDeque::with_capacity(max_seconds),
-            window_start: now,
-            max_history_seconds: max_seconds,
-        }
-    }
+    // /// Create a new traffic counter with custom history length
+    // pub fn with_history(max_seconds: usize) -> Self {
+    //     let now = Instant::now();
+    //     Self {
+    //         bins: VecDeque::with_capacity(max_seconds),
+    //         window_start: now,
+    //         max_history_seconds: max_seconds,
+    //     }
+    // }
 
     /// Increment the traffic count with the given number of bytes
     pub fn incr(&mut self, bytes: f64) {
@@ -87,11 +87,11 @@ impl TraffCount {
         self.bins.iter().cloned().collect()
     }
 
-    /// Remove measurements that are too old
-    fn cleanup(&mut self) {
-        let now = Instant::now();
-        self.ensure_bins_updated(now);
-    }
+    // /// Remove measurements that are too old
+    // fn cleanup(&mut self) {
+    //     let now = Instant::now();
+    //     self.ensure_bins_updated(now);
+    // }
 }
 
 impl Default for TraffCount {
