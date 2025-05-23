@@ -10,7 +10,9 @@ use std::{
 
 use async_trait::async_trait;
 use ed25519_dalek::VerifyingKey;
-use geph5_broker_protocol::{BrokerClient, ExitDescriptor, Mac, StdcodeSigned, DOMAIN_EXIT_DESCRIPTOR};
+use geph5_broker_protocol::{
+    BrokerClient, ExitDescriptor, Mac, StdcodeSigned, DOMAIN_EXIT_DESCRIPTOR,
+};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use tap::Tap;
@@ -19,7 +21,6 @@ use crate::{
     ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
-    watchdog::kick_watchdog,
     CONFIG_FILE, SIGNING_SECRET,
 };
 
@@ -174,8 +175,6 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 };
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
-                } else {
-                    kick_watchdog();
                 }
                 smol::Timer::after(Duration::from_millis(2000)).await;
             }
