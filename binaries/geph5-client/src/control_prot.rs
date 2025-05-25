@@ -36,6 +36,7 @@ pub trait ControlProtocol {
     async fn check_secret(&self, secret: String) -> Result<bool, String>;
     async fn user_info(&self, secret: String) -> Result<UserInfo, String>;
     async fn start_registration(&self) -> Result<usize, String>;
+    async fn delete_account(&self, secret: String) -> Result<(), String>;
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
     async fn convert_legacy_account(
         &self,
@@ -207,6 +208,16 @@ impl ControlProtocol for ControlProtocolImpl {
         })
         .detach();
         Ok(idx)
+    }
+
+    async fn delete_account(&self, secret: String) -> Result<(), String> {
+        broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .delete_account(secret)
+            .await
+            .map_err(|e| format!("{:?}", e))?
+            .map_err(|e| format!("{:?}", e))?;
+        Ok(())
     }
 
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String> {

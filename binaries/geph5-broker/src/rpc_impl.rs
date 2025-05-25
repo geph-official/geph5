@@ -31,6 +31,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use crate::auth::validate_secret;
 use crate::database::{insert_exit_metadata, ExitRowWithMetadata};
 use crate::{
     auth::{get_user_info, register_secret, validate_credential},
@@ -569,6 +570,25 @@ impl BrokerProtocol for BrokerImpl {
         register_secret(Some(user_id))
             .map_err(|_| AuthError::RateLimited)
             .await
+    }
+
+    async fn delete_account(&self, secret: String) -> Result<(), GenericError> {
+        // validate secret; get user_id
+        let user_id = validate_secret(&secret).await?;
+
+        // cancel stripe
+        let rpc = PaymentClient(PaymentTransport);
+        let sessid = payment_sessid(user_id).await?;
+        rpc.cancel_recurring(sessid)
+            .await?
+            .map_err(|e| GenericError(e))?;
+
+        // delete for good
+        sqlx::query("delete from users where id=(select id from auth_secret where secret=$1)")
+            .bind(secret)
+            .execute(POSTGRES.deref())
+            .await?;
+        Ok(())
     }
 
     async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {

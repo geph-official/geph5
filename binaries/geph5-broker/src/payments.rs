@@ -63,6 +63,8 @@ pub trait PaymentProtocol {
     async fn create_giftcard(&self, support_secret: String, days: i32) -> Result<String, String>;
 
     async fn spend_giftcard(&self, sessid: String, info: GiftcardWireInfo) -> Result<i32, String>;
+
+    async fn cancel_recurring(&self, sessid: String) -> Result<(), String>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

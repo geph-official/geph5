@@ -75,7 +75,10 @@ pub trait BrokerProtocol {
         puzzle: String,
         solution: String,
     ) -> Result<String, GenericError>;
+
     async fn upgrade_to_secret(&self, cred: Credential) -> Result<String, AuthError>;
+
+    async fn delete_account(&self, secret: String) -> Result<(), GenericError>;
 
     async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError>;
 
