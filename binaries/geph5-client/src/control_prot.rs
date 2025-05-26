@@ -211,12 +211,13 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn delete_account(&self, secret: String) -> Result<(), String> {
+        tracing::debug!("FROM delete_account: secret={secret}");
         broker_client(&self.ctx)
             .map_err(|e| format!("{:?}", e))?
             .delete_account(secret)
             .await
-            .map_err(|e| format!("{:?}", e))?
-            .map_err(|e| format!("{:?}", e))?;
+            .map_err(|e| format!("BROKER TRANSPORT ERROR: {:?}", e))?
+            .map_err(|e| format!("ERROR FROM BROKER {:?}", e))?;
         Ok(())
     }
 

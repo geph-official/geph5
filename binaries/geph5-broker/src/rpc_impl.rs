@@ -66,6 +66,7 @@ impl RpcService for WrappedBrokerService {
         method: &str,
         params: Vec<serde_json::Value>,
     ) -> Option<Result<serde_json::Value, ServerError>> {
+        tracing::debug!("broker RPC called: method={method}; params={params:?}");
         let start = Instant::now();
         let resp = self.0.respond(method, params).await?;
         let method = method.to_string();
@@ -575,14 +576,12 @@ impl BrokerProtocol for BrokerImpl {
     async fn delete_account(&self, secret: String) -> Result<(), GenericError> {
         // validate secret; get user_id
         let user_id = validate_secret(&secret).await?;
-
         // cancel stripe
         let rpc = PaymentClient(PaymentTransport);
         let sessid = payment_sessid(user_id).await?;
         rpc.cancel_recurring(sessid)
             .await?
             .map_err(|e| GenericError(e))?;
-
         // delete for good
         sqlx::query("delete from users where id=(select id from auth_secret where secret=$1)")
             .bind(secret)
