@@ -215,8 +215,9 @@ impl BrokerProtocol for BrokerImpl {
         let count = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         tracing::debug!(user_id, count, "authenticated auth token");
         // exempt special testing account
-        if count > 10 && user_id != 9311416 {
+        if count > 20 && user_id != 9311416 {
             tracing::warn!(user_id, count, "too many auths in the last day, rejecting");
+
             return Err(AuthError::RateLimited);
         }
         let start = Instant::now();
