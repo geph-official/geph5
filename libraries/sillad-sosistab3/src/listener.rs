@@ -38,7 +38,7 @@ async fn listen_loop<P: Pipe>(
     send_pipe: Sender<SosistabPipe<P>>,
     cookie: Cookie,
 ) -> std::io::Result<()> {
-    const WAIT_INTERVAL: Duration = Duration::from_secs(30);
+    const WAIT_INTERVAL: Duration = Duration::from_secs(300);
 
     if std::env::var("SOSISTAB3_WAIT").is_ok() {
         async_io::Timer::after(WAIT_INTERVAL).await;
