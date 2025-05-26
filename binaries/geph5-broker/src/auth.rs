@@ -87,7 +87,6 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
     }
 }
 
-#[cached(time = 86400, result = true)]
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
     match credential {
         Credential::TestDummy => Err(AuthError::Forbidden),
