@@ -71,12 +71,14 @@ pub async fn bridge_to_leaf_route(
                         milliseconds: delay_ms,
                         lower: tls_route!().into(),
                     })
-                } else if !country.is_empty() {
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: sosistab3_route!().into(),
-                    })
-                } else {
+                }
+                //  else if !country.is_empty() {
+                //     anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: sosistab3_route!().into(),
+                //     })
+                // }
+                else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: RouteDescriptor::Fallback(vec![sosistab3_route!(), legacy_route!()])
