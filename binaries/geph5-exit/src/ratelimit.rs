@@ -85,14 +85,14 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
         AccountLevel::Free => {
             FREE_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, 100)
+                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, 100, token.to_string())
                 })
                 .await
         }
         AccountLevel::Plus => {
             PLUS_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(CONFIG_FILE.wait().plus_ratelimit, 100)
+                    RateLimiter::new(CONFIG_FILE.wait().plus_ratelimit, 100, token.to_string())
                 })
                 .await
         }
@@ -103,22 +103,27 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
 #[derive(Clone)]
 pub struct RateLimiter {
     inner: Option<Arc<DefaultDirectRateLimiter>>,
+    log_tag: String,
 }
 
 impl RateLimiter {
     /// Creates a new rate limiter with the given speed limit, in B/s
-    pub fn new(limit_kb: u32, burst_kb: u32) -> Self {
+    pub fn new(limit_kb: u32, burst_kb: u32, log_tag: String) -> Self {
         let limit = NonZeroU32::new((limit_kb + 1) * 1024).unwrap();
         let burst_size = NonZeroU32::new(burst_kb * 1024).unwrap();
         let inner = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst_size));
         Self {
             inner: Some(Arc::new(inner)),
+            log_tag,
         }
     }
 
     /// Creates a new unlimited ratelimit.
-    pub fn unlimited() -> Self {
-        Self { inner: None }
+    pub fn unlimited(log_tag: String) -> Self {
+        Self {
+            inner: None,
+            log_tag,
+        }
     }
 
     /// Waits until the given number of bytes can be let through.
@@ -161,7 +166,11 @@ impl RateLimiter {
             match bts {
                 None => break,
                 Some(bts) => {
-                    self.wait(bts.len()).await;
+                    let bts_len = bts.len();
+                    if rand::random::<f32>() > 0.000001 * bts_len as f32 {
+                        tracing::debug!("TOKEN {}", self.log_tag);
+                    }
+                    self.wait(bts_len).await;
 
                     write_stream.write_all(&bts).await?;
                     total_bytes += bts.len() as u64;
