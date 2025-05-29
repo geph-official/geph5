@@ -7,8 +7,7 @@ use stdcode::StdcodeSerializeExt;
 
 use crate::client::{Config, CtxField};
 
-static DATABASE: CtxField<SqlitePool> = |ctx| {
-    // TODO this somehow does not make all the connections share the same db?
+pub static DATABASE: CtxField<SqlitePool> = |ctx| {
     let db_path = ctx
         .init()
         .cache
@@ -32,9 +31,7 @@ static DATABASE: CtxField<SqlitePool> = |ctx| {
     smol::future::block_on(async move {
         let pool = PoolOptions::new()
             .min_connections(1)
-            .max_connections(2)
-            .max_lifetime(None)
-            .idle_timeout(None)
+            .max_connections(10)
             .connect_lazy_with(options);
 
         sqlx::query(

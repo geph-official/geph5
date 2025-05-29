@@ -17,6 +17,7 @@ use smolscale::immortal::Immortal;
 use crate::{
     auth::{auth_loop, get_auth_token},
     broker::{broker_client, BrokerSource},
+    bw_token::bw_token_refresh_loop,
     client_inner::{client_inner, open_conn},
     control_prot::{
         ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
@@ -67,6 +68,7 @@ pub struct BrokerKeys {
     pub master: String,
     pub mizaru_free: String,
     pub mizaru_plus: String,
+    pub mizaru_bw: String,
 }
 
 impl Config {
@@ -270,6 +272,10 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             .race(
                 auth_loop(&ctx)
                     .inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
+            )
+            .race(
+                bw_token_refresh_loop(&ctx)
+                    .inspect_err(|e| tracing::error!(err = debug(e), "bw token loop stopped")),
             )
             .race(rpc_serve)
             .race(pac_serve(&ctx))

@@ -14,7 +14,9 @@ use geph5_broker_protocol::{
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
-use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
+use mizaru2::{
+    BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature, UnblindedSignature,
+};
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
@@ -32,7 +34,8 @@ use std::{
 };
 
 use crate::auth::validate_secret;
-use crate::database::{insert_exit_metadata, ExitRowWithMetadata};
+use crate::database::{consume_bw, insert_exit_metadata, ExitRowWithMetadata};
+use crate::BW_MIZARU_SK;
 use crate::{
     auth::{get_user_info, register_secret, validate_credential},
     free_voucher::{delete_free_voucher, get_free_voucher},
@@ -173,6 +176,26 @@ impl BrokerProtocol for BrokerImpl {
             .map_err(|_| AuthError::RateLimited)?;
 
         Ok(token)
+    }
+
+    async fn get_bw_token(
+        &self,
+        auth_token: String,
+        blind_token: BlindedClientToken,
+    ) -> Result<SingleBlindedSignature, AuthError> {
+        let (id, level) = valid_auth_token(auth_token)
+            .await
+            .map_err(|_| AuthError::RateLimited)?
+            .ok_or(AuthError::Forbidden)?;
+        if level == AccountLevel::Free {
+            return Err(AuthError::Forbidden);
+        }
+        consume_bw(id, 10)
+            .await
+            .map_err(|_| AuthError::RateLimited)?;
+
+        let sig = BW_MIZARU_SK.blind_sign(&blind_token);
+        Ok(sig)
     }
 
     async fn get_connect_token(
