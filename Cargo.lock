@@ -4911,7 +4911,6 @@ dependencies = [
 name = "mizaru2"
 version = "0.2.13"
 dependencies = [
- "anyhow",
  "blake3",
  "blind-rsa-signatures",
  "hex",
@@ -4919,6 +4918,7 @@ dependencies = [
  "rayon",
  "serde",
  "stdcode",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
