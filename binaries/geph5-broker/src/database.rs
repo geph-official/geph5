@@ -114,6 +114,16 @@ pub async fn insert_exit_metadata(pubkey: [u8; 32], metadata: ExitMetadata) -> a
     Ok(())
 }
 
+pub async fn consume_bw(user_id: i32, mbs: i32) -> anyhow::Result<()> {
+    // TODO enforce limits
+    sqlx::query("update user_bw_limits set mb_used = mb_used + $2 where id = $1")
+        .bind(user_id)
+        .bind(mbs)
+        .execute(&*POSTGRES)
+        .await?;
+    Ok(())
+}
+
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
     // avoid unnecessarily overloading the backend by limiting concurrent route gets.
     static SEMAPH: Semaphore = Semaphore::new(100);

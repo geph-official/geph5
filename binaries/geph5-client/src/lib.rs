@@ -16,6 +16,7 @@ use once_cell::sync::OnceCell;
 
 mod auth;
 mod broker;
+mod bw_token;
 mod china;
 mod client;
 mod client_inner;
@@ -163,6 +164,7 @@ mod tests {
                     .into(),
                 mizaru_plus: "cf6f58868c6d9459b3a63bc2bd86165631b3e916bad7f62b578cd9614e0bcb3b"
                     .into(),
+                mizaru_bw: "".to_string(),
             }),
             // Values that can be overridden by `args`:
             vpn: false,

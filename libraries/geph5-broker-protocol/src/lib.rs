@@ -2,7 +2,9 @@ use std::{collections::BTreeMap, fmt::Display, net::SocketAddr};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use mizaru2::{BlindedClientToken, BlindedSignature, ClientToken, UnblindedSignature};
+use mizaru2::{
+    BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature, UnblindedSignature,
+};
 use nanorpc::nanorpc_derive;
 mod route;
 pub use route::*;
@@ -22,12 +24,14 @@ use thiserror::Error;
 #[async_trait]
 pub trait BrokerProtocol {
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
+
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
     async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError>;
     async fn get_user_info_by_cred(
         &self,
         credential: Credential,
     ) -> Result<Option<UserInfo>, AuthError>;
+
     async fn get_connect_token(
         &self,
         auth_token: String,
@@ -35,6 +39,12 @@ pub trait BrokerProtocol {
         epoch: u16,
         blind_token: BlindedClientToken,
     ) -> Result<BlindedSignature, AuthError>;
+
+    async fn get_bw_token(
+        &self,
+        auth_token: String,
+        blind_token: BlindedClientToken,
+    ) -> Result<SingleBlindedSignature, AuthError>;
 
     async fn get_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError>;
     async fn get_free_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError>;

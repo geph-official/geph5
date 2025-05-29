@@ -63,6 +63,14 @@ static FREE_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| {
     mizaru
 });
 
+/// The bandwidth mizaru SK.
+static BW_MIZARU_SK: Lazy<mizaru2::SingleSecretKey> = Lazy::new(|| {
+    let mizaru = load_mizaru_single_sk("bw.bin");
+    let pk = mizaru.to_public_key();
+    tracing::info!("*** Free Mizaru PK = {} ***", hex::encode(pk.to_der()));
+    mizaru
+});
+
 fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
     let mizaru_keys_dir = &CONFIG_FILE.wait().mizaru_keys;
     let plus_file_path = mizaru_keys_dir.join(name);
@@ -74,6 +82,25 @@ fn load_mizaru_sk(name: &str) -> mizaru2::SecretKey {
     } else {
         // If the file doesn't exist, generate a new secret key and write it to the file
         let new_key = mizaru2::SecretKey::generate(name);
+        if let Some(parent) = plus_file_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&plus_file_path, stdcode::serialize(&new_key).unwrap()).unwrap();
+        new_key
+    }
+}
+
+fn load_mizaru_single_sk(name: &str) -> mizaru2::SingleSecretKey {
+    let mizaru_keys_dir = &CONFIG_FILE.wait().mizaru_keys;
+    let plus_file_path = mizaru_keys_dir.join(name);
+
+    if plus_file_path.exists() {
+        // If the file exists, read it
+        let file_content = fs::read(&plus_file_path).unwrap();
+        stdcode::deserialize(&file_content).unwrap()
+    } else {
+        // If the file doesn't exist, generate a new secret key and write it to the file
+        let new_key = mizaru2::SingleSecretKey::generate(name);
         if let Some(parent) = plus_file_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
