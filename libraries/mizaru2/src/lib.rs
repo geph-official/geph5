@@ -2,6 +2,7 @@ use blind_rsa_signatures as brs;
 use brs::reexports::rsa::pkcs1::EncodeRsaPublicKey as _;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -12,6 +13,16 @@ use std::{
 
 const KEY_COUNT: usize = 65536;
 const KEY_BITS: usize = 2048;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error(transparent)]
+    BlindRsa(#[from] brs::Error),
+    #[error("merkle proof failed")]
+    InvalidMerkleProof,
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Obtains the current epoch.
 pub fn current_epoch() -> u16 {
@@ -122,7 +133,7 @@ impl BlindedSignature {
         self,
         secret: &brs::Secret,
         msg: ClientToken,
-    ) -> anyhow::Result<UnblindedSignature> {
+    ) -> Result<UnblindedSignature> {
         let pk = brs::PublicKey::from_der(&self.used_key)?;
         let blind_sig = brs::BlindSignature::new(self.blinded_sig.clone());
         let unblinded = pk.finalize(
@@ -167,7 +178,7 @@ impl PublicKey {
         &self,
         unblinded: ClientToken,
         sig: &UnblindedSignature,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         self.verify_member(sig.epoch, &sig.used_key, &sig.merkle_branch)?;
         let signature = brs::Signature::new(sig.unblinded_sig.clone());
         signature.verify(
@@ -184,7 +195,7 @@ impl PublicKey {
         epoch: u16,
         subkey: &[u8],
         branch: &[blake3::Hash],
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let mut acc = blake3::hash(subkey);
         for (i, h) in branch.iter().enumerate() {
             acc = if epoch >> i & 1 == 0 {
@@ -195,7 +206,7 @@ impl PublicKey {
         }
         (acc == self.0)
             .then_some(())
-            .ok_or_else(|| anyhow::anyhow!("merkle proof failed"))
+            .ok_or(Error::InvalidMerkleProof)
     }
 }
 
@@ -262,7 +273,7 @@ impl SinglePublicKey {
         &self,
         unblinded: ClientToken,
         sig: &SingleUnblindedSignature,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let pk = brs::PublicKey::from_der(&self.0)?;
         let signature = brs::Signature::new(sig.unblinded_sig.clone());
         signature.verify(
@@ -275,7 +286,7 @@ impl SinglePublicKey {
     }
 
     /// Obtains the inner key.
-    pub fn inner(&self) -> anyhow::Result<brs::PublicKey> {
+    pub fn inner(&self) -> Result<brs::PublicKey> {
         Ok(brs::PublicKey::from_der(&self.0)?)
     }
 
@@ -303,7 +314,7 @@ impl SingleBlindedSignature {
         self,
         secret: &brs::Secret,
         msg: ClientToken,
-    ) -> anyhow::Result<SingleUnblindedSignature> {
+    ) -> Result<SingleUnblindedSignature> {
         let pk = brs::PublicKey::from_der(&self.used_key)?;
         let blind_sig = brs::BlindSignature::new(self.blinded_sig.clone());
         let unblinded = pk.finalize(
