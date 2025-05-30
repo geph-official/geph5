@@ -222,8 +222,6 @@ async fn proxy_loop(
     // we first register the session metadata
     mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?).await?;
 
-
-
     async {
         nursery!({
             // start bandwidth accounting loop
