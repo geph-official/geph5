@@ -138,18 +138,21 @@ echo -e "\033[1mCreating systemd service file for upgrades\033[0m"
 cat > /etc/systemd/system/geph5-exit-upgrade.service <<'EOL'
 [Unit]
 Description=Geph5 Exit Upgrade Service
+After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '
-  curl -s https://artifacts.geph.io/musl-latest/geph5-exit -o /tmp/geph5-exit &&
-  if ! cmp -s /tmp/geph5-exit /usr/local/bin/geph5-exit; then
-    mv /tmp/geph5-exit /usr/local/bin/geph5-exit &&
-    chmod +x /usr/local/bin/geph5-exit &&
-    systemctl restart geph5-exit;
-  else
-    rm /tmp/geph5-exit;
-  fi'
+ExecStart=/bin/bash -c "curl -s https://artifacts.geph.io/musl-latest/geph5-exit -o /tmp/geph5-exit && \
+if ! cmp -s /tmp/geph5-exit /usr/local/bin/geph5-exit; then \
+    mv /tmp/geph5-exit /usr/local/bin/geph5-exit && \
+    chmod +x /usr/local/bin/geph5-exit && \
+    systemctl restart geph5-exit; \
+  else \
+    rm /tmp/geph5-exit; \
+  fi"
+
+[Install]
+WantedBy=multi-user.target
 EOL
 
 ########################################################################
