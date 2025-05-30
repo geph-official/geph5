@@ -1,5 +1,8 @@
 use std::{
-    sync::{atomic::{AtomicUsize, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -7,6 +10,7 @@ use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
+use stdcode::StdcodeSerializeExt;
 
 use crate::{bw_token::bw_token_consume, Config};
 use anyctx::AnyCtx;
@@ -57,14 +61,11 @@ pub async fn bw_accounting_client_loop(
                     .await;
                 while bytes_left.load(Ordering::SeqCst) < THRESHOLD {
                     if let Some((token, sig)) = bw_token_consume(&ctx).await? {
-                        let enc = BASE64_STANDARD_NO_PAD
-                            .encode(&(token, sig).stdcode());
+                        let enc = BASE64_STANDARD_NO_PAD.encode(&(token, sig).stdcode());
                         write.write_all(enc.as_bytes()).await?;
                         write.write_all(b"\n").await?;
-                    } else {
-                        smol::Timer::after(Duration::from_secs(1)).await;
                     }
-                    change_event.listen().await;
+                    smol::Timer::after(Duration::from_secs(1)).await;
                 }
             }
             #[allow(unreachable_code)]
@@ -74,4 +75,3 @@ pub async fn bw_accounting_client_loop(
 
     (read_fut, write_fut).race().await
 }
-

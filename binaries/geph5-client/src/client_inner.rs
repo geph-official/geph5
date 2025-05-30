@@ -222,13 +222,13 @@ async fn proxy_loop(
     // we first register the session metadata
     mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?).await?;
 
-    // start bandwidth accounting loop
-    if let Ok(stream) = mux.open(b"!bw-accounting").await {
-        smolscale::spawn(bw_accounting_client_loop(ctx.clone(), stream)).detach();
-    }
+
 
     async {
         nursery!({
+            // start bandwidth accounting loop
+            spawn!(bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting").await?)).detach();
+
             loop {
                 let mux = mux.clone();
                 let ctx = ctx.clone();

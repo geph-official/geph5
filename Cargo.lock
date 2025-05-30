@@ -3369,6 +3369,7 @@ dependencies = [
  "aws-sdk-lambda",
  "aws-smithy-runtime",
  "base32 0.5.1",
+ "base64 0.22.1",
  "blake3",
  "blind-rsa-signatures",
  "bytes",
