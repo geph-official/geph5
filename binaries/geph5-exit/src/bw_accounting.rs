@@ -1,7 +1,7 @@
 use std::{
     fmt::Debug,
     sync::{
-        atomic::{AtomicU64, AtomicUsize},
+        atomic::AtomicUsize,
         Arc,
     },
     time::Duration,
