@@ -67,7 +67,7 @@ static FREE_MIZARU_SK: Lazy<mizaru2::SecretKey> = Lazy::new(|| {
 static BW_MIZARU_SK: Lazy<mizaru2::SingleSecretKey> = Lazy::new(|| {
     let mizaru = load_mizaru_single_sk("bw.bin");
     let pk = mizaru.to_public_key();
-    tracing::info!("*** Free Mizaru PK = {} ***", hex::encode(pk.to_der()));
+    tracing::info!("*** Bandwidth Mizaru PK = {} ***", hex::encode(pk.to_der()));
     mizaru
 });
 
