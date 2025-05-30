@@ -162,7 +162,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         is_free = level == AccountLevel::Free;
         get_ratelimiter(level, token).await
     } else {
-        RateLimiter::unlimited(ClientToken::random().to_string())
+        RateLimiter::unlimited(None)
     };
 
     let exit_hello = ExitHello {

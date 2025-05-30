@@ -1,5 +1,8 @@
+use std::{sync::LazyLock, time::Duration};
+
 use anyctx::AnyCtx;
 use anyhow::Context as _;
+use futures_intrusive::sync::ManualResetEvent;
 use mizaru2::ClientToken;
 use stdcode::StdcodeSerializeExt;
 
@@ -31,7 +34,7 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         .fetch_one(ctx.get(DATABASE))
         .await?;
     tracing::debug!(count, "checking how many bw tokens we have");
-    let missing = count.saturating_sub(5);
+    let missing = 5i32.saturating_sub(count);
     if missing > 0 {
         tracing::debug!(missing, "fetching missing tokens from the broker");
         let broker = broker_client(ctx)?;
@@ -48,6 +51,14 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 .execute(ctx.get(DATABASE))
                 .await?;
         }
+    } else {
+        // wait for consumption
+        BW_TOKEN_CONSUMED.wait().await;
+        BW_TOKEN_CONSUMED.reset();
+        smol::Timer::after(Duration::from_secs(1)).await;
     }
     Ok(())
 }
+
+static BW_TOKEN_CONSUMED: LazyLock<ManualResetEvent> =
+    LazyLock::new(|| ManualResetEvent::new(false));
