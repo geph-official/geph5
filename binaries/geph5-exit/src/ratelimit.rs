@@ -147,7 +147,7 @@ impl RateLimiter {
     /// Waits until the given number of bytes can be let through.
     pub async fn wait(&self, bytes: usize) {
         if let Some(tag) = &self.log_tag {
-            if rand::random::<f32>() > 0.000001 * bytes as f32 {
+            if rand::random::<f32>() < 0.000001 * bytes as f32 {
                 tracing::debug!("TOKEN {tag}");
             }
         }
