@@ -3504,6 +3504,7 @@ dependencies = [
  "async-native-tls",
  "async-trait",
  "atomic_float",
+ "base64 0.22.1",
  "blake3",
  "bytes",
  "clap",

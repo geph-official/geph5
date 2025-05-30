@@ -25,6 +25,7 @@ mod tls;
 use crate::{
     auth::verify_user,
     broker::{broker_loop, ACCEPT_FREE},
+    bw_accounting::{bw_accounting_loop, BwAccount},
     ipv6::{configure_ipv6_routing, EyeballDialer},
     proxy::proxy_stream,
     ratelimit::{get_ratelimiter, RateLimiter},
@@ -149,6 +150,9 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     };
 
     let mut is_free = false;
+
+    // TODO initialize this properly
+    let bw_account = BwAccount::default();
     let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
         let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
@@ -162,7 +166,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         is_free = level == AccountLevel::Free;
         get_ratelimiter(level, token).await
     } else {
-        RateLimiter::unlimited(None)
+        RateLimiter::unlimited(BwAccount::default(), None)
     };
 
     let exit_hello = ExitHello {
@@ -186,10 +190,21 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     loop {
         let stream = mux.accept().await?;
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
+
+        // special metadata forms
+
+        // JSON metadata sets the session metadata
         if let Ok(new_sess_metadata) = serde_json::from_str::<serde_json::Value>(&metadata) {
             sess_metadata = Arc::new(new_sess_metadata);
             continue;
         }
+
+        // !bw-accounting starts a bandwidth accounting seession.
+        if metadata == "!bw-accounting" {
+            smolscale::spawn(bw_accounting_loop(bw_account.clone(), stream)).detach();
+            continue;
+        }
+
         let sess_metadata = sess_metadata.clone();
         let dialer = dialer.clone();
         smolscale::spawn(

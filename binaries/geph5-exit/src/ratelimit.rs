@@ -19,7 +19,7 @@ use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use sysinfo::System;
 
-use crate::CONFIG_FILE;
+use crate::{bw_accounting::BwAccount, CONFIG_FILE};
 
 static FREE_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
     Cache::builder()
@@ -85,7 +85,12 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
         AccountLevel::Free => {
             FREE_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, 100, None)
+                    RateLimiter::new(
+                        CONFIG_FILE.wait().free_ratelimit,
+                        100,
+                        BwAccount::default(),
+                        None,
+                    )
                 })
                 .await
         }
@@ -95,6 +100,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                     RateLimiter::new(
                         CONFIG_FILE.wait().plus_ratelimit,
                         100,
+                        BwAccount::default(),
                         Some(token.to_string()),
                     )
                 })
@@ -108,24 +114,32 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
 pub struct RateLimiter {
     inner: Option<Arc<DefaultDirectRateLimiter>>,
     log_tag: Option<String>,
+    bw_account: BwAccount,
 }
 
 impl RateLimiter {
     /// Creates a new rate limiter with the given speed limit, in B/s
-    pub fn new(limit_kb: u32, burst_kb: u32, log_tag: Option<String>) -> Self {
+    pub fn new(
+        limit_kb: u32,
+        burst_kb: u32,
+        bw_account: BwAccount,
+        log_tag: Option<String>,
+    ) -> Self {
         let limit = NonZeroU32::new((limit_kb + 1) * 1024).unwrap();
         let burst_size = NonZeroU32::new(burst_kb * 1024).unwrap();
         let inner = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst_size));
         Self {
             inner: Some(Arc::new(inner)),
             log_tag,
+            bw_account,
         }
     }
 
     /// Creates a new unlimited ratelimit.
-    pub fn unlimited(log_tag: Option<String>) -> Self {
+    pub fn unlimited(bw_account: BwAccount, log_tag: Option<String>) -> Self {
         Self {
             inner: None,
+            bw_account,
             log_tag,
         }
     }
@@ -147,10 +161,12 @@ impl RateLimiter {
         let bytes = (bytes as f32 * (multiplier.max(1.0))).min(100000.0);
         if let Some(inner) = &self.inner {
             let mut delay: f32 = 0.005;
+
             while inner
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
                 .is_err()
+                || self.bw_account.consume_bw(bytes as usize) == 0
             {
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
