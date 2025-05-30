@@ -20,7 +20,6 @@ use mizaru2::{
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
 use once_cell::sync::Lazy;
-use serde_json::error::Category;
 
 use std::net::Ipv4Addr;
 use std::str::FromStr as _;
