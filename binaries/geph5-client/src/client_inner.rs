@@ -26,7 +26,17 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, get_dialer::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, traffcount::TRAFF_COUNT, vpn::smart_vpn_whitelist, ConnInfo
+    auth::get_connect_token,
+    bw_accounting::bw_accounting_client_loop,
+    china::is_chinese_host,
+    client::CtxField,
+    control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
+    get_dialer::get_dialer,
+    spoof_dns::fake_dns_backtranslate,
+    stats::{stat_incr_num, stat_set_num},
+    traffcount::TRAFF_COUNT,
+    vpn::smart_vpn_whitelist,
+    ConnInfo,
 };
 
 use super::Config;
@@ -211,6 +221,11 @@ async fn proxy_loop(
 
     // we first register the session metadata
     mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?).await?;
+
+    // start bandwidth accounting loop
+    if let Ok(stream) = mux.open(b"!bw-accounting").await {
+        smolscale::spawn(bw_accounting_client_loop(ctx.clone(), stream)).detach();
+    }
 
     async {
         nursery!({

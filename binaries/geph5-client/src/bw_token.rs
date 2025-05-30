@@ -3,7 +3,7 @@ use std::{sync::LazyLock, time::Duration};
 use anyctx::AnyCtx;
 use anyhow::Context as _;
 use futures_intrusive::sync::ManualResetEvent;
-use mizaru2::ClientToken;
+use mizaru2::{ClientToken, SingleUnblindedSignature};
 use stdcode::StdcodeSerializeExt;
 
 use crate::{auth::get_auth_token, broker_client, database::DATABASE, Config};
@@ -62,3 +62,26 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 
 static BW_TOKEN_CONSUMED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
+
+/// Consumes a bandwidth token from the local database, returning it if present.
+#[tracing::instrument(skip(ctx))]
+pub async fn bw_token_consume(
+    ctx: &AnyCtx<Config>,
+) -> anyhow::Result<Option<(ClientToken, SingleUnblindedSignature)>> {
+    if let Some((token_blob, rand_id)) = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+        "SELECT token, rand_id FROM bw_tokens ORDER BY rand_id LIMIT 1",
+    )
+    .fetch_optional(ctx.get(DATABASE))
+    .await?
+    {
+        sqlx::query("DELETE FROM bw_tokens WHERE rand_id = ?")
+            .bind(rand_id)
+            .execute(ctx.get(DATABASE))
+            .await?;
+        BW_TOKEN_CONSUMED.set();
+        let res: (ClientToken, SingleUnblindedSignature) = stdcode::deserialize(&token_blob)?;
+        Ok(Some(res))
+    } else {
+        Ok(None)
+    }
+}
