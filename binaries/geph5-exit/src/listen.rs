@@ -152,7 +152,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     let mut is_free = false;
 
     // TODO initialize this properly
-    let bw_account = BwAccount::default();
+    let bw_account = BwAccount::unlimited();
     let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
         let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
@@ -164,9 +164,9 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             tracing::warn!(err = debug(e), "**** BAD BAD bad token received ***")
         })?;
         is_free = level == AccountLevel::Free;
-        get_ratelimiter(level, token).await
+        get_ratelimiter(bw_account.clone(), level, token).await
     } else {
-        RateLimiter::unlimited(BwAccount::default(), None)
+        RateLimiter::unlimited(bw_account.clone(), None)
     };
 
     let exit_hello = ExitHello {

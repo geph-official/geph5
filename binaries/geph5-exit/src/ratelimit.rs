@@ -80,17 +80,16 @@ pub fn update_load_loop() {
     }
 }
 
-pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLimiter {
+pub async fn get_ratelimiter(
+    bw_account: BwAccount,
+    level: AccountLevel,
+    token: ClientToken,
+) -> RateLimiter {
     match level {
         AccountLevel::Free => {
             FREE_RL_CACHE
                 .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().free_ratelimit,
-                        100,
-                        BwAccount::default(),
-                        None,
-                    )
+                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, 100, bw_account, None)
                 })
                 .await
         }
@@ -100,7 +99,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                     RateLimiter::new(
                         CONFIG_FILE.wait().plus_ratelimit,
                         100,
-                        BwAccount::default(),
+                        bw_account,
                         Some(token.to_string()),
                     )
                 })

@@ -224,8 +224,6 @@ async fn proxy_loop(
 
     async {
         nursery!({
-            // start bandwidth accounting loop
-            spawn!(bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting").await?)).detach();
 
             loop {
                 let mux = mux.clone();
@@ -253,6 +251,7 @@ async fn proxy_loop(
             }
         })
     }.or(mux.wait_until_dead())
+    .or(bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting").await?))
     .await
 }
 

@@ -23,6 +23,7 @@ pub async fn bw_accounting_client_loop(
     ctx: AnyCtx<Config>,
     stream: picomux::Stream,
 ) -> anyhow::Result<()> {
+    tracing::info!("BW ACCOUNT START!");
     let (mut read, mut write) = stream.split();
     let bytes_left = Arc::new(AtomicUsize::new(usize::MAX));
     let change_event = Arc::new(Event::new());
@@ -34,8 +35,9 @@ pub async fn bw_accounting_client_loop(
             let mut buf = [0u8; 8];
             loop {
                 read.read_exact(&mut buf).await?;
-                let val = u64::from_be_bytes(buf) as usize;
-                bytes_left.store(val, Ordering::SeqCst);
+                let bytes = u64::from_be_bytes(buf) as usize;
+                tracing::debug!(bytes, "obtained remote bw");
+                bytes_left.store(bytes, Ordering::SeqCst);
                 change_event.notify_one();
             }
             #[allow(unreachable_code)]
