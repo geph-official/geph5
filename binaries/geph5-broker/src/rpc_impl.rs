@@ -714,6 +714,9 @@ impl BrokerProtocol for BrokerImpl {
         // Get a payment session for the user
         let sessid = payment_sessid(user_id).await?;
 
+        // Delete the free voucher after successful redemption
+        delete_free_voucher(user_id).await?;
+
         // Call the payment service to spend the gift card
         let days = PaymentClient(PaymentTransport)
             .spend_giftcard(
@@ -725,9 +728,6 @@ impl BrokerProtocol for BrokerImpl {
             )
             .await?
             .map_err(|e| GenericError(format!("Failed to redeem voucher: {}", e)))?;
-
-        // Delete the free voucher after successful redemption
-        delete_free_voucher(user_id).await?;
 
         // Return the number of days credited to the account
         Ok(days)
