@@ -66,11 +66,19 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
         .execute(&mut *txn)
         .await?;
 
-        let code = PaymentClient(PaymentTransport)
-            .create_giftcard(CONFIG_FILE.wait().payment_support_secret.clone(), 1)
-            .await?
-            .map_err(|e| anyhow::anyhow!(e))?;
-        sqlx::query(
+        let uname: Option<String> =
+            sqlx::query_scalar("select username from auth_password where user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&mut *txn)
+                .await?;
+        if let Some(uname) = uname {
+            tracing::debug!("upgrading legacy username {uname} with a free gift");
+
+            let code = PaymentClient(PaymentTransport)
+                .create_giftcard(CONFIG_FILE.wait().payment_support_secret.clone(), 1)
+                .await?
+                .map_err(|e| anyhow::anyhow!(e))?;
+            sqlx::query(
                 r#"
             INSERT INTO free_vouchers (id, voucher, description, visible_after)
             VALUES ($1, $2, $3, (select coalesce(max(visible_after) + '1 second', NOW()) from free_vouchers))
@@ -81,6 +89,7 @@ pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
             .bind(include_str!("free_voucher_description.json"))
             .execute(&mut *txn)
             .await?;
+        }
 
         txn.commit().await?;
         Ok(secret)
