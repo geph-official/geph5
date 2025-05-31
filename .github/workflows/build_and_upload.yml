@@ -109,16 +109,16 @@ jobs:
           target: x86_64-unknown-linux-musl
 
       # Add Rust cache for bridge-exit job
-      - name: Cache Rust dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: bridge-exit-ubuntu-24.04-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            bridge-exit-ubuntu-24.04-musl-cargo-
+      # - name: Cache Rust dependencies
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       ~/.cargo/registry
+      #       ~/.cargo/git
+      #       target
+      #     key: bridge-exit-ubuntu-24.04-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
+      #     restore-keys: |
+      #       bridge-exit-ubuntu-24.04-musl-cargo-
 
       - name: Set default host
         shell: bash
