@@ -39,17 +39,23 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         tracing::debug!(missing, "fetching missing tokens from the broker");
         let broker = broker_client(ctx)?;
         for _ in 0..missing {
-            let token = ClientToken::random();
-            let (blind_token, secret) = token.blind(&mizaru_bw.inner()?);
-            let lele = broker
-                .get_bw_token(get_auth_token(ctx).await?, blind_token)
-                .await??;
-            let sig = lele.unblind(&secret, token)?;
-            sqlx::query("insert into bw_tokens values ($1, $2)")
-                .bind((token, sig).stdcode())
-                .bind(token.stdcode())
-                .execute(ctx.get(DATABASE))
-                .await?;
+            let fallible = async {
+                let token = ClientToken::random();
+                let (blind_token, secret) = token.blind(&mizaru_bw.inner()?);
+                let lele = broker
+                    .get_bw_token(get_auth_token(ctx).await?, blind_token)
+                    .await??;
+                let sig = lele.unblind(&secret, token)?;
+                sqlx::query("insert into bw_tokens values ($1, $2)")
+                    .bind((token, sig).stdcode())
+                    .bind(token.stdcode())
+                    .execute(ctx.get(DATABASE))
+                    .await?;
+                anyhow::Ok(())
+            };
+            if let Err(err) = fallible.await {
+                tracing::warn!(err = debug(err), "cannot obtain bw token");
+            }
         }
     } else {
         // wait for consumption

@@ -251,7 +251,13 @@ async fn proxy_loop(
             }
         })
     }.or(mux.wait_until_dead())
-    .or(bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting").await?))
+    .or(async {
+        if instance == 0 {
+            bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting").await?).await
+        } else {
+            smol::future::pending().await
+        }
+    })
     .await
 }
 

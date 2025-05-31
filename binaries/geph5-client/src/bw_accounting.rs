@@ -15,7 +15,7 @@ use stdcode::StdcodeSerializeExt;
 use crate::{bw_token::bw_token_consume, Config};
 use anyctx::AnyCtx;
 
-const THRESHOLD: usize = 5 * 1024 * 1024;
+const THRESHOLD: usize = 5_000_000;
 
 /// Handles the exit-to-client bandwidth accounting protocol.
 #[tracing::instrument(skip_all)]
@@ -40,8 +40,6 @@ pub async fn bw_accounting_client_loop(
                 bytes_left.store(bytes, Ordering::SeqCst);
                 change_event.notify_one();
             }
-            #[allow(unreachable_code)]
-            Ok::<(), anyhow::Error>(())
         }
     };
 
@@ -70,8 +68,6 @@ pub async fn bw_accounting_client_loop(
                     smol::Timer::after(Duration::from_secs(1)).await;
                 }
             }
-            #[allow(unreachable_code)]
-            Ok::<(), anyhow::Error>(())
         }
     };
 

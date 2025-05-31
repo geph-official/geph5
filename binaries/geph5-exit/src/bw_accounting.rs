@@ -5,6 +5,7 @@ use std::{
         Arc,
     },
     time::Duration,
+    u64,
 };
 
 use async_event::Event;
@@ -17,21 +18,22 @@ use mizaru2::{ClientToken, SingleUnblindedSignature};
 #[tracing::instrument]
 pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> anyhow::Result<()> {
     tracing::debug!("starting accounting loop!");
+    scopeguard::defer!(tracing::debug!("stopping accounting loop"));
     let (read, mut write) = stream.split();
     let mut read = BufReader::new(read);
     let read_fut = async {
         let mut buf = String::new();
         loop {
             buf.clear();
-            (&mut read).take(2000).read_line(&mut buf).await?;
+            read.read_line(&mut buf).await?;
             let (token, sig): (ClientToken, SingleUnblindedSignature) =
-                stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(&buf)?)?;
+                stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(&buf.trim())?)?;
             tracing::debug!("obtained token, crediting bandwidth");
             account.credit_bw(token, sig).await?;
         }
     };
     let write_fut = async {
-        let mut last_bytes_left = 0;
+        let mut last_bytes_left = u64::MAX;
         loop {
             let bytes_left = account
                 .change_event
@@ -67,14 +69,23 @@ impl Debug for BwAccount {
     }
 }
 
-static BW_ACCOUNT: AtomicU64 = AtomicU64::new(0);
+static NEXT_FREE_ID: AtomicU64 = AtomicU64::new(0);
 
 impl BwAccount {
     /// Create an unlimited BwAccount
     pub fn unlimited() -> Self {
         Self {
-            id: BW_ACCOUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            bytes_left: Default::default(),
+            id: NEXT_FREE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            bytes_left: Arc::new(AtomicU64::new(u64::MAX)),
+            change_event: Default::default(),
+        }
+    }
+
+    /// Create an empty BwAccount
+    pub fn empty() -> Self {
+        Self {
+            id: NEXT_FREE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            bytes_left: Arc::new(AtomicU64::new(0)),
             change_event: Default::default(),
         }
     }
@@ -85,8 +96,6 @@ impl BwAccount {
         token: ClientToken,
         sig: SingleUnblindedSignature,
     ) -> anyhow::Result<()> {
-        // TODO actually ask the broker
-        smol::Timer::after(Duration::from_secs(2)).await;
         self.bytes_left
             .fetch_add(10_000_000, std::sync::atomic::Ordering::SeqCst);
         self.change_event.notify_one();
@@ -104,6 +113,7 @@ impl BwAccount {
                 |x| Some(x.saturating_sub(bytes as _)),
             )
             .unwrap();
+
         self.change_event.notify_one();
         res
     }
