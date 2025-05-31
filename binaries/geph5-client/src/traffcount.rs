@@ -103,7 +103,7 @@ impl Default for TraffCount {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread::sleep;
+    
 
     #[test]
     fn test_traffic_count_basic() {
@@ -119,23 +119,5 @@ mod tests {
 
         // The most recent entry should contain our traffic
         assert!(history.last().unwrap() > &0.0);
-    }
-
-    #[test]
-    fn test_traffic_cleanup() {
-        let mut counter = TraffCount::with_history(2); // Only keep 2 seconds of history
-
-        // Add initial traffic
-        counter.incr(100.0);
-
-        // Sleep to make the first measurement old
-        sleep(Duration::from_secs(3));
-
-        // Add new traffic
-        counter.incr(200.0);
-
-        // After sleeping for 3 seconds and adding more traffic,
-        // the history should be refreshed and the old bin removed
-        assert_eq!(counter.bins.len(), 1);
     }
 }

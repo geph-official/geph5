@@ -43,8 +43,8 @@ impl tower_service::Service<Uri> for Connector {
             fut: async move {
                 match host_addr(&dst) {
                     None => {
-                        use std::io::{Error, ErrorKind};
-                        let err = Error::new(ErrorKind::Other, "URI must be a valid Address");
+                        use std::io::Error;
+                        let err = Error::other("URI must be a valid Address");
                         Err(err)
                     }
                     Some(addr) => open_conn(&ctx, "tcp", &addr.to_string())

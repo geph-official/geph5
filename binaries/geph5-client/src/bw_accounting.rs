@@ -1,10 +1,7 @@
-use std::{
-    sync::{
+use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
-    },
-    time::Duration,
-};
+    };
 
 use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
@@ -59,14 +56,21 @@ pub async fn bw_accounting_client_loop(
                         }
                     })
                     .await;
-                while bytes_left.load(Ordering::SeqCst) < THRESHOLD {
-                    if let Some((token, sig)) = bw_token_consume(&ctx).await? {
-                        let enc = BASE64_STANDARD_NO_PAD.encode(&(token, sig).stdcode());
-                        write.write_all(enc.as_bytes()).await?;
-                        write.write_all(b"\n").await?;
-                    }
-                    smol::Timer::after(Duration::from_secs(1)).await;
+                if let Some((token, sig)) = bw_token_consume(&ctx).await? {
+                    let enc = BASE64_STANDARD_NO_PAD.encode((token, sig).stdcode());
+                    write.write_all(enc.as_bytes()).await?;
+                    write.write_all(b"\n").await?;
                 }
+                change_event
+                    .wait_until(|| {
+                        let left = bytes_left.load(Ordering::SeqCst);
+                        if left >= THRESHOLD {
+                            Some(left)
+                        } else {
+                            None
+                        }
+                    })
+                    .await;
             }
         }
     };

@@ -20,7 +20,7 @@ pub async fn bw_token_refresh_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     }
 
     loop {
-        bw_token_refresh_inner(&ctx).await?;
+        bw_token_refresh_inner(ctx).await?;
     }
 }
 
