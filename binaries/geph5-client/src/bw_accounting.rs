@@ -1,7 +1,7 @@
 use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    };
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};

@@ -3,7 +3,8 @@ use std::{collections::BTreeMap, fmt::Display, net::SocketAddr};
 use async_trait::async_trait;
 use bytes::Bytes;
 use mizaru2::{
-    BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature, UnblindedSignature,
+    BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature,
+    SingleUnblindedSignature, UnblindedSignature,
 };
 use nanorpc::nanorpc_derive;
 mod route;
@@ -45,6 +46,12 @@ pub trait BrokerProtocol {
         auth_token: String,
         blind_token: BlindedClientToken,
     ) -> Result<SingleBlindedSignature, AuthError>;
+
+    async fn consume_bw_token(
+        &self,
+        token: ClientToken,
+        sig: SingleUnblindedSignature,
+    ) -> Result<(), AuthError>;
 
     async fn get_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError>;
     async fn get_free_exits(&self) -> Result<StdcodeSigned<ExitList>, GenericError>;

@@ -15,7 +15,8 @@ use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
 use isocountry::CountryCode;
 use mizaru2::{
-    BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature, UnblindedSignature,
+    BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature,
+    SingleUnblindedSignature, UnblindedSignature,
 };
 use moka::future::Cache;
 use nanorpc::{RpcService, ServerError};
@@ -434,6 +435,19 @@ impl BrokerProtocol for BrokerImpl {
             client_metadata: Default::default(),
         })
         .await
+    }
+
+    async fn consume_bw_token(
+        &self,
+        token: ClientToken,
+        sig: SingleUnblindedSignature,
+    ) -> Result<(), AuthError> {
+        BW_MIZARU_SK
+            .to_public_key()
+            .blind_verify(token, &sig)
+            .map_err(|_| AuthError::Forbidden)?;
+        // TODO prevent replays by writing to a DB. This requires something smarter than stuffing it into postgresql and causing a neverending log.
+        Ok(())
     }
 
     async fn insert_exit(

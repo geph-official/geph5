@@ -12,7 +12,10 @@ use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use futures_concurrency::future::Race;
 use futures_util::{io::BufReader, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use geph5_broker_protocol::BrokerClient;
 use mizaru2::{ClientToken, SingleUnblindedSignature};
+
+use crate::{broker::BrokerRpcTransport, CONFIG_FILE};
 
 /// Process the client-to-exit bandwidth accounting protocol.
 #[tracing::instrument]
@@ -96,6 +99,12 @@ impl BwAccount {
         token: ClientToken,
         sig: SingleUnblindedSignature,
     ) -> anyhow::Result<()> {
+        if let Some(broker) = &CONFIG_FILE.wait().broker {
+            let transport = BrokerRpcTransport::new(&broker.url);
+            let client = BrokerClient(transport);
+            client.consume_bw_token(token, sig).await??;
+        };
+
         self.bytes_left
             .fetch_add(10_000_000, std::sync::atomic::Ordering::SeqCst);
         self.change_event.notify_one();
