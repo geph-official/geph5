@@ -12,13 +12,14 @@ pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo
     loop {
         let mut txn = POSTGRES.begin().await?;
         let row: Option<(String, String)> = sqlx::query_as(
-        "select id, voucher,description from free_vouchers natural join users where id = $1 limit 1",
+        "select voucher,description from free_vouchers natural join users where id = $1 limit 1",
     )
     .bind(user_id)
     .fetch_optional(&mut *txn)
     .await?;
         if let Some((voucher, description)) = row {
             if voucher == "" {
+                tracing::debug!("dynamically generating a voucher!!!");
                 // dynamically generate one and save
                 // HACK: using the description to uniquely identify the row here.
                 let code = PaymentClient(PaymentTransport)
