@@ -88,7 +88,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                     RateLimiter::new(
                         CONFIG_FILE.wait().free_ratelimit,
                         100,
-                        BwAccount::default(),
+                        BwAccount::unlimited(),
                         None,
                     )
                 })
@@ -100,7 +100,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                     RateLimiter::new(
                         CONFIG_FILE.wait().plus_ratelimit,
                         100,
-                        BwAccount::default(),
+                        BwAccount::empty(),
                         Some(token.to_string()),
                     )
                 })
@@ -135,6 +135,11 @@ impl RateLimiter {
         }
     }
 
+    /// Gets the BwAccount out of this ratelimit
+    pub fn bw_account(&self) -> BwAccount {
+        self.bw_account.clone()
+    }
+
     /// Creates a new unlimited ratelimit.
     pub fn unlimited(bw_account: BwAccount, log_tag: Option<String>) -> Self {
         Self {
@@ -152,6 +157,9 @@ impl RateLimiter {
             }
         }
 
+        // TODO do something when the bandwidth is exhausted
+        self.bw_account.consume_bw(bytes as usize);
+
         TOTAL_BYTE_COUNT.fetch_add(bytes as _, Ordering::Relaxed);
         if bytes == 0 {
             return;
@@ -159,6 +167,7 @@ impl RateLimiter {
         let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
 
         let bytes = (bytes as f32 * (multiplier.max(1.0))).min(100000.0);
+
         if let Some(inner) = &self.inner {
             let mut delay: f32 = 0.005;
 
@@ -166,7 +175,6 @@ impl RateLimiter {
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
                 .is_err()
-                || self.bw_account.consume_bw(bytes as usize) == 0
             {
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;

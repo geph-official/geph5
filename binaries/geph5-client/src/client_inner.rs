@@ -26,7 +26,17 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token, china::is_chinese_host, client::CtxField, control_prot::{ConnectedInfo, CURRENT_CONN_INFO}, get_dialer::get_dialer, spoof_dns::fake_dns_backtranslate, stats::{stat_incr_num, stat_set_num}, traffcount::TRAFF_COUNT, vpn::smart_vpn_whitelist, ConnInfo
+    auth::get_connect_token,
+    bw_accounting::bw_accounting_client_loop,
+    china::is_chinese_host,
+    client::CtxField,
+    control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
+    get_dialer::get_dialer,
+    spoof_dns::fake_dns_backtranslate,
+    stats::{stat_incr_num, stat_set_num},
+    traffcount::TRAFF_COUNT,
+    vpn::smart_vpn_whitelist,
+    ConnInfo,
 };
 
 use super::Config;
@@ -214,6 +224,7 @@ async fn proxy_loop(
 
     async {
         nursery!({
+
             loop {
                 let mux = mux.clone();
                 let ctx = ctx.clone();
@@ -240,6 +251,13 @@ async fn proxy_loop(
             }
         })
     }.or(mux.wait_until_dead())
+    .or(async {
+        if instance == 0 {
+            bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting").await?).await
+        } else {
+            smol::future::pending().await
+        }
+    })
     .await
 }
 

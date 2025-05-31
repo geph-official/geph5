@@ -152,7 +152,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     let mut is_free = false;
 
     // TODO initialize this properly
-    let bw_account = BwAccount::default();
+
     let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
         let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
             stdcode::deserialize(&client_hello.credentials)
@@ -166,7 +166,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         is_free = level == AccountLevel::Free;
         get_ratelimiter(level, token).await
     } else {
-        RateLimiter::unlimited(BwAccount::default(), None)
+        RateLimiter::unlimited(BwAccount::unlimited(), None)
     };
 
     let exit_hello = ExitHello {
@@ -201,7 +201,11 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
         // !bw-accounting starts a bandwidth accounting seession.
         if metadata == "!bw-accounting" {
-            smolscale::spawn(bw_accounting_loop(bw_account.clone(), stream)).detach();
+            smolscale::spawn(
+                bw_accounting_loop(ratelimit.bw_account(), stream)
+                    .inspect_err(|e| tracing::warn!(err = debug(e), "bw_accounting_loop died")),
+            )
+            .detach();
             continue;
         }
 
