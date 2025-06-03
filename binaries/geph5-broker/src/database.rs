@@ -116,7 +116,7 @@ pub async fn insert_exit_metadata(pubkey: [u8; 32], metadata: ExitMetadata) -> a
 
 pub async fn consume_bw(user_id: i32, mbs: i32) -> anyhow::Result<()> {
     // TODO enforce limits
-    sqlx::query("insert into bw_usage (id, mb_used) values ($1, $2) on conflict(id) do update set mb_used = mb_used + EXCLUDED.mb_used where id = $1")
+    sqlx::query("insert into bw_usage (id, mb_used) values ($1, $2) on conflict(id) do update set mb_used = bw_usage.mb_used + EXCLUDED.mb_used")
         .bind(user_id)
         .bind(mbs)
         .execute(&*POSTGRES)
