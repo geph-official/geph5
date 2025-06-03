@@ -2,7 +2,7 @@
 name = "mizaru2"
 edition = "2021"
 description = "Mizaru2"
-version = "0.2.13"
+version = "0.2.14"
 repository.workspace = true
 license.workspace = true
 
