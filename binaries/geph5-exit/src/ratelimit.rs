@@ -88,7 +88,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                     RateLimiter::new(
                         CONFIG_FILE.wait().free_ratelimit,
                         100,
-                        BwAccount::unlimited(),
+                        BwAccount::empty(),
                         None,
                     )
                 })
