@@ -187,9 +187,7 @@ impl BrokerProtocol for BrokerImpl {
             .await
             .map_err(|_| AuthError::RateLimited)?
             .ok_or(AuthError::Forbidden)?;
-        if level == AccountLevel::Free {
-            return Err(AuthError::Forbidden);
-        }
+
         consume_bw(id, 10)
             .await
             .map_err(|_| AuthError::RateLimited)?;

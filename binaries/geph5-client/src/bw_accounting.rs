@@ -9,7 +9,7 @@ use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use stdcode::StdcodeSerializeExt;
 
-use crate::{bw_token::bw_token_consume, Config};
+use crate::{auth::get_connect_token, bw_token::bw_token_consume, Config};
 use anyctx::AnyCtx;
 
 const THRESHOLD: usize = 5_000_000;
@@ -21,6 +21,7 @@ pub async fn bw_accounting_client_loop(
     stream: picomux::Stream,
 ) -> anyhow::Result<()> {
     tracing::info!("BW ACCOUNT START!");
+
     let (mut read, mut write) = stream.split();
     let bytes_left = Arc::new(AtomicUsize::new(usize::MAX));
     let change_event = Arc::new(Event::new());
