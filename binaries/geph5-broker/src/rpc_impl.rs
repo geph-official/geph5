@@ -183,7 +183,7 @@ impl BrokerProtocol for BrokerImpl {
         auth_token: String,
         blind_token: BlindedClientToken,
     ) -> Result<SingleBlindedSignature, AuthError> {
-        let (id, level) = valid_auth_token(auth_token)
+        let (id, _) = valid_auth_token(auth_token)
             .await
             .map_err(|_| AuthError::RateLimited)?
             .ok_or(AuthError::Forbidden)?;
