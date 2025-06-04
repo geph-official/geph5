@@ -55,6 +55,7 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
             };
             if let Err(err) = fallible.await {
                 tracing::warn!(err = debug(err), "cannot obtain bw token");
+                smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() * 10.0)).await;
             }
         }
     } else {
