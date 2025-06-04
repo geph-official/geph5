@@ -1,7 +1,7 @@
 use super::POSTGRES;
 
 pub async fn consume_bw(user_id: i32, mbs: i32) -> anyhow::Result<()> {
-    let mut txn = POSTGRES.acquire().await?;
+    let mut txn = POSTGRES.begin().await?;
 
     let mb_used: i32 = sqlx::query_scalar(
         "INSERT INTO bw_usage (id, mb_used)
@@ -43,5 +43,6 @@ LIMIT 1;
     .await?;
 
     tracing::debug!("{user_id} consumed {mb_used}+{mbs} out of {:?}", limit);
+    txn.commit().await?;
     Ok(())
 }
