@@ -1,8 +1,6 @@
-use std::{ops::Deref, str::FromStr, sync::LazyLock, time::Duration};
+use std::{str::FromStr, sync::LazyLock, time::Duration};
 
-use anyhow::Context;
 use async_io::Timer;
-use geph5_broker_protocol::ExitMetadata;
 use rand::Rng;
 use sqlx::{
     pool::PoolOptions,
@@ -12,7 +10,7 @@ use sqlx::{
 
 use crate::CONFIG_FILE;
 
-pub static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
+static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     smolscale::block_on(
         PoolOptions::new()
             .max_connections(300)
@@ -51,16 +49,15 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
     }
 }
 
-pub mod exits;
-pub mod bridges;
-pub mod bandwidth;
 pub mod auth;
-pub mod puzzle;
+pub mod bandwidth;
+pub mod bridges;
+pub mod exits;
 pub mod free_voucher;
+pub mod puzzle;
 pub mod self_stat;
 
 /// Initialize the database connection pool
 pub fn init() {
     LazyLock::force(&POSTGRES);
 }
-

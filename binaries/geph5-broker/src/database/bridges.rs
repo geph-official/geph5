@@ -2,10 +2,9 @@ use super::POSTGRES;
 use anyhow::Context;
 use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
-use rand::Rng;
 use smol::lock::Semaphore;
 use smol_timeout2::TimeoutExt;
-use std::{ops::Deref, sync::LazyLock, time::Duration};
+use std::{sync::LazyLock, time::Duration};
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
     static SEMAPH: Semaphore = Semaphore::new(100);

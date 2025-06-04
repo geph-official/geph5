@@ -1,7 +1,7 @@
 use std::{
     fmt::Debug,
     sync::{
-        atomic::{AtomicU64, AtomicUsize},
+        atomic::AtomicU64,
         Arc,
     },
     time::Duration,
@@ -30,7 +30,7 @@ pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> 
             buf.clear();
             read.read_line(&mut buf).await?;
             let (token, sig): (ClientToken, SingleUnblindedSignature) =
-                stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(&buf.trim())?)?;
+                stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(buf.trim())?)?;
             tracing::debug!("obtained token, crediting bandwidth");
             account.credit_bw(token, sig).await?;
         }

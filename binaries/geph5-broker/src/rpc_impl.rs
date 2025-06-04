@@ -583,7 +583,7 @@ impl BrokerProtocol for BrokerImpl {
         let sessid = payment_sessid(user_id).await?;
         rpc.cancel_recurring(sessid)
             .await?
-            .map_err(|e| GenericError(e))?;
+            .map_err(GenericError)?;
         // delete for good
         crate::database::auth::delete_user_by_secret(&secret).await?;
         Ok(())

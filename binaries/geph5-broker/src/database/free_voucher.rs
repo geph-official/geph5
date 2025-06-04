@@ -18,7 +18,7 @@ pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo
     .fetch_optional(&mut *txn)
     .await?;
         if let Some((voucher, description)) = row {
-            if voucher == "" {
+            if voucher.is_empty() {
                 tracing::debug!("dynamically generating a voucher!!!");
                 // dynamically generate one and save
                 // HACK: using the description to uniquely identify the row here.

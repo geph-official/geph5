@@ -12,7 +12,7 @@ use rpc_impl::WrappedBrokerService;
 use database::self_stat::self_stat_loop;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
-use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock};
+use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 

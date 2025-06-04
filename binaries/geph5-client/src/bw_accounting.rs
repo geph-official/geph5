@@ -9,7 +9,7 @@ use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use stdcode::StdcodeSerializeExt;
 
-use crate::{auth::get_connect_token, bw_token::bw_token_consume, Config};
+use crate::{bw_token::bw_token_consume, Config};
 use anyctx::AnyCtx;
 
 const THRESHOLD: usize = 5_000_000;

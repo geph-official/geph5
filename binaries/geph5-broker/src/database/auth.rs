@@ -5,7 +5,6 @@ use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
 
 use std::{
     collections::BTreeMap,
-    ops::Deref as _,
     sync::{Arc, LazyLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
