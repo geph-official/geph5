@@ -4,15 +4,16 @@ use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
+use moka::future::Cache;
 use nano_influxdb::InfluxDbEndpoint;
-use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
+use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
 use database::self_stat::self_stat_loop;
 use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
-use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
+use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::Duration};
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -208,7 +209,21 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
-    Json(WrappedBrokerService::new().respond_raw(payload).await)
+    // we assume the JrpcRequest IDs are reasonably unique, so we use this technique to deduplicate duplicate requests. Duplicate requests often happen when multiple different broker sources race against each other on censored networks.
+    static DEDUP_CACHE: LazyLock<Cache<(JrpcId, String), JrpcResponse>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(10))
+            .build()
+    });
+
+    let resp = DEDUP_CACHE
+        .get_with(
+            (payload.id.clone(), payload.method.clone()),
+            WrappedBrokerService::new().respond_raw(payload),
+        )
+        .await;
+
+    Json(resp)
 }
 
 fn log_error(e: &impl Debug) {
