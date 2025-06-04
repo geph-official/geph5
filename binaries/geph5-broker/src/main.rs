@@ -216,6 +216,10 @@ async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
             .build()
     });
 
+    if rand::random::<f32>() < 0.001 {
+        tracing::debug!("{} entries in DEDUP_CACHE", DEDUP_CACHE.entry_count());
+    }
+
     let resp = DEDUP_CACHE
         .get_with(
             (payload.id.clone(), payload.method.clone()),
