@@ -9,23 +9,18 @@ use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
 use rpc_impl::WrappedBrokerService;
-use self_stat::self_stat_loop;
+use database::self_stat::self_stat_loop;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock};
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-mod auth;
 mod database;
-
-mod free_voucher;
 mod news;
 mod payments;
-mod puzzle;
 mod routes;
 mod rpc_impl;
-mod self_stat;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -194,7 +189,7 @@ async fn main() -> anyhow::Result<()> {
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
     Lazy::force(&BW_MIZARU_SK);
-    LazyLock::force(&database::POSTGRES);
+    database::init();
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
     let _self_stat_loop = Immortal::respawn(RespawnStrategy::Immediate, self_stat_loop);

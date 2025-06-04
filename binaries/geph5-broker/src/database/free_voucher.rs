@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use geph5_broker_protocol::VoucherInfo;
 
+use super::POSTGRES;
 use crate::{
-    database::POSTGRES,
     payments::{PaymentClient, PaymentTransport},
     CONFIG_FILE,
 };
