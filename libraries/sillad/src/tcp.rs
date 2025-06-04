@@ -111,8 +111,7 @@ impl Dialer for HappyEyeballsTcpDialer {
             })
             .reduce(|a, b| a.race(b).dynamic());
         match res {
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            None => Err(std::io::Error::other(
                 "no addresses given",
             )),
             Some(dialer) => dialer.dial().await,

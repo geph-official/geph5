@@ -158,7 +158,7 @@ impl RateLimiter {
         }
 
         // TODO do something when the bandwidth is exhausted
-        self.bw_account.consume_bw(bytes as usize);
+        self.bw_account.consume_bw(bytes);
 
         TOTAL_BYTE_COUNT.fetch_add(bytes as _, Ordering::Relaxed);
         if bytes == 0 {

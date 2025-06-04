@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use geph5_broker_protocol::VoucherInfo;
 
+use super::POSTGRES;
 use crate::{
-    database::POSTGRES,
     payments::{PaymentClient, PaymentTransport},
     CONFIG_FILE,
 };
@@ -18,7 +18,7 @@ pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo
     .fetch_optional(&mut *txn)
     .await?;
         if let Some((voucher, description)) = row {
-            if voucher == "" {
+            if voucher.is_empty() {
                 tracing::debug!("dynamically generating a voucher!!!");
                 // dynamically generate one and save
                 // HACK: using the description to uniquely identify the row here.

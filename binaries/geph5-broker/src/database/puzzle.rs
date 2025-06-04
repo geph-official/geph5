@@ -1,6 +1,7 @@
 use rand::RngCore;
 
-use crate::{database::POSTGRES, CONFIG_FILE};
+use super::POSTGRES;
+use crate::CONFIG_FILE;
 
 pub async fn new_puzzle() -> String {
     let mut bts = [0u8; 20];
