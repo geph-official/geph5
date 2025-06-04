@@ -33,23 +33,23 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::auth::validate_secret;
-use crate::database::{consume_bw, insert_exit_metadata, ExitRowWithMetadata};
+use crate::database::auth::validate_secret;
+use crate::database::{
+    bandwidth::consume_bw,
+    exits::{insert_exit_metadata, ExitRowWithMetadata, insert_exit, ExitRow},
+    bridges::query_bridges,
+    puzzle::{new_puzzle, verify_puzzle_solution},
+    free_voucher::{delete_free_voucher, get_free_voucher},
+    auth::{get_user_info, register_secret, validate_credential, new_auth_token, valid_auth_token},
+};
 use crate::BW_MIZARU_SK;
 use crate::{
-    auth::{get_user_info, register_secret, validate_credential},
-    free_voucher::{delete_free_voucher, get_free_voucher},
     log_error,
     news::fetch_news,
     payments::{
         payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs,
         StartStripeArgs,
     },
-    puzzle::{new_puzzle, verify_puzzle_solution},
-};
-use crate::{
-    auth::{new_auth_token, valid_auth_token},
-    database::{insert_exit, query_bridges, ExitRow, POSTGRES},
     routes::bridge_to_leaf_route,
     CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
 };
@@ -104,9 +104,7 @@ impl BrokerImpl {
         let ns = CACHE
             .try_get_with((), async {
                 let exits: Vec<ExitRowWithMetadata> =
-                    sqlx::query_as("select * from exits_new natural left join exit_metadata")
-                        .fetch_all(POSTGRES.deref())
-                        .await?;
+                    crate::database::exits::list_with_metadata().await?;
                 let exits = exits
                     .into_iter()
                     .map(|row| {
@@ -527,20 +525,7 @@ impl BrokerProtocol for BrokerImpl {
         let descriptor = descriptor
             .verify(blake3::hash(CONFIG_FILE.wait().bridge_token.as_bytes()).as_bytes())?;
         tracing::debug!("inserting bridge from pool {}", descriptor.pool);
-        sqlx::query(
-            r#"
-            INSERT INTO bridges_new (listen, cookie, pool, expiry)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (listen) DO UPDATE
-            SET cookie = $2, pool = $3, expiry = $4
-            "#,
-        )
-        .bind(descriptor.control_listen.to_string())
-        .bind(descriptor.control_cookie.to_string())
-        .bind(descriptor.pool.to_string())
-        .bind(descriptor.expiry as i64)
-        .execute(&*POSTGRES)
-        .await?;
+        crate::database::bridges::insert_bridge(&descriptor).await?;
         Ok(())
     }
 
@@ -563,24 +548,7 @@ impl BrokerProtocol for BrokerImpl {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64;
-                let mut txn = POSTGRES.begin().await?;
-                let up_time: Option<(i64,)> = sqlx::query_as("select last_update from bridge_availability where listen = $1 and user_country = $2 and user_asn = $3").bind(&data.listen).bind(&data.country).bind(&data.asn).fetch_optional(&mut *txn).await?;
-                if let Some((up_time,)) = up_time {
-                    let diff = current_timestamp.saturating_sub(up_time) as f64;
-                    // 1-hour decay interval
-                    let decay_factor = 2.0f64.powf(diff / 3600.0);
-                    if data.success {
-                        sqlx::query("update bridge_availability set successes = successes / $1 + 1, last_update = $2 where listen = $3 and user_country = $4 and user_asn = $5").bind(decay_factor).bind(current_timestamp).bind(&data.listen).bind(&data.country).bind(&data.asn).execute(&mut *txn).await?;
-                    } else {
-                        sqlx::query("update bridge_availability set failures = failures / $1 + 1, last_update = $2 where listen = $3 and user_country = $4 and user_asn = $5").bind(decay_factor).bind(current_timestamp).bind(&data.listen).bind(&data.country).bind(&data.asn).execute(&mut *txn).await?;
-                    }
-                } else if data.success {
-                    sqlx::query("insert into bridge_availability (listen, user_country, user_asn, successes, failures, last_update) values ($1, $2, $3, 1.0, 0.0, $4)").bind(&data.listen).bind(&data.country).bind(&data.asn).bind(current_timestamp).execute(&mut *txn).await?;
-                } else {
-                    sqlx::query("insert into bridge_availability (listen, user_country, user_asn, successes, failures, last_update) values ($1, $2, $3, 0.0, 1.0, $4)").bind(&data.listen).bind(&data.country).bind(&data.asn).bind(current_timestamp).execute(&mut *txn).await?;
-                }
-                txn.commit().await?;
-                anyhow::Ok(())
+                crate::database::bridges::record_availability(data).await
             }
             .inspect_err(|e| tracing::warn!(err = debug(e), "setting availability failed")),
         )
@@ -615,12 +583,9 @@ impl BrokerProtocol for BrokerImpl {
         let sessid = payment_sessid(user_id).await?;
         rpc.cancel_recurring(sessid)
             .await?
-            .map_err(|e| GenericError(e))?;
+            .map_err(GenericError)?;
         // delete for good
-        sqlx::query("delete from users where id=(select id from auth_secret where secret=$1)")
-            .bind(secret)
-            .execute(POSTGRES.deref())
-            .await?;
+        crate::database::auth::delete_user_by_secret(&secret).await?;
         Ok(())
     }
 

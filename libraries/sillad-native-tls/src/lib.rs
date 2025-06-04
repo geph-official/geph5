@@ -94,7 +94,7 @@ where
                     "TLS connection failed"
                 )
             })
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+            .map_err(std::io::Error::other)?;
         tracing::warn!(addr = debug(&remote_addr), "TLS connection SUCCESS");
         Ok(TlsPipe {
             inner: tls_stream,
@@ -174,8 +174,7 @@ where
         // If the channel is closed (due to an underlying listener failure), return an error.
         match self.incoming.recv().await {
             Ok(pipe) => Ok(pipe),
-            Err(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(_) => Err(std::io::Error::other(
                 "Underlying listener failure",
             )),
         }

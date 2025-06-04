@@ -3,7 +3,8 @@ use std::{thread::available_parallelism, time::Duration};
 use anyhow::Context;
 use influxdb_line_protocol::LineProtocolBuilder;
 
-use crate::{database::POSTGRES, CONFIG_FILE};
+use super::POSTGRES;
+use crate::CONFIG_FILE;
 
 pub async fn self_stat_loop() -> anyhow::Result<()> {
     let ip_addr = String::from_utf8_lossy(
