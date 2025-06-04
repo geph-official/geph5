@@ -8,8 +8,8 @@ use nano_influxdb::InfluxDbEndpoint;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
-use rpc_impl::WrappedBrokerService;
 use database::self_stat::self_stat_loop;
+use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
@@ -189,7 +189,6 @@ async fn main() -> anyhow::Result<()> {
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
     Lazy::force(&BW_MIZARU_SK);
-    database::init();
 
     let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
     let _self_stat_loop = Immortal::respawn(RespawnStrategy::Immediate, self_stat_loop);

@@ -56,8 +56,3 @@ pub mod exits;
 pub mod free_voucher;
 pub mod puzzle;
 pub mod self_stat;
-
-/// Initialize the database connection pool
-pub fn init() {
-    LazyLock::force(&POSTGRES);
-}
