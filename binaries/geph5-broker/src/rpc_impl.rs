@@ -595,7 +595,7 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
         Ok(vec![
-            (7, 117),
+            (7, 150),
             (30, 500),
             (90, 1500),
             (365, 5475),
