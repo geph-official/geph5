@@ -35,12 +35,12 @@ use std::{
 
 use crate::database::auth::validate_secret;
 use crate::database::{
+    auth::{get_user_info, new_auth_token, register_secret, valid_auth_token, validate_credential},
     bandwidth::consume_bw,
-    exits::{insert_exit_metadata, ExitRowWithMetadata, insert_exit, ExitRow},
     bridges::query_bridges,
-    puzzle::{new_puzzle, verify_puzzle_solution},
+    exits::{insert_exit, insert_exit_metadata, ExitRow, ExitRowWithMetadata},
     free_voucher::{delete_free_voucher, get_free_voucher},
-    auth::{get_user_info, register_secret, validate_credential, new_auth_token, valid_auth_token},
+    puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::BW_MIZARU_SK;
 use crate::{
@@ -545,9 +545,9 @@ impl BrokerProtocol for BrokerImpl {
         smolscale::spawn(
             async move {
                 let current_timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64;
                 crate::database::bridges::record_availability(data).await
             }
             .inspect_err(|e| tracing::warn!(err = debug(e), "setting availability failed")),
@@ -581,9 +581,7 @@ impl BrokerProtocol for BrokerImpl {
         // cancel stripe
         let rpc = PaymentClient(PaymentTransport);
         let sessid = payment_sessid(user_id).await?;
-        rpc.cancel_recurring(sessid)
-            .await?
-            .map_err(GenericError)?;
+        rpc.cancel_recurring(sessid).await?.map_err(GenericError)?;
         // delete for good
         crate::database::auth::delete_user_by_secret(&secret).await?;
         Ok(())
@@ -596,7 +594,13 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
-        Ok(vec![(30, 500), (90, 1500), (365, 5475), (730, 10342)])
+        Ok(vec![
+            (7, 120),
+            (30, 500),
+            (90, 1500),
+            (365, 5475),
+            (730, 10342),
+        ])
     }
 
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError> {
