@@ -42,7 +42,6 @@ LIMIT 1;
     .fetch_optional(&mut *txn)
     .await?;
 
-    tracing::debug!("{user_id} consumed {mb_used}+{mbs} out of {:?}", limit);
     if let Some(limit) = limit {
         if mb_used > limit {
             anyhow::bail!("consumed over limit")
