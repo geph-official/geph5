@@ -346,11 +346,7 @@ impl BrokerProtocol for BrokerImpl {
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
         {
             let (asn, country) = ip_to_asn_country(ip_addr).await?;
-            tracing::debug!(
-                asn,
-                country = display(&country),
-                "obtaining route with metadata"
-            );
+
             if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
                 // return a DIRECT route!
                 direct_route = Some(RouteDescriptor::ConnTest {
