@@ -14,7 +14,7 @@ static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     smolscale::block_on(
         PoolOptions::new()
             .max_connections(500)
-            .acquire_timeout(Duration::from_secs(60))
+            .acquire_timeout(Duration::from_secs(2))
             .max_lifetime(Duration::from_secs(600))
             .connect_with({
                 let cfg = CONFIG_FILE.wait();
