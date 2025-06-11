@@ -341,7 +341,7 @@ impl BrokerProtocol for BrokerImpl {
 
         // for known good countries, we return a direct route!
         let mut direct_route = None;
-        let country = if let Some(ip_addr) = args.client_metadata["ip_addr"]
+        let (asn, country) = if let Some(ip_addr) = args.client_metadata["ip_addr"]
             .as_str()
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
         {
@@ -354,9 +354,9 @@ impl BrokerProtocol for BrokerImpl {
                     lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
                 });
             }
-            country
+            (asn, country)
         } else {
-            "".to_string()
+            (0, "".to_string())
         };
 
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
@@ -373,7 +373,8 @@ impl BrokerProtocol for BrokerImpl {
         let raw_descriptors = raw_descriptors.into_iter().filter(|desc| {
             // for China Plus users, filter out ovh
             if account_level == AccountLevel::Plus && country == "CN" {
-                return !desc.0.pool.contains("ovh");
+                return !desc.0.pool.contains("ovh")
+                    && !((asn == 4808 || asn == 4837) && desc.0.pool == "yaofan-hk");
             }
             // TM-only bridges
             if desc.0.pool.contains("TM") {
