@@ -15,7 +15,8 @@ static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
         PoolOptions::new()
             .max_connections(500)
             .acquire_timeout(Duration::from_secs(2))
-            .max_lifetime(Duration::from_secs(600))
+            .max_lifetime(Duration::from_secs(120))
+            .test_before_acquire(false)
             .connect_with({
                 let cfg = CONFIG_FILE.wait();
                 let mut opts = PgConnectOptions::from_str(&cfg.postgres_url).unwrap();
