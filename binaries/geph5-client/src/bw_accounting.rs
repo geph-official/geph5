@@ -1,12 +1,16 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
 use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
+use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 
 use crate::{bw_token::bw_token_consume, Config};
@@ -71,6 +75,7 @@ pub async fn bw_accounting_client_loop(
                             None
                         }
                     })
+                    .timeout(Duration::from_secs(10))
                     .await;
             }
         }

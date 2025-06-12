@@ -253,7 +253,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
     EXTRACT(EPOCH FROM s.expires)::bigint AS unix_timestamp,
     (r.user_id IS NOT NULL) AS has_recurring
 FROM subscriptions s
-LEFT JOIN recurring_subs r ON s.id = r.user_id",
+LEFT JOIN stripe_recurring r ON s.id = r.user_id",
             )
             .fetch_all(&*POSTGRES)
             .await?;
