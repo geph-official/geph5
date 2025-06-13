@@ -162,7 +162,7 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                         );
                         anyhow::Ok((authed_pipe, exit))
                     }
-                    .timeout(Duration::from_secs(30))
+                    .timeout(Duration::from_secs(120))
                     .await
                     .context("overall dial/mux/auth timeout")??;
 

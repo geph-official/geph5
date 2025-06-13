@@ -52,16 +52,12 @@ pub async fn get_dialer(
     let mut cached_value = ctx.get(SEMAPH).lock().await;
 
     if let Some(inner) = cached_value.clone() {
-        if inner.3.elapsed()? < Duration::from_secs(10) {
+        if inner.3.elapsed()? < Duration::from_secs(120) {
             return Ok((inner.0, inner.1, inner.2));
         }
     }
 
-    let res = get_dialer_inner(ctx)
-        .timeout(Duration::from_secs(15))
-        .await
-        .ok_or_else(|| anyhow::anyhow!("get_dialer_inner timed out"))
-        .and_then(|x| x);
+    let res = get_dialer_inner(ctx).await;
     match res {
         Ok(val) => {
             *cached_value = Some((val.0, val.1.clone(), val.2.clone(), SystemTime::now()));

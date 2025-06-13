@@ -212,7 +212,7 @@ async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
     // we assume the JrpcRequest IDs are reasonably unique, so we use this technique to deduplicate duplicate requests. Duplicate requests often happen when multiple different broker sources race against each other on censored networks.
     static DEDUP_CACHE: LazyLock<Cache<(JrpcId, String), JrpcResponse>> = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(10))
+            .time_to_live(Duration::from_secs(120))
             .build()
     });
 
