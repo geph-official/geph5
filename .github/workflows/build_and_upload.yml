@@ -26,6 +26,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ----------  Rust / Cargo caches  ----------
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-${{ matrix.target }}-
+      # ----------  End caches  ----------
       - name: Install musl-tools (Linux)
         if: ${{ matrix.dir == 'musl' }}
         run: sudo apt-get install -y musl-tools
@@ -37,18 +62,6 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
-
-      # # Add Rust cache
-      # - name: Cache Rust dependencies
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: |
-      #       ~/.cargo/registry
-      #       ~/.cargo/git
-      #       target
-      #     key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-${{ matrix.target }}-cargo-
 
       - name: Install cross (only for arm64)
         if: ${{ matrix.target == 'aarch64-unknown-linux-musl' }}
@@ -67,14 +80,6 @@ jobs:
         run: |
           mkdir -p artifacts/${{ matrix.dir }}
           mv target/${{ matrix.target }}/release/geph5-client artifacts/${{ matrix.dir }}/
-
-      # # Cache cargo-bundle to avoid reinstalling
-      # - name: Cache cargo-bundle
-      #   if: matrix.os == 'macos-latest'
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: ~/.cargo/bin/cargo-bundle
-      #     key: ${{ runner.os }}-cargo-bundle-0.6.0
 
       - name: Install cargo-bundle
         if: matrix.os == 'macos-latest'
@@ -97,6 +102,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ----------  Rust / Cargo caches  ----------
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-x86_64-unknown-linux-musl-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-x86_64-unknown-linux-musl-
+      # ----------  End caches  ----------
       - name: Install musl-tools
         run: sudo apt-get install -y musl-tools
 
@@ -107,18 +137,6 @@ jobs:
           toolchain: stable
           override: true
           target: x86_64-unknown-linux-musl
-
-      # Add Rust cache for bridge-exit job
-      # - name: Cache Rust dependencies
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: |
-      #       ~/.cargo/registry
-      #       ~/.cargo/git
-      #       target
-      #     key: bridge-exit-ubuntu-24.04-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
-      #     restore-keys: |
-      #       bridge-exit-ubuntu-24.04-musl-cargo-
 
       - name: Set default host
         shell: bash
