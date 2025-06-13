@@ -66,26 +66,21 @@ pub async fn bridge_to_leaf_route(
                     .await?
                 });
 
-                anyhow::Ok(RouteDescriptor::Delay {
-                    milliseconds: delay_ms,
-                    lower: tls_route!().into(),
-                })
-
-                // if bridge.pool.contains("waw")
-                //     || bridge.pool.contains("ovh_de")
-                //     || country == "IR"
-                //     || country == "TM"
-                // {
-                //     anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: tls_route!().into(),
-                //     })
-                // } else {
-                //     anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: sosistab3_route!().into(),
-                //     })
-                // }
+                if bridge.pool.contains("waw")
+                    || bridge.pool.contains("ovh_de")
+                    || country == "IR"
+                    || country == "TM"
+                {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: tls_route!().into(),
+                    })
+                } else {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: sosistab3_route!().into(),
+                    })
+                }
                 //  else {
                 //     anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
