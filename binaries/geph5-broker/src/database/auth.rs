@@ -210,13 +210,13 @@ pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> 
 }
 
 pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64, bool)>> {
-    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i64, Arc<BTreeMap<i32, (i64, bool)>>>> =
+    static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i32, Arc<BTreeMap<i32, (i64, bool)>>>> =
         LazyLock::new(|| {
             Cache::builder()
                 .time_to_idle(Duration::from_secs(60))
                 .build()
         });
-    static LAST_PAYMENT_TIMESTAMP_CACHE: LazyLock<Cache<u128, i64>> = LazyLock::new(|| {
+    static PERIOD_COUNT_CACHE: LazyLock<Cache<u128, i32>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_idle(Duration::from_secs(60))
             .build()
@@ -224,7 +224,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
     let start = Instant::now();
 
     let mut ts_missed = false;
-    let last_payment_timestamp = LAST_PAYMENT_TIMESTAMP_CACHE
+    let period_count = PERIOD_COUNT_CACHE
         .try_get_with(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -232,11 +232,9 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
                 .as_millis()
                 / 500,
             async {
-                let ts = sqlx::query_scalar::<_, i64>(
-                    "SELECT EXTRACT(EPOCH FROM MAX(created_at))::bigint FROM payment_events",
-                )
-                .fetch_one(&*POSTGRES)
-                .await?;
+                let ts = sqlx::query_scalar::<_, i32>("SELECT max(period_id) FROM plus_periods")
+                    .fetch_one(&*POSTGRES)
+                    .await?;
                 ts_missed = true;
                 anyhow::Ok(ts)
             },
@@ -246,7 +244,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
 
     let mut sub_missed = false;
     let all_subscriptions = ALL_SUBSCRIPTIONS_CACHE
-        .try_get_with(last_payment_timestamp, async {
+        .try_get_with(period_count, async {
             let all_subscriptions: Vec<(i32, i64, bool)> = sqlx::query_as(
                 "SELECT 
     s.id, 
