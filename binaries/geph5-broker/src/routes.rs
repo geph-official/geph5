@@ -75,28 +75,27 @@ pub async fn bridge_to_leaf_route(
                     .await?
                 });
 
-                // if bridge.pool.contains("waw")
-                //     || bridge.pool.contains("ovh_de")
-                //     || country == "IR"
-                //     || country == "TM"
-                // {
-                //     anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: tls_route!().into(),
-                //     })
-                // } else {
-                anyhow::Ok(RouteDescriptor::Delay {
-                    milliseconds: delay_ms,
-                    lower: foofoo_route!().into(),
-                })
-                // }
-                //  else {
-                //     anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: RouteDescriptor::Fallback(vec![sosistab3_route!(), legacy_route!()])
-                //             .into(),
-                //     })
-                // }
+                if bridge.pool.contains("waw")
+                    || bridge.pool.contains("ovh_de")
+                    || country == "IR"
+                    || country == "TM"
+                {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: tls_route!().into(),
+                    })
+                } else if !country.is_empty(){
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: sosistab3_route!().into(),
+                    })
+                } else {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: RouteDescriptor::Fallback(vec![sosistab3_route!(), legacy_route!()])
+                            .into(),
+                    })
+                }
             }
             .map(|res| {
                 if let Err(err) = res.as_ref() {
