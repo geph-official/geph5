@@ -92,7 +92,7 @@ pub async fn bridge_to_leaf_route(
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![sosistab3_route!(), legacy_route!()])
+                        lower: RouteDescriptor::Fallback(vec![tls_route!(), sosistab3_route!(), legacy_route!()])
                             .into(),
                     })
                 }
