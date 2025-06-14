@@ -97,7 +97,7 @@ pub trait BrokerProtocol {
 
     async fn delete_account(&self, secret: String) -> Result<(), GenericError>;
 
-    async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError>;
+    async fn get_news(&self, lang: String) -> Result<Vec<LegacyNewsItem>, GenericError>;
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError>;
@@ -203,7 +203,7 @@ impl<T: Into<anyhow::Error>> From<T> for GenericError {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct NewsItem {
+pub struct LegacyNewsItem {
     pub title: String,
     pub date_unix: u64,
     pub contents: String,

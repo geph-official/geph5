@@ -7,11 +7,12 @@ use std::{
 use anyctx::AnyCtx;
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
-use geph5_broker_protocol::{
-    puzzle::solve_puzzle, AccountLevel, ExitDescriptor, NetStatus, VoucherInfo,
-};
+use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, NetStatus, VoucherInfo};
 
-use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
+use geph5_misc_rpc::client_control::{
+    ConnInfo, ControlProtocol, ControlService, ControlUserInfo, NewsItem, RegistrationProgress,
+};
+use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
@@ -20,67 +21,6 @@ use crate::{
     broker::get_net_status, broker_client, client::CtxField, logging::get_json_logs,
     stats::stat_get_num, traffcount::TRAFF_COUNT, updates::get_update_manifest, Config,
 };
-
-#[nanorpc_derive]
-#[async_trait]
-pub trait ControlProtocol {
-    async fn conn_info(&self) -> ConnInfo;
-    async fn stat_num(&self, stat: String) -> f64;
-    async fn start_time(&self) -> SystemTime;
-    async fn stop(&self);
-
-    async fn recent_logs(&self) -> Vec<String>;
-
-    // broker-proxying stuff
-
-    async fn check_secret(&self, secret: String) -> Result<bool, String>;
-    async fn user_info(&self, secret: String) -> Result<UserInfo, String>;
-    async fn start_registration(&self) -> Result<usize, String>;
-    async fn delete_account(&self, secret: String) -> Result<(), String>;
-    async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String>;
-    async fn convert_legacy_account(
-        &self,
-        username: String,
-        password: String,
-    ) -> Result<String, String>;
-    async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String>;
-
-    async fn net_status(&self) -> Result<NetStatus, String>;
-    async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
-    async fn price_points(&self) -> Result<Vec<(u32, f64)>, String>;
-    async fn payment_methods(&self) -> Result<Vec<String>, String>;
-    async fn create_payment(
-        &self,
-        secret: String,
-        days: u32,
-        method: String,
-    ) -> Result<String, String>;
-    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String>;
-    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, String>;
-    async fn export_debug_pack(
-        &self,
-        email: Option<String>,
-        contents: String,
-    ) -> Result<(), String>;
-
-    async fn get_update_manifest(&self) -> Result<(serde_json::Value, String), String>;
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "state")]
-pub enum ConnInfo {
-    Disconnected,
-    Connecting,
-    Connected(ConnectedInfo),
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ConnectedInfo {
-    pub protocol: String,
-    pub bridge: String,
-
-    pub exit: ExitDescriptor,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserInfo {
@@ -99,12 +39,6 @@ pub static CURRENT_CONN_INFO: CtxField<Mutex<ConnInfo>> = |_| Mutex::new(ConnInf
 
 static REGISTRATIONS: LazyLock<Mutex<Slab<RegistrationProgress>>> =
     LazyLock::new(|| Mutex::new(Slab::new()));
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct RegistrationProgress {
-    pub progress: f64,
-    pub secret: Option<String>,
-}
 
 #[async_trait]
 impl ControlProtocol for ControlProtocolImpl {
@@ -142,7 +76,7 @@ impl ControlProtocol for ControlProtocolImpl {
         Ok(res.is_some())
     }
 
-    async fn user_info(&self, secret: String) -> Result<UserInfo, String> {
+    async fn user_info(&self, secret: String) -> Result<ControlUserInfo, String> {
         let res = broker_client(&self.ctx)
             .map_err(|e| format!("{:?}", e))?
             .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
@@ -150,7 +84,7 @@ impl ControlProtocol for ControlProtocolImpl {
             .map_err(|e| format!("{:?}", e))?
             .map_err(|e| format!("{:?}", e))?
             .ok_or_else(|| "no such user".to_string())?;
-        Ok(UserInfo {
+        Ok(ControlUserInfo {
             user_id: res.user_id,
             level: if res.plus_expires_unix.is_some() {
                 AccountLevel::Plus
@@ -387,12 +321,4 @@ impl RpcTransport for DummyControlProtocolTransport {
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
         Ok(self.0.respond_raw(req).await)
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct NewsItem {
-    pub title: String,
-    pub date_unix: u64,
-    pub contents: String,
-    pub important: bool,
 }

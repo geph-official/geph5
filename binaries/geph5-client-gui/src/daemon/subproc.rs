@@ -1,6 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use geph5_client::Config;
+use geph5_misc_rpc::client_control::ControlClient;
 
 use crate::prefs::PREF_DIR;
 
@@ -51,8 +52,8 @@ impl Daemon for SubprocDaemon {
         smol::future::block_on(async { Ok(self.control_client().stop().await?) })
     }
 
-    fn control_client(&self) -> geph5_client::ControlClient {
-        geph5_client::ControlClient::from(nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
+    fn control_client(&self) -> ControlClient {
+        ControlClient::from(nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
             dest_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), CONTROL_PORT),
         }))
     }

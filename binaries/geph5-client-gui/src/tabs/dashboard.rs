@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use egui_plot::{Line, Plot, PlotPoints};
-use geph5_client::ConnInfo;
+use geph5_misc_rpc::client_control::ConnInfo;
 use once_cell::sync::Lazy;
 use smol_timeout2::TimeoutExt;
 

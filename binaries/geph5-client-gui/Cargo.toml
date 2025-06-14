@@ -28,6 +28,7 @@ smolscale = "0.4.7"
 futures-util = "0.3.30"
 smol = "2.0.0"
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
 serde_yaml = "0.9.34"
 smol-timeout2 = "0.6.0"
 tracing = "0.1.40"

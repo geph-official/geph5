@@ -1,6 +1,7 @@
 use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub mod bridge;
+pub mod client_control;
 pub mod exit;
 
 /// A helper function to write a length-prepended value into an AsyncWrite.

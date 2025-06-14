@@ -8,7 +8,7 @@ use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
     Credential, ExitCategory, ExitDescriptor, ExitList, ExitMetadata, GenericError, GetRoutesArgs,
-    JsonSigned, Mac, NetStatus, NewsItem, RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
+    JsonSigned, Mac, NetStatus, LegacyNewsItem, RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
     DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
@@ -584,7 +584,7 @@ impl BrokerProtocol for BrokerImpl {
         Ok(())
     }
 
-    async fn get_news(&self, lang: String) -> Result<Vec<NewsItem>, GenericError> {
+    async fn get_news(&self, lang: String) -> Result<Vec<LegacyNewsItem>, GenericError> {
         let (send, recv) = oneshot::channel();
         smolscale::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
         recv.await.unwrap().map_err(|e: anyhow::Error| e.into())

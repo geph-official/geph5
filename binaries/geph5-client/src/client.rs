@@ -6,6 +6,7 @@ use futures_util::{
     future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
 };
 use geph5_broker_protocol::{Credential, UserInfo};
+use geph5_misc_rpc::client_control::{ControlClient, ControlService};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use smol::future::FutureExt as _;
@@ -19,9 +20,7 @@ use crate::{
     broker::{broker_client, BrokerSource},
     bw_token::bw_token_refresh_loop,
     client_inner::{client_inner, open_conn},
-    control_prot::{
-        ControlClient, ControlProtocolImpl, ControlService, DummyControlProtocolTransport,
-    },
+    control_prot::{ControlProtocolImpl, DummyControlProtocolTransport},
     get_dialer::ExitConstraint,
     http_proxy::http_proxy_serve,
     pac::pac_serve,

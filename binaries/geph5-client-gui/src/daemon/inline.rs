@@ -4,6 +4,7 @@ use std::{
 };
 
 use geph5_client::{Client, Config};
+use geph5_misc_rpc::client_control::ControlClient;
 
 use super::Daemon;
 
@@ -24,16 +25,14 @@ impl Daemon for InlineDaemon {
         Ok(())
     }
 
-    fn control_client(&self) -> geph5_client::ControlClient {
+    fn control_client(&self) -> ControlClient {
         let daemon = self.daemon.lock().unwrap();
         if let Some(daemon) = daemon.as_ref() {
             daemon.control_client()
         } else {
-            geph5_client::ControlClient::from(nanorpc_sillad::DialerTransport(
-                sillad::tcp::TcpDialer {
-                    dest_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
-                },
-            ))
+            ControlClient::from(nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
+                dest_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
+            }))
         }
     }
 

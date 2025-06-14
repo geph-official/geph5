@@ -5,8 +5,7 @@ use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
-    exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
-    read_prepend_length, write_prepend_length,
+    client_control::{ConnInfo, ConnectedInfo}, exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner}, read_prepend_length, write_prepend_length
 };
 use nursery_macro::nursery;
 
@@ -30,13 +29,13 @@ use crate::{
     bw_accounting::bw_accounting_client_loop,
     china::is_chinese_host,
     client::CtxField,
-    control_prot::{ConnectedInfo, CURRENT_CONN_INFO},
+    control_prot::{CURRENT_CONN_INFO},
     get_dialer::get_dialer,
     spoof_dns::fake_dns_backtranslate,
     stats::{stat_incr_num, stat_set_num},
     traffcount::TRAFF_COUNT,
     vpn::smart_vpn_whitelist,
-    ConnInfo,
+
 };
 
 use super::Config;
@@ -121,7 +120,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 10;
+pub static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all)]
 pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {

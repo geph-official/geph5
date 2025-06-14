@@ -8,7 +8,7 @@ pub use broker::BrokerSource;
 use bytes::Bytes;
 pub use client::Client;
 pub use client::{BridgeMode, BrokerKeys, Config};
-pub use control_prot::{ConnInfo, ControlClient};
+
 pub use get_dialer::ExitConstraint;
 use nanorpc::JrpcRequest;
 use nanorpc::RpcTransport;
@@ -16,8 +16,8 @@ use once_cell::sync::OnceCell;
 
 mod auth;
 mod broker;
-mod bw_token;
 mod bw_accounting;
+mod bw_token;
 mod china;
 mod client;
 mod client_inner;

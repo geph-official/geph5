@@ -30,3 +30,4 @@ tap = "1.0.1"
 pin-project = "1.1.5"
 socksv5 = "0.3"
 tachyonix = "0.3.0"
+geph5-broker-protocol = { version="0.2", path = "../geph5-broker-protocol" }

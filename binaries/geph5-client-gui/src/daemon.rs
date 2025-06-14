@@ -3,8 +3,9 @@ mod subproc;
 
 use std::sync::Arc;
 
-use geph5_client::{Config, ControlClient};
+use geph5_client::Config;
 
+use geph5_misc_rpc::client_control::ControlClient;
 use once_cell::sync::Lazy;
 
 use crate::timeseries::TimeSeries;

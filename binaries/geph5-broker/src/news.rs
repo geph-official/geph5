@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
-use geph5_broker_protocol::NewsItem;
+use geph5_broker_protocol::LegacyNewsItem;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use smol::lock::Mutex;
@@ -9,7 +9,7 @@ use sqlx::types::chrono::NaiveDate;
 
 use crate::CONFIG_FILE;
 
-pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
+pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<LegacyNewsItem>> {
     // Validate language code
     if lang_code != "en"
         && lang_code != "zh-CN"
@@ -25,7 +25,7 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
 
     // First, try to read the cached data regardless of age
     let cached_news = match smol::fs::read_to_string(&cache_path).await {
-        Ok(cached_data) => serde_json::from_str::<Vec<NewsItem>>(&cached_data).ok(),
+        Ok(cached_data) => serde_json::from_str::<Vec<LegacyNewsItem>>(&cached_data).ok(),
         Err(_) => None,
     };
 
@@ -79,7 +79,7 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<NewsItem>> {
 }
 
 // Separate function to refresh the news cache
-async fn refresh_news_cache(lang_code: &str, cache_path: &str) -> anyhow::Result<Vec<NewsItem>> {
+async fn refresh_news_cache(lang_code: &str, cache_path: &str) -> anyhow::Result<Vec<LegacyNewsItem>> {
     // Replace with your actual OpenAI API key
     let api_key = CONFIG_FILE.wait().openai_key.clone();
 
@@ -133,7 +133,7 @@ async fn refresh_news_cache(lang_code: &str, cache_path: &str) -> anyhow::Result
     let news_items: Vec<PreNewsItem> = serde_json::from_value(parsed["news"].clone())?;
     let news_items = news_items
         .into_iter()
-        .map(|item| NewsItem {
+        .map(|item| LegacyNewsItem {
             title: item.title,
             date_unix: date_to_unix_timestamp(&item.date) as _,
             contents: item.contents,
