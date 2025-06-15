@@ -8,8 +8,8 @@ use futures_util::{future::join_all, TryFutureExt};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
     Credential, ExitCategory, ExitDescriptor, ExitList, ExitMetadata, GenericError, GetRoutesArgs,
-    JsonSigned, Mac, NetStatus, LegacyNewsItem, RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
-    DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS,
+    JsonSigned, LegacyNewsItem, Mac, NetStatus, RouteDescriptor, StdcodeSigned, UserInfo,
+    VoucherInfo, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
