@@ -92,7 +92,7 @@ pub async fn bridge_to_leaf_route(
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![tls_route!().timeout(Duration::from_secs(5)), legacy_route!()])
+                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: tls_route!().into()}, legacy_route!()])
                             .into(),
                     })
                 }
