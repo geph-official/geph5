@@ -100,7 +100,9 @@ impl Dashboard {
             } else if ui.button(l10n("disconnect")).clicked() {
                 tracing::warn!("disconnect clicked");
                 DAEMON_HANDLE.stop()?;
-                unset_http_proxy()?;
+                if PROXY_AUTOCONF.get() {
+                    unset_http_proxy()?;
+                }
             }
             anyhow::Ok(())
         })
