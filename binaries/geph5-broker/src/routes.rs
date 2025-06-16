@@ -167,6 +167,9 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
             sni_domain: Some("labooyah-squish.be".into()),
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
+        ObfsProtocol::Hex(obfs_protocol) => RouteDescriptor::Hex {
+            lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
             cookie,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
