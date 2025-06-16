@@ -7,23 +7,21 @@ use std::{
 use futures_concurrency::future::FutureExt;
 use futures_util::AsyncReadExt;
 use picomux::{LivenessConfig, PicoMux};
-use sillad::dialer::{Dialer, DialerExt};
+use crate::stack::{dialer_from_stack, parse_stack};
+use geph5_misc_rpc::bridge::ObfsProtocol;
+use sillad::dialer::Dialer;
 
 use crate::command::Command;
 
-pub async fn client_main(connect: SocketAddr, sosistab3: Option<String>) -> anyhow::Result<()> {
-    let start = Instant::now();
-    let wire = if let Some(sosistab3) = sosistab3 {
-        sillad_sosistab3::dialer::SosistabDialer {
-            inner: sillad::tcp::TcpDialer { dest_addr: connect },
-            cookie: sillad_sosistab3::Cookie::new(&sosistab3),
-        }
-        .dynamic()
+pub async fn client_main(connect: SocketAddr, stack: Option<String>) -> anyhow::Result<()> {
+    let protocol = if let Some(stack) = stack {
+        parse_stack(&stack)?
     } else {
-        sillad::tcp::TcpDialer { dest_addr: connect }.dynamic()
-    }
-    .dial()
-    .await?;
+        ObfsProtocol::None
+    };
+
+    let start = Instant::now();
+    let wire = dialer_from_stack(&protocol, connect).dial().await?;
     eprintln!("wire dialed in {:?}", start.elapsed());
 
     let (read, write) = wire.split();
