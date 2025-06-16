@@ -44,3 +44,5 @@ tap = "1.0.1"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
+geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
+time = "0.3.37"
