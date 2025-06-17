@@ -7137,6 +7137,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "sillad-meeklike"
+version = "0.1.0"
+dependencies = [
+ "async-channel 1.9.0",
+ "async-compat",
+ "async-task",
+ "async-trait",
+ "bipe",
+ "blake3",
+ "bytes",
+ "chacha20poly1305",
+ "dashmap 5.5.3",
+ "futures-lite 2.6.0",
+ "futures-util",
+ "http-body-util",
+ "hyper 1.6.0",
+ "hyper-util",
+ "pin-project",
+ "rand 0.8.5",
+ "sillad",
+ "smol-timeout2",
+ "smolscale",
+ "tracing",
+]
+
+[[package]]
 name = "sillad-native-tls"
 version = "0.2.11"
 dependencies = [
