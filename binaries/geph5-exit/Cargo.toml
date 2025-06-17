@@ -11,6 +11,7 @@ sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 sillad-conntest = { path = "../../libraries/sillad-conntest" }
 sillad-native-tls = { path = "../../libraries/sillad-native-tls" }
+sillad-hex = { path = "../../libraries/sillad-hex" }
 picomux = { path = "../../libraries/picomux" }
 async-trait = "0.1.80"
 nanorpc = "0.1.12"

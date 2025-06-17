@@ -21,6 +21,7 @@ use sillad::{
 };
 use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_hex::HexDialer;
 
 use smol_timeout2::TimeoutExt as _;
 
@@ -296,6 +297,10 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
                 ping_count: *ping_count as _,
             }
             .dynamic()
+        }
+        RouteDescriptor::Hex { lower } => {
+            let lower = route_to_dialer(ctx, lower);
+            HexDialer { inner: lower }.dynamic()
         }
 
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
