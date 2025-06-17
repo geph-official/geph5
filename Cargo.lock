@@ -7142,6 +7142,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel 1.9.0",
  "async-compat",
+ "async-io 2.4.1",
  "async-task",
  "async-trait",
  "bipe",

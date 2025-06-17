@@ -23,6 +23,7 @@ hyper-util = { version = "0.1.13", features = ["tokio"] }
 rand = "0.8.5"
 smolscale = "0.4.11"
 smol-timeout2 = "0.6.1"
+async-io = "2.4.1"
 pin-project = "1.1.5"
 bipe = "0.2.8"
 sillad = { version = "0.2", path = "../sillad" }

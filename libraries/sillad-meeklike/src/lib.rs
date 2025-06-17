@@ -16,6 +16,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use async_compat::CompatExt;
 use smol_timeout2::TimeoutExt;
+use async_io::Timer;
 use http_body_util::BodyExt as _;
 use std::convert::Infallible;
 use pin_project::pin_project;
@@ -123,24 +124,28 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
         let mut id = [0u8;32];
         rand::thread_rng().fill_bytes(&mut id);
         smolscale::spawn(async move {
+            let mut sleep = Duration::from_millis(10);
             loop {
-                let data: Vec<u8> = {
+                // gather outgoing data for up to 100 ms
+                let start = std::time::Instant::now();
+                let mut out = Vec::new();
+                while start.elapsed() < Duration::from_millis(100) {
                     let mut buf = vec![0u8; 8192];
-                    match read_out
-                        .read(&mut buf)
-                        .timeout(Duration::from_secs(30))
-                        .await
-                    {
-                        Some(Ok(n)) => {
+                    let rem = Duration::from_millis(100) - start.elapsed();
+                    match read_out.read(&mut buf).timeout(rem).await {
+                        Some(Ok(n)) if n > 0 => {
                             buf.truncate(n);
-                            buf
+                            out.extend_from_slice(&buf);
                         }
-                        _ => Vec::new(),
+                        _ => break,
                     }
-                };
-                let mut body = Vec::with_capacity(32 + data.len() + 28);
-                body.extend_from_slice(&id);
-                body.extend_from_slice(&up.encrypt(&data));
+                }
+
+                let mut plain = Vec::with_capacity(32 + out.len());
+                plain.extend_from_slice(&id);
+                plain.extend_from_slice(&out);
+                let body = up.encrypt(&plain);
+
                 let req = Request::post("/")
                     .body(http_body_util::Full::new(Bytes::from(body)))
                     .unwrap();
@@ -156,9 +161,25 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
                     Ok(p) => p,
                     Err(_) => break,
                 };
-                if write_in.write_all(&plain).await.is_err() {
+                if plain.len() < 32 {
                     break;
                 }
+                if &plain[..32] != &id {
+                    break;
+                }
+                let payload = &plain[32..];
+                let had = !payload.is_empty();
+                if write_in.write_all(payload).await.is_err() {
+                    break;
+                }
+
+                if had {
+                    sleep = Duration::from_millis(10);
+                } else {
+                    let next = (sleep.as_secs_f64() * 1.1).min(5.0);
+                    sleep = Duration::from_secs_f64(next);
+                }
+                Timer::after(sleep).await;
             }
         }).detach();
         Ok(MeeklikePipe { read: read_in, write: write_out })
@@ -201,7 +222,6 @@ impl<L: Listener> MeeklikeListener<L> {
 struct ServerConn {
     incoming: bipe::BipeWriter,
     outgoing: bipe::BipeReader,
-    up: CryptoState,
     down: CryptoState,
 }
 
@@ -223,15 +243,30 @@ async fn handle_req(
         .await
         .map(|b| b.to_bytes())
         .unwrap_or_else(|_| Bytes::new());
-    if body.len() < 32 + 28 {
+    if body.len() < 28 + 32 {
+        return Ok(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(http_body_util::Full::new(Bytes::new()))
+            .unwrap());
+    }
+    let plain = match CryptoState::new(derive_key("up", &*key)).decrypt(&body) {
+        Ok(p) => p,
+        Err(_) => {
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(http_body_util::Full::new(Bytes::new()))
+                .unwrap())
+        }
+    };
+    if plain.len() < 32 {
         return Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(http_body_util::Full::new(Bytes::new()))
             .unwrap());
     }
     let mut id = [0u8; 32];
-    id.copy_from_slice(&body[..32]);
-    let payload = &body[32..];
+    id.copy_from_slice(&plain[..32]);
+    let payload = &plain[32..];
     let entry = conns.entry(id).or_insert_with(|| {
         let (write_in, read_in) = bipe::bipe(32768);
         let (write_out, read_out) = bipe::bipe(32768);
@@ -241,35 +276,33 @@ async fn handle_req(
         Arc::new(futures_util::lock::Mutex::new(ServerConn {
             incoming: write_in,
             outgoing: read_out,
-            up: CryptoState::new(derive_key("up", &*key)),
             down: CryptoState::new(derive_key("dn", &*key)),
         }))
     });
     let conn = entry.value().clone();
     {
         let mut c = conn.lock().await;
-        if let Ok(plain) = c.up.decrypt(payload) {
-            let _ = c.incoming.write_all(&plain).await;
-        }
+        let _ = c.incoming.write_all(payload).await;
     }
     let data = {
         let mut c = conn.lock().await;
-        let result = {
+        let mut collected = Vec::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_millis(100) {
             let mut buf = vec![0u8; 8192];
-            match c
-                .outgoing
-                .read(&mut buf)
-                .timeout(Duration::from_secs(30))
-                .await
-            {
-                Some(Ok(n)) => {
+            let rem = Duration::from_millis(100) - start.elapsed();
+            match c.outgoing.read(&mut buf).timeout(rem).await {
+                Some(Ok(n)) if n > 0 => {
                     buf.truncate(n);
-                    c.down.encrypt(&buf)
+                    collected.extend_from_slice(&buf);
                 }
-                _ => c.down.encrypt(&[]),
+                _ => break,
             }
-        };
-        result
+        }
+        let mut plain = Vec::with_capacity(32 + collected.len());
+        plain.extend_from_slice(&id);
+        plain.extend_from_slice(&collected);
+        c.down.encrypt(&plain)
     };
     Ok(Response::new(http_body_util::Full::new(Bytes::from(data))))
 }
