@@ -3422,7 +3422,6 @@ dependencies = [
  "serde_yaml",
  "sillad",
  "sillad-conntest",
- "sillad-hex",
  "sillad-native-tls",
  "sillad-sosistab3",
  "simple-dns 0.7.1",
@@ -3545,7 +3544,6 @@ dependencies = [
  "serde_yaml",
  "sillad",
  "sillad-conntest",
- "sillad-hex",
  "sillad-native-tls",
  "sillad-sosistab3",
  "simple-dns 0.9.3",
@@ -3638,7 +3636,6 @@ dependencies = [
  "serde_json",
  "sillad",
  "sillad-conntest",
- "sillad-hex",
  "sillad-native-tls",
  "sillad-sosistab3",
  "smol 2.0.2",
@@ -7123,17 +7120,6 @@ dependencies = [
  "smolscale",
  "tachyonix",
  "tracing",
-]
-
-[[package]]
-name = "sillad-hex"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "hex",
- "pin-project",
- "sillad",
 ]
 
 [[package]]

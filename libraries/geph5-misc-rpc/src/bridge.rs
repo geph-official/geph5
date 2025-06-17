@@ -18,7 +18,6 @@ pub enum ObfsProtocol {
     None,
     ConnTest(Box<Self>),
     PlainTls(Box<Self>),
-    Hex(Box<Self>),
     Sosistab3New(String, Box<Self>),
 }
 

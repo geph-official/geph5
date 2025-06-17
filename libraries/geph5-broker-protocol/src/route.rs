@@ -29,9 +29,6 @@ pub enum RouteDescriptor {
         ping_count: u32,
         lower: Box<RouteDescriptor>,
     },
-    Hex {
-        lower: Box<RouteDescriptor>,
-    },
 
     #[serde(untagged)]
     Other(serde_json::Value),

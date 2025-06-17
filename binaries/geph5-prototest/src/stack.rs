@@ -17,8 +17,6 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
             proto = ObfsProtocol::PlainTls(Box::new(proto));
         } else if part.eq_ignore_ascii_case("conntest") {
             proto = ObfsProtocol::ConnTest(Box::new(proto));
-        } else if part.eq_ignore_ascii_case("hex") {
-            proto = ObfsProtocol::Hex(Box::new(proto));
         } else if part.eq_ignore_ascii_case("none") {
             // explicitly no-op
         } else {
@@ -32,7 +30,6 @@ use sillad::{listener::{DynListener, Listener, ListenerExt}, dialer::{DynDialer,
 use sillad_conntest::{ConnTestListener, ConnTestDialer};
 use sillad_sosistab3::{listener::SosistabListener, dialer::SosistabDialer, Cookie};
 use sillad_native_tls::{TlsListener, TlsDialer};
-use sillad_hex::{HexDialer, HexListener};
 use async_native_tls::{TlsConnector, TlsAcceptor};
 use time::OffsetDateTime;
 use time::Duration as TimeDuration;
@@ -54,10 +51,6 @@ where
         ObfsProtocol::PlainTls(inner) => {
             let inner = listener_from_stack(*inner, bottom, tls_acceptor);
             TlsListener::new(inner, tls_acceptor.clone()).dynamic()
-        }
-        ObfsProtocol::Hex(inner) => {
-            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
-            HexListener { inner }.dynamic()
         }
         ObfsProtocol::Sosistab3New(cookie, inner) => {
             let inner = listener_from_stack(*inner, bottom, tls_acceptor);
@@ -87,10 +80,6 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                     .min_protocol_version(None)
                     .max_protocol_version(None);
                 TlsDialer::new(lower, connector, "example.com".into()).dynamic()
-            }
-            ObfsProtocol::Hex(sub) => {
-                let lower = inner(&*sub, lower);
-                HexDialer { inner: lower }.dynamic()
             }
             ObfsProtocol::Sosistab3New(cookie, sub) => {
                 let lower = inner(&*sub, lower);
