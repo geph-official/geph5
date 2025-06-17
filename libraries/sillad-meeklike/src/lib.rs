@@ -136,7 +136,7 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
                 // gather outgoing data for up to 100 ms
                 let start = std::time::Instant::now();
                 let mut out = Vec::new();
-                while start.elapsed() < Duration::from_millis(100) {
+                while start.elapsed() < Duration::from_millis(100) && out.len() < 1_000_000 {
                     let mut buf = vec![0u8; 8192];
                     let rem = Duration::from_millis(100) - start.elapsed();
                     match read_out.read(&mut buf).timeout(rem).await {
@@ -302,7 +302,7 @@ async fn handle_req(
         let mut c = conn.lock().await;
         let mut collected = Vec::new();
         let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_millis(100) {
+        while start.elapsed() < Duration::from_millis(100) && collected.len() < 1_000_000 {
             let mut buf = vec![0u8; 8192];
             let rem = Duration::from_millis(100) - start.elapsed();
             match c.outgoing.read(&mut buf).timeout(rem).await {
