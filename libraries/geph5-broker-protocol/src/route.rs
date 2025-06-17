@@ -32,6 +32,10 @@ pub enum RouteDescriptor {
     Hex {
         lower: Box<RouteDescriptor>,
     },
+    Meeklike {
+        key: String,
+        lower: Box<RouteDescriptor>,
+    },
 
     #[serde(untagged)]
     Other(serde_json::Value),

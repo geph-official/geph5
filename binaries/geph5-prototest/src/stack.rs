@@ -1,5 +1,5 @@
-use geph5_misc_rpc::bridge::ObfsProtocol;
 use anyhow::bail;
+use geph5_misc_rpc::bridge::ObfsProtocol;
 
 /// Parse a comma separated protocol stack.
 /// Items are applied from bottom to top. For example:
@@ -13,6 +13,8 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
         }
         if let Some(rest) = part.strip_prefix("sosistab3=") {
             proto = ObfsProtocol::Sosistab3New(rest.to_string(), Box::new(proto));
+        } else if let Some(rest) = part.strip_prefix("meeklike=") {
+            proto = ObfsProtocol::Meeklike(rest.to_string(), Box::new(proto));
         } else if part.eq_ignore_ascii_case("tls") {
             proto = ObfsProtocol::PlainTls(Box::new(proto));
         } else if part.eq_ignore_ascii_case("conntest") {
@@ -28,17 +30,26 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
     Ok(proto)
 }
 
-use sillad::{listener::{DynListener, Listener, ListenerExt}, dialer::{DynDialer, DialerExt}, tcp::TcpDialer};
-use sillad_conntest::{ConnTestListener, ConnTestDialer};
-use sillad_sosistab3::{listener::SosistabListener, dialer::SosistabDialer, Cookie};
-use sillad_native_tls::{TlsListener, TlsDialer};
+use async_native_tls::{TlsAcceptor, TlsConnector};
+use sillad::{
+    dialer::{DialerExt, DynDialer},
+    listener::{DynListener, Listener, ListenerExt},
+    tcp::TcpDialer,
+};
+use sillad_conntest::{ConnTestDialer, ConnTestListener};
 use sillad_hex::{HexDialer, HexListener};
-use async_native_tls::{TlsConnector, TlsAcceptor};
-use time::OffsetDateTime;
+use sillad_meeklike::{MeeklikeDialer, MeeklikeListener};
+use sillad_native_tls::{TlsDialer, TlsListener};
+use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie};
 use time::Duration as TimeDuration;
+use time::OffsetDateTime;
 
 /// Recursively wrap a listener according to the protocol stack.
-pub fn listener_from_stack<L: Listener>(proto: ObfsProtocol, bottom: L, tls_acceptor: &TlsAcceptor) -> DynListener
+pub fn listener_from_stack<L: Listener>(
+    proto: ObfsProtocol,
+    bottom: L,
+    tls_acceptor: &TlsAcceptor,
+) -> DynListener
 where
     L::P: 'static,
 {
@@ -63,6 +74,10 @@ where
             let inner = listener_from_stack(*inner, bottom, tls_acceptor);
             SosistabListener::new(inner, Cookie::new(&cookie)).dynamic()
         }
+        ObfsProtocol::Meeklike(key, inner) => {
+            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
+            MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes()).dynamic()
+        }
     }
 }
 
@@ -71,12 +86,18 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
     fn inner(proto: &ObfsProtocol, lower: DynDialer) -> DynDialer {
         match proto {
             ObfsProtocol::None => lower,
-            ObfsProtocol::Sosistab3(cookie) => {
-                SosistabDialer { inner: lower, cookie: Cookie::new(cookie) }.dynamic()
+            ObfsProtocol::Sosistab3(cookie) => SosistabDialer {
+                inner: lower,
+                cookie: Cookie::new(cookie),
             }
+            .dynamic(),
             ObfsProtocol::ConnTest(sub) => {
                 let lower = inner(&*sub, lower);
-                ConnTestDialer { inner: lower, ping_count: 1 }.dynamic()
+                ConnTestDialer {
+                    inner: lower,
+                    ping_count: 1,
+                }
+                .dynamic()
             }
             ObfsProtocol::PlainTls(sub) => {
                 let lower = inner(&*sub, lower);
@@ -94,7 +115,19 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
             }
             ObfsProtocol::Sosistab3New(cookie, sub) => {
                 let lower = inner(&*sub, lower);
-                SosistabDialer { inner: lower, cookie: Cookie::new(cookie) }.dynamic()
+                SosistabDialer {
+                    inner: lower,
+                    cookie: Cookie::new(cookie),
+                }
+                .dynamic()
+            }
+            ObfsProtocol::Meeklike(key, sub) => {
+                let lower = inner(&*sub, lower);
+                MeeklikeDialer {
+                    inner: lower,
+                    key: *blake3::hash(key.as_bytes()).as_bytes(),
+                }
+                .dynamic()
             }
         }
     }
@@ -110,7 +143,9 @@ pub fn dummy_tls_acceptor() -> TlsAcceptor {
         .map(|_| format!("{}.com", rand::random::<u16>()))
         .collect::<Vec<_>>();
     let mut params = rcgen::CertificateParams::default();
-    params.distinguished_name.push(rcgen::DnType::CommonName, "api.example.com");
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "api.example.com");
     params.subject_alt_names = subject_alt_names
         .iter()
         .map(|san| rcgen::SanType::DnsName(san.clone().try_into().unwrap()))

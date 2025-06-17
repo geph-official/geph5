@@ -35,6 +35,7 @@ sillad = { path = "../../libraries/sillad" }
 sillad-conntest = { path = "../../libraries/sillad-conntest" }
 sillad-native-tls = { path = "../../libraries/sillad-native-tls" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
+sillad-meeklike = { path = "../../libraries/sillad-meeklike" }
 sillad-hex = { path = "../../libraries/sillad-hex" }
 smol = "2.0.0"
 smol-timeout2 = "0.6.1"

@@ -4,24 +4,24 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use async_channel::{Receiver, Sender};
+use async_compat::CompatExt;
+use async_io::Timer;
+use async_trait::async_trait;
 use blake3::derive_key;
 use bytes::Bytes;
 use chacha20poly1305::{aead::Aead, ChaCha20Poly1305, KeyInit};
 use dashmap::DashMap;
-use futures_util::{io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt}};
-use hyper::{body::Incoming, Request, Response, Method, StatusCode};
-use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
-use async_compat::CompatExt;
-use smol_timeout2::TimeoutExt;
-use async_io::Timer;
+use futures_util::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http_body_util::BodyExt as _;
-use std::convert::Infallible;
+use hyper::service::service_fn;
+use hyper::{body::Incoming, Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use pin_project::pin_project;
 use rand::RngCore;
 use sillad::{dialer::Dialer, listener::Listener, Pipe};
+use smol_timeout2::TimeoutExt;
+use std::convert::Infallible;
 
 #[pin_project]
 pub struct MeeklikePipe {
@@ -66,8 +66,12 @@ impl AsyncWrite for MeeklikePipe {
 }
 
 impl Pipe for MeeklikePipe {
-    fn protocol(&self) -> &str { "meeklike" }
-    fn remote_addr(&self) -> Option<&str> { None }
+    fn protocol(&self) -> &str {
+        "meeklike"
+    }
+    fn remote_addr(&self) -> Option<&str> {
+        None
+    }
 }
 
 struct CryptoState {
@@ -76,7 +80,9 @@ struct CryptoState {
 
 impl CryptoState {
     fn new(key: [u8; 32]) -> Self {
-        Self { aead: ChaCha20Poly1305::new(&key.into()) }
+        Self {
+            aead: ChaCha20Poly1305::new(&key.into()),
+        }
     }
 
     fn encrypt(&self, data: &[u8]) -> Vec<u8> {
@@ -112,18 +118,19 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
     async fn dial(&self) -> std::io::Result<Self::P> {
         let lower = self.inner.dial().await?;
         let io = TokioIo::new(lower.compat());
-        let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, http_body_util::Full<Bytes>>(io)
-            .await
-            .map_err(Error::other)?;
+        let (mut sender, conn) =
+            hyper::client::conn::http1::handshake::<_, http_body_util::Full<Bytes>>(io)
+                .await
+                .map_err(Error::other)?;
         smolscale::spawn(conn.compat()).detach();
 
         let (mut write_in, read_in) = bipe::bipe(32768);
         let (write_out, mut read_out) = bipe::bipe(32768);
         let up = CryptoState::new(derive_key("up", &self.key));
         let down = CryptoState::new(derive_key("dn", &self.key));
-        let mut id = [0u8;32];
+        let mut id = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut id);
-        smolscale::spawn(async move {
+        smolscale::spawn::<anyhow::Result<()>>(async move {
             let mut sleep = Duration::from_millis(10);
             loop {
                 // gather outgoing data for up to 100 ms
@@ -149,29 +156,18 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
                 let req = Request::post("/")
                     .body(http_body_util::Full::new(Bytes::from(body)))
                     .unwrap();
-                let resp = match sender.send_request(req).await {
-                    Ok(r) => r,
-                    Err(_) => break,
-                };
-                let bytes = match resp.into_body().collect().await {
-                    Ok(b) => b.to_bytes(),
-                    Err(_) => break,
-                };
-                let plain = match down.decrypt(&bytes) {
-                    Ok(p) => p,
-                    Err(_) => break,
-                };
+                let resp = sender.send_request(req).await?;
+                let bytes = resp.into_body().collect().await?.to_bytes();
+                let plain = down.decrypt(&bytes)?;
                 if plain.len() < 32 {
-                    break;
+                    anyhow::bail!("too small response")
                 }
                 if &plain[..32] != &id {
-                    break;
+                    anyhow::bail!("invalid id in response")
                 }
                 let payload = &plain[32..];
                 let had = !payload.is_empty();
-                if write_in.write_all(payload).await.is_err() {
-                    break;
-                }
+                write_in.write_all(payload).await?;
 
                 if had {
                     sleep = Duration::from_millis(10);
@@ -181,8 +177,12 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
                 }
                 Timer::after(sleep).await;
             }
-        }).detach();
-        Ok(MeeklikePipe { read: read_in, write: write_out })
+        })
+        .detach();
+        Ok(MeeklikePipe {
+            read: read_in,
+            write: write_out,
+        })
     }
 }
 
@@ -197,14 +197,17 @@ impl<L: Listener> MeeklikeListener<L> {
         let (send, recv) = async_channel::unbounded();
         let key = Arc::new(key);
         let task = smolscale::spawn(async move {
-            let conns: Arc<DashMap<[u8; 32], Arc<futures_util::lock::Mutex<ServerConn>>>> = Arc::new(DashMap::new());
+            let conns: Arc<DashMap<[u8; 32], Arc<futures_util::lock::Mutex<ServerConn>>>> =
+                Arc::new(DashMap::new());
             loop {
                 let lower = inner.accept().await?;
                 let conns = conns.clone();
                 let send = send.clone();
                 let key = key.clone();
                 smolscale::spawn(async move {
-                    let service = service_fn(move |req| handle_req(req, conns.clone(), send.clone(), key.clone()));
+                    let service = service_fn(move |req| {
+                        handle_req(req, conns.clone(), send.clone(), key.clone())
+                    });
                     if let Err(e) = hyper::server::conn::http1::Builder::new()
                         .serve_connection(TokioIo::new(lower.compat()), service)
                         .await
@@ -212,10 +215,15 @@ impl<L: Listener> MeeklikeListener<L> {
                         tracing::warn!(err = ?e, "meeklike connection error");
                     }
                     Ok::<(), std::io::Error>(())
-                }).detach();
+                })
+                .detach();
             }
         });
-        Self { recv, _task: task, _phantom: std::marker::PhantomData }
+        Self {
+            recv,
+            _task: task,
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
@@ -270,9 +278,15 @@ async fn handle_req(
     let entry = conns.entry(id).or_insert_with(|| {
         let (write_in, read_in) = bipe::bipe(32768);
         let (write_out, read_out) = bipe::bipe(32768);
-        let pipe = MeeklikePipe { read: read_in, write: write_out };
+        let pipe = MeeklikePipe {
+            read: read_in,
+            write: write_out,
+        };
         let send2 = send.clone();
-        smolscale::spawn(async move { let _ = send2.send(pipe).await; }).detach();
+        smolscale::spawn(async move {
+            let _ = send2.send(pipe).await;
+        })
+        .detach();
         Arc::new(futures_util::lock::Mutex::new(ServerConn {
             incoming: write_in,
             outgoing: read_out,
@@ -311,26 +325,34 @@ async fn handle_req(
 impl<L: Listener> Listener for MeeklikeListener<L> {
     type P = MeeklikePipe;
     async fn accept(&mut self) -> std::io::Result<Self::P> {
-        self.recv.recv().await.map_err(|_| Error::new(ErrorKind::BrokenPipe, "closed"))
+        self.recv
+            .recv()
+            .await
+            .map_err(|_| Error::new(ErrorKind::BrokenPipe, "closed"))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sillad::tcp::{TcpListener, TcpDialer};
     use futures_util::{AsyncReadExt, AsyncWriteExt};
-    use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+    use sillad::tcp::{TcpDialer, TcpListener};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     #[test]
     fn ping_pong() {
         smolscale::block_on(async {
-            let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).await.unwrap();
+            let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+                .await
+                .unwrap();
             let addr = listener.local_addr().await;
             let key = [7u8; 32];
             let mut meek_listener = MeeklikeListener::new(listener, key);
 
-            let dialer = MeeklikeDialer { inner: TcpDialer { dest_addr: addr }, key };
+            let dialer = MeeklikeDialer {
+                inner: TcpDialer { dest_addr: addr },
+                key,
+            };
 
             let server = smolscale::spawn(async move {
                 let mut pipe = meek_listener.accept().await.unwrap();

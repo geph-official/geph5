@@ -20,8 +20,9 @@ use sillad::{
     tcp::TcpDialer,
 };
 use sillad_conntest::ConnTestDialer;
-use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 use sillad_hex::HexDialer;
+use sillad_meeklike::MeeklikeDialer;
+use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
 use smol_timeout2::TimeoutExt as _;
 
@@ -302,7 +303,6 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
             let lower = route_to_dialer(ctx, lower);
             HexDialer { inner: lower }.dynamic()
         }
-
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {
             let lower = route_to_dialer(ctx, lower);
@@ -320,5 +320,10 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
             )
             .dynamic()
         }
+        RouteDescriptor::Meeklike { key, lower } => MeeklikeDialer {
+            inner: route_to_dialer(ctx, &lower),
+            key: *blake3::hash(key.as_bytes()).as_bytes(),
+        }
+        .dynamic(),
     }
 }

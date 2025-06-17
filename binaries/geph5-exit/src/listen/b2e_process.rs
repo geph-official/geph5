@@ -5,8 +5,9 @@ use futures_util::TryFutureExt;
 use geph5_misc_rpc::bridge::{B2eMetadata, ObfsProtocol};
 use sillad::listener::{DynListener, ListenerExt};
 use sillad_conntest::ConnTestListener;
-use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use sillad_hex::HexListener;
+use sillad_meeklike::MeeklikeListener;
+use sillad_sosistab3::{listener::SosistabListener, Cookie};
 use tachyonix::Receiver;
 
 use super::{handle_client, tls::dummy_tls_config};
@@ -42,6 +43,10 @@ fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListe
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => {
             let inner = create_listener(*obfs_protocol, bottom);
             SosistabListener::new(inner, Cookie::new(&cookie)).dynamic()
+        }
+        ObfsProtocol::Meeklike(key, obfs_protocol) => {
+            let inner = create_listener(*obfs_protocol, bottom);
+            MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes()).dynamic()
         }
     }
 }
