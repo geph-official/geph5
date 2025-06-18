@@ -149,6 +149,15 @@ pub struct UserInfo {
     pub plus_expires_unix: Option<u64>,
     #[serde(default)]
     pub recurring: bool,
+    #[serde(default)]
+    pub bw_consumption: Option<BwConsumptionInfo>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BwConsumptionInfo {
+    pub mb_used: u32,
+    pub mb_left: u32,
+    pub renew_unix: u64,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

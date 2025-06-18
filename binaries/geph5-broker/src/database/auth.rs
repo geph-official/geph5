@@ -15,6 +15,7 @@ use sqlx::types::chrono::Utc;
 
 use super::POSTGRES;
 use crate::{
+    database::bandwidth::bw_consumption,
     log_error,
     payments::{PaymentClient, PaymentTransport},
     CONFIG_FILE,
@@ -206,6 +207,9 @@ pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> 
         user_id: user_id as _,
         plus_expires_unix: plus_expires_unix.map(|s| s.0 as _),
         recurring: plus_expires_unix.map(|s| s.1).unwrap_or_default(),
+        bw_consumption: bw_consumption(user_id)
+            .await
+            .map_err(|_| AuthError::RateLimited)?,
     }))
 }
 
