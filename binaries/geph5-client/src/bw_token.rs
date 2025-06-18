@@ -2,8 +2,8 @@ use std::{sync::LazyLock, time::Duration, usize};
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
-use aws_config::retry;
-use event_listener::{Event, Listener};
+
+use event_listener::Event;
 use futures_intrusive::sync::ManualResetEvent;
 use mizaru2::{ClientToken, SingleUnblindedSignature};
 use rand::Rng;
