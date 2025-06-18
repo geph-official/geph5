@@ -100,8 +100,18 @@ pub trait BrokerProtocol {
     async fn get_news(&self, lang: String) -> Result<Vec<LegacyNewsItem>, GenericError>;
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
+
+    async fn basic_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
+
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError>;
+
     async fn create_payment(
+        &self,
+        auth_token: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, GenericError>;
+    async fn create_basic_payment(
         &self,
         auth_token: String,
         days: u32,

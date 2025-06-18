@@ -106,6 +106,7 @@ pub struct StartCryptoArgs {
 pub enum Item {
     Plus,
     Giftcard(GiftcardInfo),
+    Basic,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

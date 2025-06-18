@@ -94,6 +94,59 @@ impl RpcService for WrappedBrokerService {
 struct BrokerImpl {}
 
 impl BrokerImpl {
+    async fn create_payment_inner(
+        &self,
+        secret: String,
+        days: u32,
+        method: String,
+        item: crate::payments::Item,
+    ) -> Result<String, GenericError> {
+        let user_id = validate_credential(Credential::Secret(secret.clone())).await?;
+        let rpc = PaymentClient(PaymentTransport);
+        let sessid = payment_sessid(user_id).await?;
+        match method.as_str() {
+            "credit-card" => Ok(rpc
+                .start_stripe_url(
+                    sessid,
+                    StartStripeArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item,
+                        is_recurring: true,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
+            "wechat" => Ok(rpc
+                .start_aliwechat(
+                    sessid,
+                    StartAliwechatArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        method,
+                        mobile: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
+            "alipay" => Ok(rpc
+                .start_aliwechat(
+                    sessid,
+                    StartAliwechatArgs {
+                        promo: "".to_string(),
+                        days: days as _,
+                        item: crate::payments::Item::Plus,
+                        method,
+                        mobile: false,
+                    },
+                )
+                .await?
+                .map_err(GenericError)?),
+            _ => Err(GenericError("no support for this method here".to_string())),
+        }
+    }
+
     async fn net_status_inner(&self) -> Result<NetStatus, GenericError> {
         static CACHE: Lazy<Cache<(), NetStatus>> = Lazy::new(|| {
             Cache::builder()
@@ -595,8 +648,12 @@ impl BrokerProtocol for BrokerImpl {
             (30, 500),
             (90, 1500),
             (365, 5475),
-            (730, 10342),
+            // (730, 10342),
         ])
+    }
+
+    async fn basic_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
+        Ok(vec![(30, 250), (90, 750), (365, 2738)])
     }
 
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError> {
@@ -613,50 +670,18 @@ impl BrokerProtocol for BrokerImpl {
         days: u32,
         method: String,
     ) -> Result<String, GenericError> {
-        let user_id = validate_credential(Credential::Secret(secret.clone())).await?;
-        let rpc = PaymentClient(PaymentTransport);
-        let sessid = payment_sessid(user_id).await?;
-        match method.as_str() {
-            "credit-card" => Ok(rpc
-                .start_stripe_url(
-                    sessid,
-                    StartStripeArgs {
-                        promo: "".to_string(),
-                        days: days as _,
-                        item: crate::payments::Item::Plus,
-                        is_recurring: true,
-                    },
-                )
-                .await?
-                .map_err(GenericError)?),
-            "wechat" => Ok(rpc
-                .start_aliwechat(
-                    sessid,
-                    StartAliwechatArgs {
-                        promo: "".to_string(),
-                        days: days as _,
-                        item: crate::payments::Item::Plus,
-                        method: "wxpay".to_string(),
-                        mobile: false,
-                    },
-                )
-                .await?
-                .map_err(GenericError)?),
-            "alipay" => Ok(rpc
-                .start_aliwechat(
-                    sessid,
-                    StartAliwechatArgs {
-                        promo: "".to_string(),
-                        days: days as _,
-                        item: crate::payments::Item::Plus,
-                        method: "alipay".to_string(),
-                        mobile: false,
-                    },
-                )
-                .await?
-                .map_err(GenericError)?),
-            _ => Err(GenericError("no support for this method here".to_string())),
-        }
+        self.create_payment_inner(secret, days, method, crate::payments::Item::Plus)
+            .await
+    }
+
+    async fn create_basic_payment(
+        &self,
+        secret: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, GenericError> {
+        self.create_payment_inner(secret, days, method, crate::payments::Item::Basic)
+            .await
     }
 
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, GenericError> {
