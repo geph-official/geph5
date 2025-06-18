@@ -166,6 +166,9 @@ impl RateLimiter {
         }
 
         // TODO do something when the bandwidth is exhausted
+        if self.bw_enabled.load(Ordering::SeqCst) {
+            self.bw_account.consume_bw(bytes as _);
+        }
 
         TOTAL_BYTE_COUNT.fetch_add(bytes as _, Ordering::Relaxed);
         if bytes == 0 {
@@ -182,8 +185,6 @@ impl RateLimiter {
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
                 .is_err()
-                || (self.bw_enabled.load(Ordering::SeqCst)
-                    && self.bw_account.consume_bw(bytes as _) == 0)
             {
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
