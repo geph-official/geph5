@@ -57,8 +57,15 @@ pub trait ControlProtocol {
     async fn net_status(&self) -> Result<NetStatus, String>;
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
     async fn price_points(&self) -> Result<Vec<(u32, f64)>, String>;
+    async fn basic_price_points(&self) -> Result<Vec<(u32, f64)>, String>;
     async fn payment_methods(&self) -> Result<Vec<String>, String>;
     async fn create_payment(
+        &self,
+        secret: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, String>;
+    async fn create_basic_payment(
         &self,
         secret: String,
         days: u32,

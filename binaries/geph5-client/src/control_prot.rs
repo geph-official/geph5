@@ -270,6 +270,18 @@ impl ControlProtocol for ControlProtocolImpl {
             .collect())
     }
 
+    async fn basic_price_points(&self) -> Result<Vec<(u32, f64)>, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .basic_price_points()
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?
+            .into_iter()
+            .map(|(a, b)| (a, b as f64 / 100.0))
+            .collect())
+    }
+
     async fn payment_methods(&self) -> Result<Vec<String>, String> {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
         Ok(client
@@ -288,6 +300,20 @@ impl ControlProtocol for ControlProtocolImpl {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
         Ok(client
             .create_payment(secret, days, method)
+            .await
+            .map_err(|s| s.to_string())?
+            .map_err(|s| s.to_string())?)
+    }
+
+    async fn create_basic_payment(
+        &self,
+        secret: String,
+        days: u32,
+        method: String,
+    ) -> Result<String, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client
+            .create_basic_payment(secret, days, method)
             .await
             .map_err(|s| s.to_string())?
             .map_err(|s| s.to_string())?)
