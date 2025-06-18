@@ -1,9 +1,6 @@
 use std::{
     fmt::Debug,
-    sync::{
-        atomic::AtomicU64,
-        Arc,
-    },
+    sync::{atomic::AtomicU64, Arc},
     time::Duration,
     u64,
 };

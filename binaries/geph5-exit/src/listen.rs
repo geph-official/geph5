@@ -201,6 +201,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
         // !bw-accounting starts a bandwidth accounting seession.
         if metadata == "!bw-accounting" {
+            ratelimit.enable_bw();
             smolscale::spawn(
                 bw_accounting_loop(ratelimit.bw_account(), stream)
                     .inspect_err(|e| tracing::warn!(err = debug(e), "bw_accounting_loop died")),

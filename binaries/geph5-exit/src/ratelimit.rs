@@ -1,7 +1,7 @@
 use std::{
     num::NonZeroU32,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -115,6 +115,7 @@ pub struct RateLimiter {
     inner: Option<Arc<DefaultDirectRateLimiter>>,
     log_tag: Option<String>,
     bw_account: BwAccount,
+    bw_enabled: Arc<AtomicBool>,
 }
 
 impl RateLimiter {
@@ -132,7 +133,13 @@ impl RateLimiter {
             inner: Some(Arc::new(inner)),
             log_tag,
             bw_account,
+            bw_enabled: Default::default(),
         }
+    }
+
+    /// Enable bandwidth accounting.
+    pub fn enable_bw(&self) {
+        self.bw_enabled.store(true, Ordering::SeqCst);
     }
 
     /// Gets the BwAccount out of this ratelimit
@@ -146,6 +153,7 @@ impl RateLimiter {
             inner: None,
             bw_account,
             log_tag,
+            bw_enabled: Default::default(),
         }
     }
 
@@ -158,7 +166,6 @@ impl RateLimiter {
         }
 
         // TODO do something when the bandwidth is exhausted
-        self.bw_account.consume_bw(bytes);
 
         TOTAL_BYTE_COUNT.fetch_add(bytes as _, Ordering::Relaxed);
         if bytes == 0 {
@@ -175,6 +182,8 @@ impl RateLimiter {
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
                 .is_err()
+                || (self.bw_enabled.load(Ordering::SeqCst)
+                    && self.bw_account.consume_bw(bytes as _) == 0)
             {
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
