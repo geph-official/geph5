@@ -22,8 +22,6 @@ use sillad::{
 use sillad_conntest::ConnTestDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
-use smol_timeout2::TimeoutExt as _;
-
 use crate::{
     auth::get_connect_token,
     broker::{broker_client, get_net_status},

@@ -26,7 +26,9 @@ pub static DATABASE: CtxField<SqlitePool> = |ctx| {
     tracing::debug!("INITIALIZING DATABASE");
     let options = SqliteConnectOptions::from_str(&db_path)
         .unwrap()
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
 
     smol::future::block_on(async move {
         let pool = PoolOptions::new()

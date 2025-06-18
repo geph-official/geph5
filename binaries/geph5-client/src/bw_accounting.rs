@@ -10,13 +10,11 @@ use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
-use smol_timeout2::TimeoutExt;
+
 use stdcode::StdcodeSerializeExt;
 
 use crate::{bw_token::bw_token_consume, Config};
 use anyctx::AnyCtx;
-
-const THRESHOLD: usize = 15_000_000;
 
 /// Handles the exit-to-client bandwidth accounting protocol.
 #[tracing::instrument(skip_all)]
@@ -38,7 +36,7 @@ pub async fn bw_accounting_client_loop(
             loop {
                 read.read_exact(&mut buf).await?;
                 let bytes = u64::from_be_bytes(buf) as usize;
-                tracing::debug!(bytes, "obtained remote bw");
+
                 bytes_left.store(bytes, Ordering::SeqCst);
                 change_event.notify_one();
             }
@@ -50,40 +48,39 @@ pub async fn bw_accounting_client_loop(
         let bytes_left = bytes_left.clone();
         let ctx = ctx.clone();
         async move {
+            // start with a 1MB threshold.
+            let mut threshold = 1_000_000;
+
             loop {
-                change_event
+                let remaining = change_event
                     .wait_until(|| {
                         let left = bytes_left.load(Ordering::SeqCst);
-                        if left < THRESHOLD {
+                        tracing::trace!(left, threshold, "obtained remote bw");
+                        if left < threshold {
                             Some(left)
                         } else {
                             None
                         }
                     })
                     .await;
-                // TODO this is buggy, if we do not have a token we should wait until we have one
+                if remaining == 0 {
+                    tracing::debug!(threshold, "totally ran out of bw, bumping threshold up");
+                    threshold = (threshold + 1_000_000).min(100_000_000);
+                }
+
                 loop {
                     if let Some((token, sig)) = bw_token_consume(&ctx).await? {
                         let enc = BASE64_STANDARD_NO_PAD.encode((token, sig).stdcode());
                         write.write_all(enc.as_bytes()).await?;
                         write.write_all(b"\n").await?;
+                        tracing::debug!(threshold, remaining, "consuming a bandwidth token");
                         break;
                     } else {
-                        tracing::warn!("no bandwidth tokens to send, waiting...");
+                        tracing::warn!("no bandwidth tokens to send...");
                         smol::Timer::after(Duration::from_millis(100)).await;
                     }
                 }
-                change_event
-                    .wait_until(|| {
-                        let left = bytes_left.load(Ordering::SeqCst);
-                        if left >= THRESHOLD {
-                            Some(left)
-                        } else {
-                            None
-                        }
-                    })
-                    .timeout(Duration::from_secs(10))
-                    .await;
+                smol::Timer::after(Duration::from_millis(200)).await;
             }
         }
     };
