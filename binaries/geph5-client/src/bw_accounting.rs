@@ -68,18 +68,12 @@ pub async fn bw_accounting_client_loop(
                     threshold = (threshold + 1_000_000).min(100_000_000);
                 }
 
-                loop {
-                    if let Some((token, sig)) = bw_token_consume(&ctx).await? {
-                        let enc = BASE64_STANDARD_NO_PAD.encode((token, sig).stdcode());
-                        write.write_all(enc.as_bytes()).await?;
-                        write.write_all(b"\n").await?;
-                        tracing::debug!(threshold, remaining, "consuming a bandwidth token");
-                        break;
-                    } else {
-                        tracing::warn!("no bandwidth tokens to send...");
-                        smol::Timer::after(Duration::from_millis(100)).await;
-                    }
-                }
+                let (token, sig) = bw_token_consume(&ctx).await?;
+
+                let enc = BASE64_STANDARD_NO_PAD.encode((token, sig).stdcode());
+                write.write_all(enc.as_bytes()).await?;
+                write.write_all(b"\n").await?;
+                tracing::debug!(threshold, remaining, "consuming a bandwidth token");
                 smol::Timer::after(Duration::from_millis(200)).await;
             }
         }

@@ -1,9 +1,12 @@
-use std::{sync::LazyLock, time::Duration};
+use std::{sync::LazyLock, time::Duration, usize};
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
+use aws_config::retry;
+use event_listener::{Event, Listener};
 use futures_intrusive::sync::ManualResetEvent;
 use mizaru2::{ClientToken, SingleUnblindedSignature};
+use rand::Rng;
 use stdcode::StdcodeSerializeExt;
 
 use crate::{auth::get_auth_token, broker_client, database::DATABASE, Config};
@@ -42,25 +45,33 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 let ctx = ctx.clone();
                 let mizaru_bw = mizaru_bw.clone();
                 async move {
-                    let fallible = async move {
-                        let broker = broker_client(&ctx)?;
-                        let token = ClientToken::random();
-                        let (blind_token, secret) = token.blind(&mizaru_bw.inner()?);
-                        let lele = broker
-                            .get_bw_token(get_auth_token(&ctx).await?, blind_token)
-                            .await??;
-                        let sig = lele.unblind(&secret, token)?;
-                        sqlx::query("insert into bw_tokens values ($1, $2)")
-                            .bind((token, sig).stdcode())
-                            .bind(token.stdcode())
-                            .execute(ctx.get(DATABASE))
-                            .await?;
-                        anyhow::Ok(())
-                    };
-                    if let Err(err) = fallible.await {
-                        tracing::warn!(err = debug(err), "cannot obtain bw token");
-                        smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() * 10.0))
-                            .await;
+                    let mut retry_secs = 1.0;
+                    loop {
+                        let fallible = async {
+                            let broker = broker_client(&ctx)?;
+                            let token = ClientToken::random();
+                            let (blind_token, secret) = token.blind(&mizaru_bw.inner()?);
+                            let lele = broker
+                                .get_bw_token(get_auth_token(&ctx).await?, blind_token)
+                                .await??;
+                            let sig = lele.unblind(&secret, token)?;
+                            sqlx::query("insert into bw_tokens values ($1, $2)")
+                                .bind((token, sig).stdcode())
+                                .bind(token.stdcode())
+                                .execute(ctx.get(DATABASE))
+                                .await?;
+                            BW_TOKEN_SUPPLIED.notify(usize::MAX);
+                            anyhow::Ok(())
+                        };
+                        if let Err(err) = fallible.await {
+                            tracing::warn!(err = debug(err), retry_secs, "cannot obtain bw token");
+                            smol::Timer::after(Duration::from_secs_f64(retry_secs)).await;
+                            retry_secs = rand::thread_rng()
+                                .gen_range(retry_secs..retry_secs * 2.0)
+                                .min(120.0);
+                        } else {
+                            break;
+                        }
                     }
                 }
             });
@@ -81,9 +92,26 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 static BW_TOKEN_CONSUMED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
 
+static BW_TOKEN_SUPPLIED: LazyLock<Event> = LazyLock::new(|| Event::new());
+
 /// Consumes a bandwidth token from the local database, returning it if present.
 #[tracing::instrument(skip(ctx))]
 pub async fn bw_token_consume(
+    ctx: &AnyCtx<Config>,
+) -> anyhow::Result<(ClientToken, SingleUnblindedSignature)> {
+    loop {
+        if let Some(v) = bw_token_consume_inner(ctx).await? {
+            return Ok(v);
+        }
+        let waiter = BW_TOKEN_SUPPLIED.listen();
+        if let Some(v) = bw_token_consume_inner(ctx).await? {
+            return Ok(v);
+        }
+        waiter.await;
+    }
+}
+
+async fn bw_token_consume_inner(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<Option<(ClientToken, SingleUnblindedSignature)>> {
     let mut txn = ctx.get(DATABASE).begin().await?;
