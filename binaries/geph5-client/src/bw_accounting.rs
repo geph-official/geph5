@@ -16,7 +16,7 @@ use stdcode::StdcodeSerializeExt;
 use crate::{bw_token::bw_token_consume, Config};
 use anyctx::AnyCtx;
 
-const THRESHOLD: usize = 5_000_000;
+const THRESHOLD: usize = 15_000_000;
 
 /// Handles the exit-to-client bandwidth accounting protocol.
 #[tracing::instrument(skip_all)]
@@ -61,10 +61,17 @@ pub async fn bw_accounting_client_loop(
                         }
                     })
                     .await;
-                if let Some((token, sig)) = bw_token_consume(&ctx).await? {
-                    let enc = BASE64_STANDARD_NO_PAD.encode((token, sig).stdcode());
-                    write.write_all(enc.as_bytes()).await?;
-                    write.write_all(b"\n").await?;
+                // TODO this is buggy, if we do not have a token we should wait until we have one
+                loop {
+                    if let Some((token, sig)) = bw_token_consume(&ctx).await? {
+                        let enc = BASE64_STANDARD_NO_PAD.encode((token, sig).stdcode());
+                        write.write_all(enc.as_bytes()).await?;
+                        write.write_all(b"\n").await?;
+                        break;
+                    } else {
+                        tracing::warn!("no bandwidth tokens to send, waiting...");
+                        smol::Timer::after(Duration::from_millis(100)).await;
+                    }
                 }
                 change_event
                     .wait_until(|| {
