@@ -28,7 +28,7 @@ RETURNING mb_used;
     .await?;
 
     // then check against the bandwidth limits
-    let limit: Option<i32> = sqlx::query_scalar("select mb_limit from bw_l;imits where id = $1")
+    let limit: Option<i32> = sqlx::query_scalar("select mb_limit from bw_limits where id = $1")
         .bind(user_id)
         .fetch_optional(&mut *txn)
         .await?;
