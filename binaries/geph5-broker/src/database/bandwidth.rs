@@ -6,7 +6,7 @@ pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumption
     let pair: Option<(i32, i32, i64)> = sqlx::query_as("select (renew_mb - (mb_limit - mb_used)), renew_mb, extract(epcoh from renew_date) from bw_usage natural join bw_limits where id = $1").bind(user_id).fetch_optional(&*POSTGRES).await?;
     Ok(pair.map(|pair| BwConsumptionInfo {
         mb_used: pair.0.max(0) as _,
-        mb_left: pair.1.max(0) as _,
+        mb_limit: pair.1.max(0) as _,
         renew_unix: pair.2 as _,
     }))
 }

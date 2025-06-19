@@ -166,7 +166,7 @@ pub struct UserInfo {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BwConsumptionInfo {
     pub mb_used: u32,
-    pub mb_left: u32,
+    pub mb_limit: u32,
     pub renew_unix: u64,
 }
 
