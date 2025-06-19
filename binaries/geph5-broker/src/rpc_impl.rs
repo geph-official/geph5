@@ -240,7 +240,7 @@ impl BrokerProtocol for BrokerImpl {
             .ok_or(AuthError::Forbidden)?;
 
         consume_bw(id, 10).await.map_err(|e| {
-            tracing::warn!(err = debug(e), "failed to get bw token");
+            tracing::warn!(err = debug(e), id, "failed to get bw token");
             AuthError::RateLimited
         })?;
 
