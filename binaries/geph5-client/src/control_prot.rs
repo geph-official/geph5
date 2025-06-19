@@ -93,6 +93,8 @@ impl ControlProtocol for ControlProtocolImpl {
             },
             expiry: res.plus_expires_unix,
             recurring: res.recurring,
+
+            bw_consumption: res.bw_consumption,
         })
     }
 

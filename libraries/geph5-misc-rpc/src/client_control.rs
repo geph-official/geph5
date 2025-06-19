@@ -1,7 +1,9 @@
 use std::time::SystemTime;
 
 use async_trait::async_trait;
-use geph5_broker_protocol::{AccountLevel, ExitDescriptor, NetStatus, VoucherInfo};
+use geph5_broker_protocol::{
+    AccountLevel, BwConsumptionInfo, ExitDescriptor, NetStatus, VoucherInfo,
+};
 use nanorpc::nanorpc_derive;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +30,8 @@ pub struct ControlUserInfo {
 
     pub recurring: bool,
     pub expiry: Option<u64>,
+
+    pub bw_consumption: Option<BwConsumptionInfo>,
 }
 
 #[nanorpc_derive]
