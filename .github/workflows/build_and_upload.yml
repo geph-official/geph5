@@ -43,6 +43,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-git--
 
+      - name: Cache cargo binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/binaries
+          key: ${{ runner.os }}-cargo-bin--${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bin--
+
       - name: Cache target directory
         uses: actions/cache@v4
         with:
@@ -50,6 +58,7 @@ jobs:
           key: ${{ runner.os }}-target-${{ matrix.target }}--${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-target-${{ matrix.target }}--
+
       # ----------  End caches  ----------
       - name: Install musl-tools (Linux)
         if: ${{ matrix.dir == 'musl' }}
