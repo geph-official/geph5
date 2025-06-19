@@ -239,9 +239,10 @@ impl BrokerProtocol for BrokerImpl {
             .map_err(|_| AuthError::RateLimited)?
             .ok_or(AuthError::Forbidden)?;
 
-        consume_bw(id, 10)
-            .await
-            .map_err(|_| AuthError::RateLimited)?;
+        consume_bw(id, 10).await.map_err(|e| {
+            tracing::warn!(err = debug(e), "failed to get bw token");
+            AuthError::RateLimited
+        })?;
 
         let sig = BW_MIZARU_SK.blind_sign(&blind_token);
         Ok(sig)
