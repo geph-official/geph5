@@ -158,7 +158,6 @@ struct CliArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    bw_consumption(42).await.unwrap();
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
         .with(
