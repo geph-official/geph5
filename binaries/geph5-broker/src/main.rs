@@ -17,6 +17,8 @@ use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+use crate::database::bandwidth::bw_consumption;
+
 mod database;
 mod news;
 mod payments;
@@ -156,6 +158,7 @@ struct CliArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    bw_consumption(42).await.unwrap();
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
         .with(
