@@ -12,32 +12,31 @@ pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumption
 }
 
 pub async fn consume_bw(user_id: i32, mbs: i32) -> anyhow::Result<()> {
-    let mut txn = POSTGRES.begin().await?;
-
-    let mb_used: i32 = sqlx::query_scalar(
-        "INSERT INTO bw_usage (id, mb_used)
-VALUES ($1, $2)
-ON CONFLICT (id) DO UPDATE
-  SET mb_used = bw_usage.mb_used + EXCLUDED.mb_used
-RETURNING mb_used;
-",
+    // returns (current usage, optional limit)
+    let (mb_used, mb_limit): (i32, Option<i32>) = sqlx::query_as(
+        r#"
+WITH updated AS (
+    INSERT INTO bw_usage (id, mb_used)
+    VALUES ($1, $2)
+    ON CONFLICT (id) DO UPDATE
+      SET mb_used = bw_usage.mb_used + EXCLUDED.mb_used
+    RETURNING id, mb_used
+)
+SELECT u.mb_used, l.mb_limit
+FROM updated AS u
+LEFT JOIN bw_limits AS l USING (id);
+"#,
     )
     .bind(user_id)
     .bind(mbs)
-    .fetch_one(&mut *txn)
+    .fetch_one(&*POSTGRES)
     .await?;
 
-    // then check against the bandwidth limits
-    let limit: Option<i32> = sqlx::query_scalar("select mb_limit from bw_l;imits where id = $1")
-        .bind(user_id)
-        .fetch_optional(&mut *txn)
-        .await?;
-
-    if let Some(limit) = limit {
+    if let Some(limit) = mb_limit {
         if mb_used > limit {
-            anyhow::bail!("consumed over limit")
+            anyhow::bail!("consumed over limit");
         }
     }
-    txn.commit().await?;
+
     Ok(())
 }
