@@ -186,16 +186,7 @@ jobs:
           mv artifacts/musl-latest-bridge/* artifacts/musl-latest/
           rmdir artifacts/musl-latest-bridge
 
-      # Cache rclone installation
-      - name: Cache rclone
-        uses: actions/cache@v3
-        id: cache-rclone
-        with:
-          path: /usr/bin/rclone
-          key: rclone-latest
-
       - name: Install rclone
-        if: steps.cache-rclone.outputs.cache-hit != 'true'
         run: |
           curl https://rclone.org/install.sh | sudo bash
 

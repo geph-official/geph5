@@ -123,7 +123,7 @@ impl BrokerImpl {
                     StartAliwechatArgs {
                         promo: "".to_string(),
                         days: days as _,
-                        item: crate::payments::Item::Plus,
+                        item,
                         method,
                         mobile: false,
                     },
@@ -136,7 +136,7 @@ impl BrokerImpl {
                     StartAliwechatArgs {
                         promo: "".to_string(),
                         days: days as _,
-                        item: crate::payments::Item::Plus,
+                        item,
                         method,
                         mobile: false,
                     },
