@@ -37,6 +37,7 @@ pub struct ControlUserInfo {
 #[nanorpc_derive]
 #[async_trait]
 pub trait ControlProtocol {
+    async fn ab_test(&self, key: String, secret: String) -> Result<bool, String>;
     async fn conn_info(&self) -> ConnInfo;
     async fn stat_num(&self, stat: String) -> f64;
     async fn start_time(&self) -> SystemTime;
@@ -62,6 +63,7 @@ pub trait ControlProtocol {
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String>;
     async fn price_points(&self) -> Result<Vec<(u32, f64)>, String>;
     async fn basic_price_points(&self) -> Result<Vec<(u32, f64)>, String>;
+    async fn basic_mb_limit(&self) -> Result<u32, String>;
     async fn payment_methods(&self) -> Result<Vec<String>, String>;
     async fn create_payment(
         &self,

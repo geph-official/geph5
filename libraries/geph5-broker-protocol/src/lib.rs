@@ -24,6 +24,8 @@ use thiserror::Error;
 #[nanorpc_derive]
 #[async_trait]
 pub trait BrokerProtocol {
+    async fn opaque_abtest(&self, test: String, id: u64) -> bool;
+
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
 
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
@@ -100,8 +102,8 @@ pub trait BrokerProtocol {
     async fn get_news(&self, lang: String) -> Result<Vec<LegacyNewsItem>, GenericError>;
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
-
     async fn basic_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
+    async fn basic_mb_limit(&self) -> u32;
 
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError>;
 

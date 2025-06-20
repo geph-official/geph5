@@ -34,6 +34,7 @@ use std::{
 };
 
 use crate::database::auth::validate_secret;
+use crate::database::bandwidth::basic_count;
 use crate::database::{
     auth::{get_user_info, new_auth_token, register_secret, valid_auth_token, validate_credential},
     bandwidth::consume_bw,
@@ -205,6 +206,14 @@ fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
 
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {
+    async fn opaque_abtest(&self, test: String, id: u64) -> bool {
+        if test == "basic" {
+            basic_count().await.map(|s| s as u64).unwrap_or(u64::MAX) < (id % 500)
+        } else {
+            false
+        }
+    }
+
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes {
         match level {
             AccountLevel::Free => &FREE_MIZARU_SK,
@@ -655,6 +664,10 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn basic_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
         Ok(vec![(30, 250), (90, 750), (365, 2738)])
+    }
+
+    async fn basic_mb_limit(&self) -> u32 {
+        5000
     }
 
     async fn payment_methods(&self) -> Result<Vec<String>, GenericError> {

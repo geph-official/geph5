@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyctx::AnyCtx;
+use arrayref::array_ref;
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
 use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, NetStatus, VoucherInfo};
@@ -42,6 +43,17 @@ static REGISTRATIONS: LazyLock<Mutex<Slab<RegistrationProgress>>> =
 
 #[async_trait]
 impl ControlProtocol for ControlProtocolImpl {
+    async fn ab_test(&self, key: String, secret: String) -> Result<bool, String> {
+        let id = blake3::hash(secret.as_bytes());
+        let id = u64::from_be_bytes(*array_ref![id.as_bytes(), 0, 8]);
+        let res = broker_client(&self.ctx)
+            .map_err(|e| format!("{:?}", e))?
+            .opaque_abtest(key, id)
+            .await
+            .map_err(|e| format!("{:?}", e))?;
+        Ok(res)
+    }
+
     async fn conn_info(&self) -> ConnInfo {
         self.ctx.get(CURRENT_CONN_INFO).lock().clone()
     }
@@ -282,6 +294,11 @@ impl ControlProtocol for ControlProtocolImpl {
             .into_iter()
             .map(|(a, b)| (a, b as f64 / 100.0))
             .collect())
+    }
+
+    async fn basic_mb_limit(&self) -> Result<u32, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        Ok(client.basic_mb_limit().await.map_err(|s| s.to_string())?)
     }
 
     async fn payment_methods(&self) -> Result<Vec<String>, String> {
