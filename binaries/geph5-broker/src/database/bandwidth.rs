@@ -2,8 +2,8 @@ use geph5_broker_protocol::BwConsumptionInfo;
 
 use super::POSTGRES;
 
-pub async fn basic_count() -> anyhow::Result<i32> {
-    let count: i32 = sqlx::query_scalar(
+pub async fn basic_count() -> anyhow::Result<i64> {
+    let count: i64 = sqlx::query_scalar(
         "select count(distinct user_id) from plus_periods where end_time > NOW() and tier = 0",
     )
     .fetch_one(&*POSTGRES)
