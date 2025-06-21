@@ -171,5 +171,12 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
             cookie,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
+        ObfsProtocol::Meeklike(key, obfs_protocol) => RouteDescriptor::Meeklike {
+            key,
+            lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
+        ObfsProtocol::Hex(obfs_protocol) => RouteDescriptor::Hex {
+            lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
     }
 }

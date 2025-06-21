@@ -4,11 +4,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::stack::{dialer_from_stack, parse_stack};
 use futures_concurrency::future::FutureExt;
 use futures_util::AsyncReadExt;
-use picomux::{LivenessConfig, PicoMux};
-use crate::stack::{dialer_from_stack, parse_stack};
 use geph5_misc_rpc::bridge::ObfsProtocol;
+use picomux::{LivenessConfig, PicoMux};
 use sillad::dialer::Dialer;
 
 use crate::command::Command;
@@ -67,8 +67,9 @@ async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
     let mut stream = mux
         .open(&serde_json::to_vec(&Command::Source(CHUNK_SIZE))?)
         .await?;
+    let start = Instant::now();
+    let mut dl = 0;
     loop {
-        let start = Instant::now();
         let n = futures_util::io::copy(
             (&mut stream).take(10_000_000),
             &mut futures_util::io::sink(),
@@ -77,9 +78,10 @@ async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
         if n == 0 {
             break;
         }
+        dl += n;
         eprintln!(
             "*** current {:.2} Mbps",
-            80.0 / start.elapsed().as_secs_f64()
+            dl as f64 / start.elapsed().as_secs_f64() / 1_000_000.0 * 8.0
         )
     }
     eprintln!(
