@@ -103,10 +103,7 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
             IpAddr::V6(v6) => v6.is_loopback(),
         }
     } else {
-        match psl::suffix(host.as_bytes()) {
-            None => false,
-            Some(suf) => !suf.is_known(),
-        }
+        false
     }
 }
 
