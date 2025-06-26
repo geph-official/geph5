@@ -20,6 +20,8 @@ use sillad::{
     tcp::TcpDialer,
 };
 use sillad_conntest::ConnTestDialer;
+use sillad_hex::HexDialer;
+use sillad_meeklike::MeeklikeDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 
 use crate::{
@@ -295,7 +297,10 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
             }
             .dynamic()
         }
-
+        RouteDescriptor::Hex { lower } => {
+            let lower = route_to_dialer(ctx, lower);
+            HexDialer { inner: lower }.dynamic()
+        }
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {
             let lower = route_to_dialer(ctx, lower);
@@ -311,6 +316,14 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
                     .clone()
                     .unwrap_or_else(|| "example.com".to_string()),
             )
+            .dynamic()
+        }
+        RouteDescriptor::Meeklike { key, lower } => {
+            let lower = route_to_dialer(ctx, lower);
+            MeeklikeDialer {
+                inner: lower,
+                key: *blake3::hash(key.as_bytes()).as_bytes(),
+            }
             .dynamic()
         }
     }

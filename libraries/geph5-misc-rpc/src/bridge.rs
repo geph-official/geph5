@@ -19,6 +19,8 @@ pub enum ObfsProtocol {
     ConnTest(Box<Self>),
     PlainTls(Box<Self>),
     Sosistab3New(String, Box<Self>),
+    Hex(Box<Self>),
+    Meeklike(String, Box<Self>),
 }
 
 /// The RPC protocol that bridges expose, called by the broker.
