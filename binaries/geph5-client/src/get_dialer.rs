@@ -23,6 +23,8 @@ use sillad_conntest::ConnTestDialer;
 use sillad_hex::HexDialer;
 use sillad_meeklike::MeeklikeDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_obfsudp::ObfsUdpDialer;
+use hex;
 
 use crate::{
     auth::get_connect_token,
@@ -300,6 +302,10 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Hex { lower } => {
             let lower = route_to_dialer(ctx, lower);
             HexDialer { inner: lower }.dynamic()
+        }
+        RouteDescriptor::ObfsUdp { addr, server_pk } => {
+            let pk: [u8; 32] = hex::decode(server_pk).expect("bad pk").try_into().expect("pk len");
+            sillad_obfsudp::ObfsUdpDialer { addr: *addr, server_pk: pk }.dynamic()
         }
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {

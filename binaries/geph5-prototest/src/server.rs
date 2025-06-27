@@ -5,6 +5,8 @@ use picomux::{PicoMux, Stream};
 use rand::RngCore;
 
 use sillad::{listener::Listener, Pipe};
+use sillad_obfsudp::{ObfsUdpListener, sk_to_pk};
+use hex;
 
 use crate::command::Command;
 use crate::stack::{listener_from_stack, parse_stack, dummy_tls_acceptor};
@@ -17,12 +19,26 @@ pub async fn server_main(listen: SocketAddr, stack: Option<String>) -> anyhow::R
         ObfsProtocol::None
     };
 
-    let tls_acceptor = dummy_tls_acceptor();
-    let base = sillad::tcp::TcpListener::bind(listen).await?;
-    let mut listener = listener_from_stack(protocol, base, &tls_acceptor);
-    loop {
-        let wire = listener.accept().await?;
-        smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err))).detach();
+    match &protocol {
+        ObfsProtocol::ObfsUdp(sk_hex) => {
+            let sk: [u8; 32] = hex::decode(sk_hex).expect("bad hex").try_into().expect("sk len");
+            let pk = sk_to_pk(sk);
+            eprintln!("server public key: {}", hex::encode(pk));
+            let mut listener = ObfsUdpListener::listen(listen, sk).await?;
+            loop {
+                let wire = listener.accept().await?;
+                smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err))).detach();
+            }
+        }
+        _ => {
+            let tls_acceptor = dummy_tls_acceptor();
+            let base = sillad::tcp::TcpListener::bind(listen).await?;
+            let mut listener = listener_from_stack(protocol, base, &tls_acceptor);
+            loop {
+                let wire = listener.accept().await?;
+                smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err))).detach();
+            }
+        }
     }
 }
 

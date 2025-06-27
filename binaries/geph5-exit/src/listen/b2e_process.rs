@@ -48,6 +48,7 @@ fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListe
             let inner = create_listener(*obfs_protocol, bottom);
             MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes()).dynamic()
         }
+        ObfsProtocol::ObfsUdp(_) => panic!("obfsudp unsupported in exit b2e"),
     }
 }
 

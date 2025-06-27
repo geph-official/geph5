@@ -19,6 +19,11 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
             proto = ObfsProtocol::PlainTls(Box::new(proto));
         } else if part.eq_ignore_ascii_case("conntest") {
             proto = ObfsProtocol::ConnTest(Box::new(proto));
+        } else if let Some(rest) = part.strip_prefix("obfsudp=") {
+            if !matches!(proto, ObfsProtocol::None) {
+                bail!("obfsudp must be the bottom-most protocol");
+            }
+            proto = ObfsProtocol::ObfsUdp(rest.to_string());
         } else if part.eq_ignore_ascii_case("hex") {
             proto = ObfsProtocol::Hex(Box::new(proto));
         } else if part.eq_ignore_ascii_case("none") {
@@ -41,6 +46,7 @@ use sillad_hex::{HexDialer, HexListener};
 use sillad_meeklike::{MeeklikeDialer, MeeklikeListener};
 use sillad_native_tls::{TlsDialer, TlsListener};
 use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie};
+use hex;
 use time::Duration as TimeDuration;
 use time::OffsetDateTime;
 
@@ -78,6 +84,7 @@ where
             let inner = listener_from_stack(*inner, bottom, tls_acceptor);
             MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes()).dynamic()
         }
+        ObfsProtocol::ObfsUdp(_) => panic!("obfsudp listener should be handled outside"),
     }
 }
 
@@ -129,11 +136,19 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                 }
                 .dynamic()
             }
+            ObfsProtocol::ObfsUdp(_) => lower, // should not appear here
         }
     }
-
-    let bottom = TcpDialer { dest_addr: addr }.dynamic();
-    inner(proto, bottom)
+    match proto {
+        ObfsProtocol::ObfsUdp(pk_hex) => {
+            let pk: [u8; 32] = hex::decode(pk_hex).expect("bad hex").try_into().expect("pk len");
+            sillad_obfsudp::ObfsUdpDialer { addr, server_pk: pk }.dynamic()
+        }
+        other => {
+            let bottom = TcpDialer { dest_addr: addr }.dynamic();
+            inner(other, bottom)
+        }
+    }
 }
 
 /// Generate a TLS acceptor using a random self-signed certificate.
