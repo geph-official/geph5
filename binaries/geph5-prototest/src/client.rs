@@ -61,7 +61,7 @@ async fn ping_once(mux: Arc<PicoMux>) -> anyhow::Result<Duration> {
 }
 
 async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
-    const CHUNK_SIZE: usize = 1024 * 1024 * 1000;
+    const CHUNK_SIZE: usize = 1024;
     eprintln!("**** starting chunk download, size {CHUNK_SIZE} ****");
     let start = Instant::now();
     let mut stream = mux
@@ -71,7 +71,7 @@ async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
     let mut dl = 0;
     loop {
         let n = futures_util::io::copy(
-            (&mut stream).take(10_000_000),
+            (&mut stream).take(CHUNK_SIZE as _),
             &mut futures_util::io::sink(),
         )
         .await?;
@@ -81,7 +81,7 @@ async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
         dl += n;
         eprintln!(
             "*** current {:.2} Mbps",
-            dl as f64 / start.elapsed().as_secs_f64() / 1_000_000.0 * 8.0
+            dl as f64 / start.elapsed().as_secs_f64() / CHUNK_SIZE as f64 * 8.0
         )
     }
     eprintln!(
