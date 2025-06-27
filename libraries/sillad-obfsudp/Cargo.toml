@@ -8,3 +8,17 @@ license.workspace = true
 [dependencies]
 sosistab2-obfsudp = "0.1.12"
 virta = "0.1.1"
+sillad = { version = "0.2", path = "../sillad" }
+futures-util = "0.3.31"
+pin-project = "1.1.10"
+async-trait = "0.1.88"
+moka = { version = "0.12.7", features = ["future"] }
+async-lock = "3.4.0"
+tachyonix = "0.3.1"
+async-io = "2.4.1"
+futures-concurrency = "7.6.3"
+async-task = "4.7.1"
+smolscale = "0.4.16"
+parking_lot = "0.12.4"
+stdcode = "0.1.14"
+sosistab2 = "0.10.21"
