@@ -7169,11 +7169,14 @@ dependencies = [
 name = "sillad-hex"
 version = "0.1.0"
 dependencies = [
+ "async-task",
  "async-trait",
+ "bipe",
  "futures-util",
  "hex",
  "pin-project",
  "sillad",
+ "smolscale",
 ]
 
 [[package]]
