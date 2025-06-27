@@ -124,7 +124,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
             ObfsProtocol::Meeklike(key, sub) => {
                 let lower = inner(&*sub, lower);
                 MeeklikeDialer {
-                    inner: lower,
+                    inner: lower.into(),
                     key: *blake3::hash(key.as_bytes()).as_bytes(),
                 }
                 .dynamic()

@@ -1,7 +1,9 @@
+mod crypto;
+
 use std::{
     io::{Error, ErrorKind},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_channel::{Receiver, Sender};
@@ -10,20 +12,22 @@ use async_io::Timer;
 use async_trait::async_trait;
 use blake3::derive_key;
 use bytes::Bytes;
-use chacha20poly1305::{aead::Aead, ChaCha20Poly1305, KeyInit};
+
 use dashmap::DashMap;
+use futures_lite::FutureExt;
 use futures_util::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http_body_util::BodyExt as _;
 use hyper::service::service_fn;
 use hyper::{body::Incoming, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use pin_project::pin_project;
-use rand::RngCore;
+use rand::{Rng, RngCore};
 use sillad::{dialer::Dialer, listener::Listener, Pipe};
-use smol_timeout2::TimeoutExt;
-use std::convert::Infallible;
+
+use crate::crypto::CryptoKey;
 
 #[pin_project]
+/// A meeklike "pipe" that takes a meeklike stuff.
 pub struct MeeklikePipe {
     #[pin]
     read: bipe::BipeReader,
@@ -74,41 +78,8 @@ impl Pipe for MeeklikePipe {
     }
 }
 
-struct CryptoState {
-    aead: ChaCha20Poly1305,
-}
-
-impl CryptoState {
-    fn new(key: [u8; 32]) -> Self {
-        Self {
-            aead: ChaCha20Poly1305::new(&key.into()),
-        }
-    }
-
-    fn encrypt(&self, data: &[u8]) -> Vec<u8> {
-        let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
-        let mut out = self.aead.encrypt(&nonce.into(), data).unwrap();
-        let mut result = Vec::with_capacity(12 + out.len());
-        result.extend_from_slice(&nonce);
-        result.append(&mut out);
-        result
-    }
-
-    fn decrypt(&self, data: &[u8]) -> std::io::Result<Vec<u8>> {
-        if data.len() < 12 {
-            return Err(Error::new(ErrorKind::InvalidData, "missing nonce"));
-        }
-        let mut nonce = [0u8; 12];
-        nonce.copy_from_slice(&data[..12]);
-        self.aead
-            .decrypt(&nonce.into(), &data[12..])
-            .map_err(|_| Error::new(ErrorKind::InvalidData, "decrypt failed"))
-    }
-}
-
 pub struct MeeklikeDialer<D: Dialer> {
-    pub inner: D,
+    pub inner: Arc<D>,
     pub key: [u8; 32],
 }
 
@@ -116,48 +87,46 @@ pub struct MeeklikeDialer<D: Dialer> {
 impl<D: Dialer> Dialer for MeeklikeDialer<D> {
     type P = MeeklikePipe;
     async fn dial(&self) -> std::io::Result<Self::P> {
-        let lower = self.inner.dial().await?;
-        let io = TokioIo::new(lower.compat());
-        let (mut sender, conn) =
-            hyper::client::conn::http1::handshake::<_, http_body_util::Full<Bytes>>(io)
-                .await
-                .map_err(Error::other)?;
-        smolscale::spawn(conn.compat()).detach();
-
         let (mut write_in, read_in) = bipe::bipe(32768);
         let (write_out, mut read_out) = bipe::bipe(32768);
-        let up = CryptoState::new(derive_key("up", &self.key));
-        let down = CryptoState::new(derive_key("dn", &self.key));
+        let up = CryptoKey::new(derive_key("up", &self.key));
+        let down = CryptoKey::new(derive_key("dn", &self.key));
         let mut id = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut id);
+        let inner = self.inner.clone();
         smolscale::spawn::<anyhow::Result<()>>(async move {
             let mut sleep = Duration::from_millis(10);
             loop {
-                // gather outgoing data for up to 100 ms
-                let start = std::time::Instant::now();
-                let mut out = Vec::new();
-                while start.elapsed() < Duration::from_millis(100) && out.len() < 1_000_000 {
-                    let mut buf = vec![0u8; 8192];
-                    let rem = Duration::from_millis(100) - start.elapsed();
-                    match read_out.read(&mut buf).timeout(rem).await {
-                        Some(Ok(n)) if n > 0 => {
-                            buf.truncate(n);
-                            out.extend_from_slice(&buf);
-                        }
-                        _ => break,
-                    }
-                }
+                let lower = inner.dial().await?;
+                let io = TokioIo::new(lower.compat());
+                let (mut sender, conn) =
+                    hyper::client::conn::http1::handshake::<_, http_body_util::Full<Bytes>>(io)
+                        .await
+                        .map_err(Error::other)?;
+                smolscale::spawn(conn.compat()).detach();
+
+                let out = grab_chunk(&mut read_out).await?;
 
                 let mut plain = Vec::with_capacity(32 + out.len());
                 plain.extend_from_slice(&id);
                 plain.extend_from_slice(&out);
                 let body = up.encrypt(&plain);
+                let up_len = body.len();
+                tracing::debug!(up_len, "sending request");
 
+                let start = Instant::now();
                 let req = Request::post("/")
-                    .body(http_body_util::Full::new(Bytes::from(body)))
+                    .body(http_body_util::Full::new(Bytes::from(base64::encode(body))))
                     .unwrap();
                 let resp = sender.send_request(req).await?;
                 let bytes = resp.into_body().collect().await?.to_bytes();
+                let elapsed = start.elapsed();
+                tracing::debug!(
+                    up_len,
+                    dn_len = bytes.len(),
+                    elapsed = debug(elapsed),
+                    "response gotten"
+                );
                 let plain = down.decrypt(&bytes)?;
                 if plain.len() < 32 {
                     anyhow::bail!("too small response")
@@ -227,10 +196,30 @@ impl<L: Listener> MeeklikeListener<L> {
     }
 }
 
+async fn grab_chunk(mut read_out: impl AsyncRead + Unpin) -> anyhow::Result<Vec<u8>> {
+    let max_size = rand::thread_rng().gen_range(10usize..5000);
+    let mut chunk = vec![0u8; max_size];
+    let mut cursor = 0;
+    let fill = async {
+        while cursor < chunk.len() {
+            cursor += read_out.read(&mut chunk[cursor..]).await?;
+            tracing::debug!(cursor, "cursor advanced");
+        }
+        anyhow::Ok(())
+    };
+    fill.race(async {
+        async_io::Timer::after(Duration::from_millis(100)).await;
+        Ok(())
+    })
+    .await?;
+    chunk.truncate(cursor);
+    Ok(chunk)
+}
+
 struct ServerConn {
     incoming: bipe::BipeWriter,
     outgoing: bipe::BipeReader,
-    down: CryptoState,
+    down: CryptoKey,
 }
 
 async fn handle_req(
@@ -238,7 +227,7 @@ async fn handle_req(
     conns: Arc<DashMap<[u8; 32], Arc<futures_util::lock::Mutex<ServerConn>>>>,
     send: Sender<MeeklikePipe>,
     key: Arc<[u8; 32]>,
-) -> Result<Response<http_body_util::Full<Bytes>>, Infallible> {
+) -> Result<Response<http_body_util::Full<Bytes>>, anyhow::Error> {
     if req.method() != Method::POST || req.uri().path() != "/" {
         return Ok(Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -251,13 +240,14 @@ async fn handle_req(
         .await
         .map(|b| b.to_bytes())
         .unwrap_or_else(|_| Bytes::new());
+    let body = base64::decode(&body)?;
     if body.len() < 28 + 32 {
         return Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(http_body_util::Full::new(Bytes::new()))
             .unwrap());
     }
-    let plain = match CryptoState::new(derive_key("up", &*key)).decrypt(&body) {
+    let plain = match CryptoKey::new(derive_key("up", &*key)).decrypt(&body) {
         Ok(p) => p,
         Err(_) => {
             return Ok(Response::builder()
@@ -290,7 +280,7 @@ async fn handle_req(
         Arc::new(futures_util::lock::Mutex::new(ServerConn {
             incoming: write_in,
             outgoing: read_out,
-            down: CryptoState::new(derive_key("dn", &*key)),
+            down: CryptoKey::new(derive_key("dn", &*key)),
         }))
     });
     let conn = entry.value().clone();
@@ -300,19 +290,7 @@ async fn handle_req(
     }
     let data = {
         let mut c = conn.lock().await;
-        let mut collected = Vec::new();
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_millis(100) && collected.len() < 1_000_000 {
-            let mut buf = vec![0u8; 8192];
-            let rem = Duration::from_millis(100) - start.elapsed();
-            match c.outgoing.read(&mut buf).timeout(rem).await {
-                Some(Ok(n)) if n > 0 => {
-                    buf.truncate(n);
-                    collected.extend_from_slice(&buf);
-                }
-                _ => break,
-            }
-        }
+        let collected = grab_chunk(&mut c.outgoing).await?;
         let mut plain = Vec::with_capacity(32 + collected.len());
         plain.extend_from_slice(&id);
         plain.extend_from_slice(&collected);

@@ -321,7 +321,7 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Meeklike { key, lower } => {
             let lower = route_to_dialer(ctx, lower);
             MeeklikeDialer {
-                inner: lower,
+                inner: lower.into(),
                 key: *blake3::hash(key.as_bytes()).as_bytes(),
             }
             .dynamic()

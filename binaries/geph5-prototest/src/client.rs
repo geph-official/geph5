@@ -61,9 +61,9 @@ async fn ping_once(mux: Arc<PicoMux>) -> anyhow::Result<Duration> {
 }
 
 async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
-    const CHUNK_SIZE: usize = 1024;
+    const CHUNK_SIZE: usize = 1024 * 1024 * 10;
     eprintln!("**** starting chunk download, size {CHUNK_SIZE} ****");
-    let start = Instant::now();
+
     let mut stream = mux
         .open(&serde_json::to_vec(&Command::Source(CHUNK_SIZE))?)
         .await?;
