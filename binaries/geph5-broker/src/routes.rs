@@ -84,20 +84,18 @@ pub async fn bridge_to_leaf_route(
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: tls_route!().await?.into(),
-                        lower: tls_route!().await?.into(),
+
                     })
                 } else if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: sosistab3_route!().await?.into(),
-                        lower: sosistab3_route!().await?.into(),
+
                     })
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: tls_route!().await?.into()}, legacy_route!().await?])
-                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: tls_route!().await?.into()}, legacy_route!().await?])
-                            .into(),
+                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: tls_route!().await?.into()}, legacy_route!().await?]).into()
                     })
                 }
             }
