@@ -15,6 +15,11 @@ use sosistab2_obfsudp::{ObfsUdpPublic, ObfsUdpSecret};
 use stdcode::StdcodeSerializeExt;
 use virta::{StreamMessage, stream_state::StreamState};
 
+/// Convert an ObfsUdp secret key to a public key.
+pub fn sk_to_pk(sk: [u8; 32]) -> [u8; 32] {
+    *ObfsUdpSecret::from_bytes(sk).to_public().as_bytes()
+}
+
 /// A dialer for obfuscated UDP streams.
 pub struct ObfsUdpDialer {
     pub addr: SocketAddr,
