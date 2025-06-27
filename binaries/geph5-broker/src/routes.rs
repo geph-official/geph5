@@ -180,5 +180,9 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         ObfsProtocol::Hex(obfs_protocol) => RouteDescriptor::Hex {
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
+        ObfsProtocol::ObfsUdp(pk) => RouteDescriptor::ObfsUdp {
+            addr,
+            server_pk: pk,
+        },
     }
 }

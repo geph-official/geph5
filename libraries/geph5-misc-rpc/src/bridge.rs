@@ -21,6 +21,8 @@ pub enum ObfsProtocol {
     Sosistab3New(String, Box<Self>),
     Hex(Box<Self>),
     Meeklike(String, Box<Self>),
+    /// A direct obfsudp connection identified by the server public key in hex.
+    ObfsUdp(String),
 }
 
 /// The RPC protocol that bridges expose, called by the broker.

@@ -36,6 +36,10 @@ pub enum RouteDescriptor {
         key: String,
         lower: Box<RouteDescriptor>,
     },
+    ObfsUdp {
+        addr: SocketAddr,
+        server_pk: String,
+    },
 
     #[serde(untagged)]
     Other(serde_json::Value),
