@@ -1,0 +1,10 @@
+[package]
+name = "sillad-obfsudp"
+edition = "2024"
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+sosistab2-obfsudp = "0.1.12"
+virta = "0.1.1"
