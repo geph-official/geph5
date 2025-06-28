@@ -7,6 +7,7 @@ use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
 use rand::RngCore;
+use semver::VersionReq;
 use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
 use smol_timeout2::TimeoutExt;
@@ -21,6 +22,8 @@ pub async fn bridge_to_leaf_route(
     delay_ms: u32,
     exit: &ExitDescriptor,
     country: &str,
+    asn: u32,
+    version: &str,
 ) -> anyhow::Result<RouteDescriptor> {
     // for cache coherence
     let mut bridge = bridge;
@@ -73,21 +76,31 @@ pub async fn bridge_to_leaf_route(
                     )
                 });
 
-                if bridge.pool.contains("ovh_de") {
-                    anyhow::Ok(RouteDescriptor::Delay {
+                if let Ok(version) = semver::Version::parse(version) && 
+                VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
+                (
+                    bridge.pool.contains("ovh_de") || // give everyone at least an option
+                    asn == 197207 || // hamrah-e avval
+                    asn == 44244 || // irancell
+                    asn == 58244  // TCI
+                ) 
+                  {
+                    return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: meeklike_route!().await?.into(),
                     })
-                } else if bridge.pool.contains("waw")
-                    || bridge.pool.contains("ovh_de")
-                    || country == "IR"
-                    || country == "TM"
-                {
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
-                    })
-                } else if !country.is_empty(){
+                }
+                // else if bridge.pool.contains("waw")
+                //     || bridge.pool.contains("ovh_de")
+                //     || country == "IR"
+                //     || country == "TM"
+                // {
+                //     anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: tls_route!().await?.into(),
+                //     })
+                // } 
+                if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: sosistab3_route!().await?.into(),

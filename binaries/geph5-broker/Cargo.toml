@@ -1,7 +1,7 @@
 [package]
 name = "geph5-broker"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MPL-2.0"
 
 [dependencies]
@@ -56,3 +56,4 @@ nano-influxdb = { path = "../../libraries/nano-influxdb" }
 tikv-jemallocator = "0.6.0"
 geph5-ip-to-asn = { path = "../../libraries/geph5-ip-to-asn" }
 defmac = "0.2.1"
+semver = "1.0.26"
