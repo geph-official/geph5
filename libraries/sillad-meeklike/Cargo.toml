@@ -7,27 +7,33 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow = "1.0.98"
+async-channel = "1.9.0"
 async-compat = "0.2.4"
+async-io = "2.4.1"
 async-task = "4.7.1"
 async-trait = "0.1.86"
-async-channel = "1.9.0"
+base64 = "0.22.1"
+bipe = "0.2.8"
 blake3 = "1.5.1"
 bytes = "1.5.0"
-chacha20poly1305 = "0.10.1"
+chacha20poly1305 = {version="0.10.1", features=["reduced-round"]}
 dashmap = "5.5.3"
-futures-util = { version = "0.3.30", features = ["io"] }
+event-listener = "5.4.0"
 futures-lite = "2.6.0"
+futures-util = { version = "0.3.30", features = ["io"] }
+hex = "0.4.3"
 http-body-util = "0.1.2"
 hyper = { version = "1.6.0", features = ["http1", "client", "server"] }
 hyper-util = { version = "0.1.13", features = ["tokio"] }
-rand = "0.8.5"
-smolscale = "0.4.11"
-smol-timeout2 = "0.6.1"
-async-io = "2.4.1"
+parking_lot = "0.12.4"
 pin-project = "1.1.5"
-bipe = "0.2.8"
+rand = "0.8.5"
+scopeguard = "1.2.0"
+serde = { version = "1", features = ["derive"] }
 sillad = { version = "0.2", path = "../sillad" }
+smol-timeout2 = "0.6.1"
+smolscale = "0.4.11"
+stdcode = "0.1.14"
 tracing = "0.1.41"
-anyhow = "1.0.98"
-hex = "0.4.3"
-base64 = "0.22.1"
+virta = "0.1.2"

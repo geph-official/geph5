@@ -3,6 +3,7 @@ use std::{net::SocketAddr, time::SystemTime};
 use async_trait::async_trait;
 use nanorpc::nanorpc_derive;
 use serde::{Deserialize, Serialize};
+use sillad_meeklike::MeeklikeConfig;
 
 /// The metadata object passed to the exit on every b2e link.
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash, PartialEq)]
@@ -20,7 +21,7 @@ pub enum ObfsProtocol {
     PlainTls(Box<Self>),
     Sosistab3New(String, Box<Self>),
     Hex(Box<Self>),
-    Meeklike(String, Box<Self>),
+    Meeklike(String, MeeklikeConfig, Box<Self>),
 }
 
 /// The RPC protocol that bridges expose, called by the broker.

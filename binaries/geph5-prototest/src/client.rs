@@ -71,7 +71,7 @@ async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
     let mut dl = 0;
     loop {
         let n = futures_util::io::copy(
-            (&mut stream).take(CHUNK_SIZE as _),
+            (&mut stream).take(10000 as _),
             &mut futures_util::io::sink(),
         )
         .await?;

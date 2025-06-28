@@ -65,15 +65,20 @@ pub async fn bridge_to_leaf_route(
                     )
                 });
 
-                defmac!(foofoo_route => {
+                defmac!(meeklike_route => {
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into()),
+                        ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into()),
                     )
                 });
 
-                if bridge.pool.contains("waw")
+                if bridge.pool.contains("ovh_de") {
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: meeklike_route!().await?.into(),
+                    })
+                } else if bridge.pool.contains("waw")
                     || bridge.pool.contains("ovh_de")
                     || country == "IR"
                     || country == "TM"
@@ -169,8 +174,9 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
             cookie,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
-        ObfsProtocol::Meeklike(key, obfs_protocol) => RouteDescriptor::Meeklike {
+        ObfsProtocol::Meeklike(key, cfg, obfs_protocol) => RouteDescriptor::Meeklike {
             key,
+            cfg,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::Hex(obfs_protocol) => RouteDescriptor::Hex {

@@ -14,7 +14,11 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
         if let Some(rest) = part.strip_prefix("sosistab3=") {
             proto = ObfsProtocol::Sosistab3New(rest.to_string(), Box::new(proto));
         } else if let Some(rest) = part.strip_prefix("meeklike=") {
-            proto = ObfsProtocol::Meeklike(rest.to_string(), Box::new(proto));
+            proto = ObfsProtocol::Meeklike(
+                rest.to_string(),
+                MeeklikeConfig::default(),
+                Box::new(proto),
+            );
         } else if part.eq_ignore_ascii_case("tls") {
             proto = ObfsProtocol::PlainTls(Box::new(proto));
         } else if part.eq_ignore_ascii_case("conntest") {
@@ -38,7 +42,7 @@ use sillad::{
 };
 use sillad_conntest::{ConnTestDialer, ConnTestListener};
 use sillad_hex::{HexDialer, HexListener};
-use sillad_meeklike::{MeeklikeDialer, MeeklikeListener};
+use sillad_meeklike::{MeeklikeConfig, MeeklikeDialer, MeeklikeListener};
 use sillad_native_tls::{TlsDialer, TlsListener};
 use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie};
 use time::Duration as TimeDuration;
@@ -74,9 +78,9 @@ where
             let inner = listener_from_stack(*inner, bottom, tls_acceptor);
             SosistabListener::new(inner, Cookie::new(&cookie)).dynamic()
         }
-        ObfsProtocol::Meeklike(key, inner) => {
+        ObfsProtocol::Meeklike(key, cfg, inner) => {
             let inner = listener_from_stack(*inner, bottom, tls_acceptor);
-            MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes()).dynamic()
+            MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes(), cfg).dynamic()
         }
     }
 }
@@ -121,11 +125,12 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                 }
                 .dynamic()
             }
-            ObfsProtocol::Meeklike(key, sub) => {
+            ObfsProtocol::Meeklike(key, cfg, sub) => {
                 let lower = inner(&*sub, lower);
                 MeeklikeDialer {
                     inner: lower.into(),
                     key: *blake3::hash(key.as_bytes()).as_bytes(),
+                    cfg: *cfg,
                 }
                 .dynamic()
             }

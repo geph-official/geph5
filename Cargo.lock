@@ -443,6 +443,15 @@ dependencies = [
 
 [[package]]
 name = "async-event"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4172595da7ffb68640606be5723e35a353555f2829e9209437627a003725bbdb"
+dependencies = [
+ "loom 0.5.6",
+]
+
+[[package]]
+name = "async-event"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1222afd3d2bce3995035054046a279ae7aa154d70d0766cea050073f3fd7ddf"
@@ -3351,6 +3360,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with 3.13.0",
+ "sillad-meeklike",
  "stdcode",
  "thiserror 1.0.69",
  "tracing",
@@ -3367,7 +3377,7 @@ dependencies = [
  "async-broadcast 0.7.2",
  "async-compat",
  "async-dup",
- "async-event",
+ "async-event 0.2.1",
  "async-io-bufpool 0.1.2",
  "async-native-tls",
  "async-trait",
@@ -3509,7 +3519,7 @@ name = "geph5-exit"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-event",
+ "async-event 0.2.1",
  "async-io 2.4.1",
  "async-io-bufpool 0.2.0",
  "async-native-tls",
@@ -3604,6 +3614,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sillad",
+ "sillad-meeklike",
  "smallvec",
  "smolscale",
  "socksv5",
@@ -3620,7 +3631,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argh",
- "async-event",
+ "async-event 0.2.1",
  "async-io 2.4.1",
  "async-io-bufpool 0.2.0",
  "async-native-tls",
@@ -5820,7 +5831,7 @@ dependencies = [
  "argh",
  "async-channel 2.3.1",
  "async-dup",
- "async-event",
+ "async-event 0.2.1",
  "async-io 2.4.1",
  "async-io-bufpool 0.2.0",
  "async-lock 3.4.0",
@@ -7195,18 +7206,24 @@ dependencies = [
  "bytes",
  "chacha20poly1305",
  "dashmap 5.5.3",
+ "event-listener 5.4.0",
  "futures-lite 2.6.0",
  "futures-util",
  "hex",
  "http-body-util",
  "hyper 1.6.0",
  "hyper-util",
+ "parking_lot",
  "pin-project",
  "rand 0.8.5",
+ "scopeguard",
+ "serde",
  "sillad",
  "smol-timeout2",
  "smolscale",
+ "stdcode",
  "tracing",
+ "virta",
 ]
 
 [[package]]
@@ -7465,7 +7482,7 @@ dependencies = [
  "anyhow",
  "async-channel 1.9.0",
  "async-compat",
- "async-event",
+ "async-event 0.2.1",
  "async-executor",
  "async-global-executor",
  "async-io 2.4.1",
@@ -7975,7 +7992,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86c3eafa053bbcc63bb4bfc5eb26362a33ea0bc2e589f28bce00287d1c167d45"
 dependencies = [
- "async-event",
+ "async-event 0.2.1",
  "crossbeam-utils",
  "diatomic-waker 0.1.0",
  "futures-core",
@@ -8724,6 +8741,25 @@ checksum = "c73a36bc44e3039f51fbee93e39f41225f6b17b380eb70cc2aab942df06b34dd"
 dependencies = [
  "itertools 0.11.0",
  "nom",
+]
+
+[[package]]
+name = "virta"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58f4e2abcb47dbbb8335afa334ec78e075fd56b894ad4f70bd3590ffc8dafb65"
+dependencies = [
+ "ahash",
+ "async-event 0.1.0",
+ "bytes",
+ "clone-macro",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "recycle-box",
+ "serde",
+ "smol 2.0.2",
+ "stdcode",
 ]
 
 [[package]]
