@@ -89,7 +89,7 @@ impl Pipe for MeeklikePipe {
         "meeklike"
     }
     fn remote_addr(&self) -> Option<&str> {
-        None
+        Some("0.0.0.0:0")
     }
 }
 

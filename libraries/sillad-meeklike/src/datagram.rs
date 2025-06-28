@@ -27,7 +27,6 @@ use crate::{
 pub struct DgConnection {
     send: Sender<Bytes>,
     recv: Receiver<Bytes>,
-
     autoclean: Option<Box<dyn FnOnce() + Send + Sync + 'static>>,
 }
 
