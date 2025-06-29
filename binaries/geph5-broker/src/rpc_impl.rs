@@ -4,12 +4,12 @@ use bytes::Bytes;
 use cadence::prelude::*;
 use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
-use futures_util::{future::join_all, TryFutureExt};
+use futures_util::{TryFutureExt, future::join_all};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, ExitCategory, ExitDescriptor, ExitList, ExitMetadata, GenericError, GetRoutesArgs,
-    JsonSigned, LegacyNewsItem, Mac, NetStatus, RouteDescriptor, StdcodeSigned, UserInfo,
-    VoucherInfo, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS,
+    Credential, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS, ExitCategory, ExitDescriptor, ExitList,
+    ExitMetadata, GenericError, GetRoutesArgs, JsonSigned, LegacyNewsItem, Mac, NetStatus,
+    RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
@@ -24,8 +24,8 @@ use once_cell::sync::Lazy;
 
 use std::net::Ipv4Addr;
 use std::str::FromStr as _;
-use std::sync::atomic::AtomicU64;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicU64;
 use std::{
     net::SocketAddr,
     ops::Deref,
@@ -33,26 +33,25 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use crate::BW_MIZARU_SK;
 use crate::database::auth::validate_secret;
 use crate::database::bandwidth::basic_count;
 use crate::database::{
     auth::{get_user_info, new_auth_token, register_secret, valid_auth_token, validate_credential},
     bandwidth::consume_bw,
     bridges::query_bridges,
-    exits::{insert_exit, insert_exit_metadata, ExitRow, ExitRowWithMetadata},
+    exits::{ExitRow, ExitRowWithMetadata, insert_exit, insert_exit_metadata},
     free_voucher::{delete_free_voucher, get_free_voucher},
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
-use crate::BW_MIZARU_SK;
 use crate::{
-    log_error,
+    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK, log_error,
     news::fetch_news,
     payments::{
-        payment_sessid, GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs,
-        StartStripeArgs,
+        GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs, StartStripeArgs,
+        payment_sessid,
     },
     routes::bridge_to_leaf_route,
-    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
 };
 
 pub struct WrappedBrokerService(BrokerService<BrokerImpl>);
@@ -208,7 +207,7 @@ fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
 impl BrokerProtocol for BrokerImpl {
     async fn opaque_abtest(&self, test: String, id: u64) -> bool {
         if test == "basic" {
-            basic_count().await.map(|s| s as u64).unwrap_or(u64::MAX) < (id % 500)
+            basic_count().await.unwrap_or(i64::MAX) < 500
         } else {
             false
         }
