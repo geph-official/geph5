@@ -56,7 +56,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()
+                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()
                     )
 
                 });
