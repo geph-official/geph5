@@ -9,7 +9,7 @@ use nanorpc_sillad::DialerTransport;
 use rand::RngCore;
 use semver::VersionReq;
 use sillad::tcp::TcpDialer;
-use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 use smol_timeout2::TimeoutExt;
 use std::{
     net::SocketAddr,
@@ -78,20 +78,20 @@ pub async fn bridge_to_leaf_route(
 
                 tracing::debug!(version=&version, asn, "serving a route...");
 
-                if let Ok(version) = semver::Version::parse(version) && 
-                VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
-                (
-                    bridge.pool.contains("ovh_de") || // give everyone at least an option
-                    asn == 197207 || // hamrah-e avval
-                    asn == 44244 || // irancell
-                    asn == 58244  // TCI
-                ) 
-                  {
-                    return anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: RouteDescriptor::Race(vec![meeklike_route!().await?.into(), sosistab3_route!().await?.into()]).into(),
-                    })
-                }
+                // if let Ok(version) = semver::Version::parse(version) && 
+                // VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
+                // (
+                //     bridge.pool.contains("ovh_de") || // give everyone at least an option
+                //     asn == 197207 || // hamrah-e avval
+                //     asn == 44244 || // irancell
+                //     asn == 58244  // TCI
+                // ) 
+                //   {
+                //     return anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: RouteDescriptor::Race(vec![meeklike_route!().await?.into(), sosistab3_route!().await?.into()]).into(),
+                //     })
+                // }
                 // else if bridge.pool.contains("waw")
                 //     || bridge.pool.contains("ovh_de")
                 //     || country == "IR"
