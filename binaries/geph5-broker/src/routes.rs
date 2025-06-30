@@ -89,7 +89,7 @@ pub async fn bridge_to_leaf_route(
                   {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Race(vec![tls_route!().await?.into(), meeklike_route!().await?.into()]).into(),
+                        lower: RouteDescriptor::Race(vec![sosistab3_route!().await?.into(), meeklike_route!().await?.into()]).into(),
                     })
                 }
                 // else if bridge.pool.contains("waw")
