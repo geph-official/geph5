@@ -56,7 +56,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into())
+                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()
                     )
 
                 });
@@ -78,20 +78,20 @@ pub async fn bridge_to_leaf_route(
 
                 tracing::debug!(version=&version, asn, "serving a route...");
 
-                // if let Ok(version) = semver::Version::parse(version) && 
-                // VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
-                // (
-                //     bridge.pool.contains("ovh_de") || // give everyone at least an option
-                //     asn == 197207 || // hamrah-e avval
-                //     asn == 44244 || // irancell
-                //     asn == 58244  // TCI
-                // ) 
-                //   {
-                //     return anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: RouteDescriptor::Race(vec![meeklike_route!().await?.into(), sosistab3_route!().await?.into()]).into(),
-                //     })
-                // }
+                if let Ok(version) = semver::Version::parse(version) && 
+                VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
+                (
+                    bridge.pool.contains("ovh_de") || // give everyone at least an option
+                    asn == 197207 || // hamrah-e avval
+                    asn == 44244 || // irancell
+                    asn == 58244  // TCI
+                ) 
+                  {
+                    return anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: RouteDescriptor::Race(vec![tls_route!().await?.into()]).into(),
+                    })
+                }
                 // else if bridge.pool.contains("waw")
                 //     || bridge.pool.contains("ovh_de")
                 //     || country == "IR"
