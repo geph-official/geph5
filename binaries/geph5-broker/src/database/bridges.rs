@@ -45,13 +45,6 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
     ORDER BY
         bn.pool,
         ENCODE(DIGEST(bn.listen || $1, 'sha256'), 'hex')
-),
-updated AS (
-    UPDATE bridges_new bn2
-       SET alloc_count = alloc_count + 1
-      FROM selected_bridges sb
-     WHERE bn2.listen = sb.listen
-    RETURNING bn2.listen, bn2.alloc_count
 )
 SELECT
     sb.listen,
@@ -60,8 +53,7 @@ SELECT
     sb.expiry,
     sb.delay,
     sb.is_plus
-FROM selected_bridges sb
-JOIN updated u ON u.listen = sb.listen;"#,
+FROM selected_bridges sb"#,
             )
             .bind(key.to_string())
             .fetch_all(&*POSTGRES)
