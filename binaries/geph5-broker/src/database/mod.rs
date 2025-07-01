@@ -3,9 +3,9 @@ use std::{str::FromStr, sync::LazyLock, time::Duration};
 use async_io::Timer;
 use rand::Rng;
 use sqlx::{
+    PgPool,
     pool::PoolOptions,
     postgres::{PgConnectOptions, PgSslMode},
-    PgPool,
 };
 
 use crate::CONFIG_FILE;
@@ -13,9 +13,9 @@ use crate::CONFIG_FILE;
 static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     smolscale::block_on(
         PoolOptions::new()
-            .max_connections(500)
+            .max_connections(200)
             .acquire_timeout(Duration::from_secs(2))
-            .max_lifetime(Duration::from_secs(120))
+            .max_lifetime(Duration::from_secs(30))
             .test_before_acquire(false)
             .connect_with({
                 let cfg = CONFIG_FILE.wait();
