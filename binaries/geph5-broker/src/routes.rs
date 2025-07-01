@@ -76,8 +76,6 @@ pub async fn bridge_to_leaf_route(
                     )
                 });
 
-                tracing::debug!(version=&version, asn, "serving a route...");
-
                 if let Ok(version) = semver::Version::parse(version) && 
                 VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
                 (
