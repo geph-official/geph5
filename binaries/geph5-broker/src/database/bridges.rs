@@ -4,7 +4,10 @@ use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
 use smol::lock::Semaphore;
 use smol_timeout2::TimeoutExt;
-use std::{sync::LazyLock, time::Duration};
+use std::{
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
     static SEMAPH: Semaphore = Semaphore::new(100);
@@ -30,6 +33,7 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
 
     CACHE
         .try_get_with(key, async {
+            let start = Instant::now();
             let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
                 r#"WITH selected_bridges AS (
     SELECT DISTINCT ON (bn.pool)
@@ -58,6 +62,7 @@ FROM selected_bridges sb"#,
             .bind(key.to_string())
             .fetch_all(&*POSTGRES)
             .await?;
+            tracing::debug!(elapsed = debug(start.elapsed()), "fetched bridges from DB");
             anyhow::Ok(
                 raw.into_iter()
                     .map(|row| {
