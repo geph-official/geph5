@@ -47,6 +47,14 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
             .execute(&*POSTGRES)
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
+        if rand::random::<f64>() < 0.001 {
+            sqlx::query("vacuum full exits_new")
+                .execute(&*POSTGRES)
+                .await?;
+            sqlx::query("vacuum full bridges_new")
+                .execute(&*POSTGRES)
+                .await?;
+        }
     }
 }
 
