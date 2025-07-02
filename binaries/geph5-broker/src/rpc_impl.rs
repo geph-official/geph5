@@ -206,11 +206,11 @@ fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {
     async fn opaque_abtest(&self, test: String, id: u64) -> bool {
-        if test == "basic" {
-            basic_count().await.unwrap_or(i64::MAX) < 500
-        } else {
-            false
-        }
+        // if test == "basic" {
+        //     basic_count().await.unwrap_or(i64::MAX) < 500
+        // } else {
+        false
+        // }
     }
 
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes {
