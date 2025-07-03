@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
+use sillad_meeklike::MeeklikeConfig;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -34,6 +35,7 @@ pub enum RouteDescriptor {
     },
     Meeklike {
         key: String,
+        cfg: MeeklikeConfig,
         lower: Box<RouteDescriptor>,
     },
 

@@ -44,9 +44,9 @@ fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListe
             let inner = create_listener(*obfs_protocol, bottom);
             SosistabListener::new(inner, Cookie::new(&cookie)).dynamic()
         }
-        ObfsProtocol::Meeklike(key, obfs_protocol) => {
+        ObfsProtocol::Meeklike(key, cfg, obfs_protocol) => {
             let inner = create_listener(*obfs_protocol, bottom);
-            MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes()).dynamic()
+            MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes(), cfg).dynamic()
         }
     }
 }

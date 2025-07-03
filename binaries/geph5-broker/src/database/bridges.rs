@@ -4,7 +4,10 @@ use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
 use smol::lock::Semaphore;
 use smol_timeout2::TimeoutExt;
-use std::{sync::LazyLock, time::Duration};
+use std::{
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u32, bool)>> {
     static SEMAPH: Semaphore = Semaphore::new(100);
@@ -30,6 +33,7 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
 
     CACHE
         .try_get_with(key, async {
+            let start = Instant::now();
             let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
                 r#"WITH selected_bridges AS (
     SELECT DISTINCT ON (bn.pool)
@@ -45,13 +49,6 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
     ORDER BY
         bn.pool,
         ENCODE(DIGEST(bn.listen || $1, 'sha256'), 'hex')
-),
-updated AS (
-    UPDATE bridges_new bn2
-       SET alloc_count = alloc_count + 1
-      FROM selected_bridges sb
-     WHERE bn2.listen = sb.listen
-    RETURNING bn2.listen, bn2.alloc_count
 )
 SELECT
     sb.listen,
@@ -60,12 +57,12 @@ SELECT
     sb.expiry,
     sb.delay,
     sb.is_plus
-FROM selected_bridges sb
-JOIN updated u ON u.listen = sb.listen;"#,
+FROM selected_bridges sb"#,
             )
             .bind(key.to_string())
             .fetch_all(&*POSTGRES)
             .await?;
+            tracing::debug!(elapsed = debug(start.elapsed()), "fetched bridges from DB");
             anyhow::Ok(
                 raw.into_iter()
                     .map(|row| {

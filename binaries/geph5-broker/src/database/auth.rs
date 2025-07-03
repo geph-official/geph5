@@ -1,4 +1,4 @@
-use argon2::{password_hash::Encoding, Argon2, PasswordHash, PasswordVerifier};
+use argon2::{Argon2, PasswordHash, PasswordVerifier, password_hash::Encoding};
 
 use cached::proc_macro::cached;
 use geph5_broker_protocol::{AccountLevel, AuthError, Credential, UserInfo};
@@ -15,10 +15,10 @@ use sqlx::types::chrono::Utc;
 
 use super::POSTGRES;
 use crate::{
+    CONFIG_FILE,
     database::bandwidth::bw_consumption,
     log_error,
     payments::{PaymentClient, PaymentTransport},
-    CONFIG_FILE,
 };
 
 pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
@@ -107,8 +107,6 @@ pub async fn validate_credential(credential: Credential) -> Result<i32, AuthErro
 }
 
 pub async fn validate_secret(secret: &str) -> Result<i32, AuthError> {
-    tracing::debug!(secret, "validating secret");
-
     // Query the DB to see if any row matches this hash.
     let res: Option<(i32,)> = sqlx::query_as("SELECT id FROM auth_secret WHERE secret = $1")
         .bind(secret)

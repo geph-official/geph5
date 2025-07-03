@@ -21,6 +21,7 @@ isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
 serde_with = { version = "3.8.3", features = ["hex"] }
 mizaru2 = {version = "0.2.15", path = "../mizaru2" }
+sillad-meeklike = {version="0.1", path="../sillad-meeklike"}
 tracing = "0.1.40"
 melpow = "0.1.1"
 base64 = "0.22.1"

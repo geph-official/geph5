@@ -7,8 +7,9 @@ use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
 use rand::RngCore;
+use semver::VersionReq;
 use sillad::tcp::TcpDialer;
-use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 use smol_timeout2::TimeoutExt;
 use std::{
     net::SocketAddr,
@@ -21,6 +22,8 @@ pub async fn bridge_to_leaf_route(
     delay_ms: u32,
     exit: &ExitDescriptor,
     country: &str,
+    asn: u32,
+    version: &str,
 ) -> anyhow::Result<RouteDescriptor> {
     // for cache coherence
     let mut bridge = bridge;
@@ -54,7 +57,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
+                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()
                     )
 
 
@@ -68,25 +71,39 @@ pub async fn bridge_to_leaf_route(
 
                 });
 
-                defmac!(foofoo_route => {
+                defmac!(meeklike_route => {
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into()),
+                        ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into()),
                     )
                 });
 
-                if bridge.pool.contains("waw")
-                    || bridge.pool.contains("ovh_de")
-                    || country == "IR"
-                    || country == "TM"
-                {
-                    anyhow::Ok(RouteDescriptor::Delay {
+                if let Ok(version) = semver::Version::parse(version) && 
+                VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
+                (
+                    bridge.pool.contains("ovh_de") || // give everyone at least an option
+                    asn == 197207 || // hamrah-e avval
+                    asn == 44244 || // irancell
+                    asn == 58244  // TCI
+                ) 
+                  {
+                    return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
-
+                        lower: RouteDescriptor::Race(vec![sosistab3_route!().await?.into(), meeklike_route!().await?.into()]).into(),
                     })
-                } else if !country.is_empty(){
+                }
+                // else if bridge.pool.contains("waw")
+                //     || bridge.pool.contains("ovh_de")
+                //     || country == "IR"
+                //     || country == "TM"
+                // {
+                //     anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: tls_route!().await?.into(),
+                //     })
+                // } 
+                if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: sosistab3_route!().await?.into(),
@@ -173,8 +190,9 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
             cookie,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
-        ObfsProtocol::Meeklike(key, obfs_protocol) => RouteDescriptor::Meeklike {
+        ObfsProtocol::Meeklike(key, cfg, obfs_protocol) => RouteDescriptor::Meeklike {
             key,
+            cfg,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::Hex(obfs_protocol) => RouteDescriptor::Hex {
