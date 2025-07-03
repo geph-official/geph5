@@ -90,6 +90,7 @@ sillad-native-tls = {version="0.2", path="../../libraries/sillad-native-tls"}
 sillad-sosistab3 = { version = "0.2.7", path = "../../libraries/sillad-sosistab3" }
 sillad-meeklike = { version = "0.1", path = "../../libraries/sillad-meeklike" }
 sillad-hex = { version = "0.1", path = "../../libraries/sillad-hex" }
+sillad-obfsudp = { path = "../../libraries/sillad-obfsudp" }
 simple-dns = "0.7.0"
 slab = "0.4.9"
 smol = "2.0.0"
