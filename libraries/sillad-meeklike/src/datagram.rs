@@ -45,8 +45,8 @@ impl DgConnection {
         stream_id: u128,
         inner: Arc<D>,
     ) -> Self {
-        let (send_up, recv_up) = async_channel::bounded(1000);
-        let (send_dn, recv_dn) = async_channel::bounded(1000);
+        let (send_up, recv_up) = async_channel::bounded(100);
+        let (send_dn, recv_dn) = async_channel::bounded(100);
         for _ in 0..cfg.max_inflight {
             smolscale::spawn(dg_client_backhaul(
                 secret.clone(),
@@ -86,7 +86,8 @@ async fn dg_client_backhaul<D: Dialer>(
 ) -> anyhow::Result<()> {
     tracing::debug!("backhaul started");
     static INFLIGHT: AtomicUsize = AtomicUsize::new(0);
-    let mut interval = 0.02;
+    const INTERVAL: f64 = 0.02;
+    let mut interval = INTERVAL;
     loop {
         let to_send = match recv_up
             .recv()
@@ -159,7 +160,7 @@ async fn dg_client_backhaul<D: Dialer>(
                 }
                 if !plain.inner.is_empty() {
                     send_dn.try_send(plain.inner)?;
-                    interval = 0.1;
+                    interval = INTERVAL;
                 } else {
                     tracing::debug!(interval, "empty, so increasing interval");
                     interval = rand::thread_rng().gen_range(interval..interval * 2.0);
@@ -169,7 +170,7 @@ async fn dg_client_backhaul<D: Dialer>(
             })
             .await
         };
-        match res.timeout(Duration::from_secs(10)).await {
+        match res.timeout(Duration::from_secs(3)).await {
             None => tracing::warn!("req/resp timed out"),
             Some(Err(err)) => tracing::warn!(err = debug(err), "req/resp died"),
             _ => {}
