@@ -67,7 +67,13 @@ pub async fn bridge_to_leaf_route(
                         ObfsProtocol::None,
                     )
                 });
-
+                defmac!(plain_route => {
+                    bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into(),
+                    )
+                });
                 defmac!(meeklike_route => {
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
@@ -87,7 +93,7 @@ pub async fn bridge_to_leaf_route(
                   {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Race(vec![meeklike_route!().await?.into()]).into(),
+                        lower: RouteDescriptor::Race(vec![plain_route!().await?.into()]).into(),
                     })
                 }
                 // else if bridge.pool.contains("waw")
