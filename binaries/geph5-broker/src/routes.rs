@@ -56,7 +56,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()
+                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
                     )
 
                 });
@@ -109,7 +109,7 @@ pub async fn bridge_to_leaf_route(
                 if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: sosistab3_route!().await?.into(),
+                        lower: tls_route!().await?.into(),
                     })
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
