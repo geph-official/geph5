@@ -30,7 +30,7 @@ pub async fn bridge_to_leaf_route(
     bridge.expiry = 0;
 
     static CACHE: LazyLock<
-        Cache<(BridgeDescriptor, SocketAddr, String), Result<RouteDescriptor, Arc<anyhow::Error>>>,
+        Cache<(BridgeDescriptor, SocketAddr, u32), Result<RouteDescriptor, Arc<anyhow::Error>>>,
     > = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(600))
@@ -39,7 +39,7 @@ pub async fn bridge_to_leaf_route(
 
     CACHE
         .get_with(
-            (bridge.clone(), exit.b2e_listen, country.to_string()),
+            (bridge.clone(), exit.b2e_listen, asn),
             async {
                 defmac!(tls_route => {
                     bridge_to_leaf_route_inner(
