@@ -23,7 +23,7 @@ impl<D: Dialer> Dialer for ConnTestDialer<D> {
         for index in 0..self.ping_count {
             let start = Instant::now();
             // Pick a random payload size (nonzero)
-            let size = rand::rng().random_range(1..50000u16);
+            let size = rand::rng().random_range(1..1000u16);
             // Tell the server the payload size.
             pipe.write_all(&size.to_be_bytes()).await?;
             // Prepare and send a random payload.
