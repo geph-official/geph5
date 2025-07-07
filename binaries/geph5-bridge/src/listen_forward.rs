@@ -94,7 +94,7 @@ async fn handle_one_listener(
             .unwrap()
             .ip();
         let remote_asn = asn_count::ip_to_asn(remote_ip).await?;
-        tracing::debug!(
+        tracing::trace!(
             count,
             asn = remote_asn,
             b2e_dest = debug(b2e_dest),
@@ -104,7 +104,7 @@ async fn handle_one_listener(
         smolscale::spawn(async move {
             scopeguard::defer!({
                 let count = COUNT.fetch_sub(1, Ordering::Relaxed);
-                tracing::debug!(
+                tracing::trace!(
                     count,
                     asn = remote_asn,
                     b2e_dest = debug(b2e_dest),
