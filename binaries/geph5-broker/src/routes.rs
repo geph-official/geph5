@@ -84,6 +84,7 @@ pub async fn bridge_to_leaf_route(
 
                 if let Ok(version) = semver::Version::parse(version) && 
                 VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
+                bridge.pool.contains("ovh_de") && // only have one group do this
                 (
                     asn == 197207 || // hamrah-e avval
                     asn == 44244 || // irancell
