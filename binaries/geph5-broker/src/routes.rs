@@ -113,7 +113,7 @@ pub async fn bridge_to_leaf_route(
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: sosistab3_route!().await?.into()},RouteDescriptor::Timeout{milliseconds: 5000, lower: meeklike_route!().await?.into()}, legacy_route!().await?])
+                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: sosistab3_route!().await?.into()}, legacy_route!().await?])
                             .into(),
                     })
                 }
