@@ -2,7 +2,7 @@
 #[cfg(target_os = "linux")]
 mod linux;
 use bytes::Bytes;
-use crossbeam_queue::{ArrayQueue, SegQueue};
+use smol::channel::{Receiver, Sender};
 
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
@@ -48,27 +48,26 @@ pub fn smart_vpn_whitelist(ctx: &AnyCtx<Config>, addr: IpAddr) {
 pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
     tracing::trace!(
         len = bts.len(),
-        chan_len = ctx.get(VPN_CAPTURE).len(),
+        chan_len = ctx.get(VPN_CAPTURE_CHAN).0.len(),
         "vpn forcing up"
     );
-    let _ = ctx.get(VPN_CAPTURE).push((bts, Instant::now()));
-    ctx.get(VPN_EVENT).notify_all();
+    let _ = ctx
+        .get(VPN_CAPTURE_CHAN)
+        .0
+        .send((bts, Instant::now()))
+        .await;
 
     smol::future::yield_now().await;
 }
 
 /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
 pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
-    ctx.get(VPN_EVENT)
-        .wait_until(|| ctx.get(VPN_INJECT).pop())
-        .await
+    ctx.get(VPN_INJECT_CHAN).1.recv().await?
 }
 
-static VPN_EVENT: CtxField<async_event::Event> = |_| async_event::Event::new();
+static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, Instant)>)> = |_| smol::channel::unbounded();
 
-static VPN_CAPTURE: CtxField<SegQueue<(Bytes, Instant)>> = |_| SegQueue::new();
-
-static VPN_INJECT: CtxField<SegQueue<Bytes>> = |_| SegQueue::new();
+static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::bounded(100);
@@ -101,9 +100,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
             let up_loop = async {
                 loop {
                     let (bts, time) = ctx
-                        .get(VPN_EVENT)
-                        .wait_until(|| ctx.get(VPN_CAPTURE).pop())
-                        .await;
+                        .get(VPN_CAPTURE_CHAN)
+                        .1
+                        .recv()
+                        .await?;
 
                     tracing::trace!(
                         len = bts.len(),
@@ -118,8 +118,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 loop {
                     let bts = recv_injected.recv().await?;
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
-                    let _ = ctx.get(VPN_INJECT).push(bts);
-                    ctx.get(VPN_EVENT).notify_all();
+                    let _ = ctx.get(VPN_INJECT_CHAN).0.send(bts).await;
                 }
             };
             up_loop.race(dn_loop).await
