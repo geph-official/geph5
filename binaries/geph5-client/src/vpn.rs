@@ -66,13 +66,13 @@ pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
 
 static VPN_EVENT: CtxField<async_event::Event> = |_| async_event::Event::new();
 
-static VPN_CAPTURE: CtxField<ArrayQueue<(Bytes, Instant)>> = |_| ArrayQueue::new(100);
+static VPN_CAPTURE: CtxField<ArrayQueue<(Bytes, Instant)>> = |_| ArrayQueue::new(1000);
 
-static VPN_INJECT: CtxField<ArrayQueue<Bytes>> = |_| ArrayQueue::new(100);
+static VPN_INJECT: CtxField<ArrayQueue<Bytes>> = |_| ArrayQueue::new(1000);
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    let (send_captured, recv_captured) = smol::channel::bounded(100);
-    let (send_injected, recv_injected) = smol::channel::bounded(100);
+    let (send_captured, recv_captured) = smol::channel::bounded(1000);
+    let (send_injected, recv_injected) = smol::channel::bounded(1000);
 
     let ipstack = IpStack::new(
         #[cfg(target_os = "ios")]
