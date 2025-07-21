@@ -33,5 +33,5 @@ opt-level = 3
 
 [profile.release-small]
 inherits = "release"
-opt-level = 'z'
+opt-level = 's'
 strip = true
