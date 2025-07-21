@@ -83,7 +83,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         },
         #[cfg(not(target_os = "ios"))]
         IpStackConfig {
-            mtu: 4096,
+            mtu: 65535,
             tcp_timeout: std::time::Duration::from_secs(3600),
             udp_timeout: std::time::Duration::from_secs(600),
         },
