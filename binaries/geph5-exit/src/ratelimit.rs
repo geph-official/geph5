@@ -103,6 +103,10 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                         BwAccount::empty(),
                         Some(token.to_string()),
                     )
+                    .with_fallback(
+                        CONFIG_FILE.wait().free_ratelimit,
+                        100,
+                    )
                 })
                 .await
         }
@@ -113,6 +117,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
 #[derive(Clone)]
 pub struct RateLimiter {
     inner: Option<Arc<DefaultDirectRateLimiter>>,
+    fallback: Option<Arc<DefaultDirectRateLimiter>>,
     log_tag: Option<String>,
     bw_account: BwAccount,
     bw_enabled: Arc<AtomicBool>,
@@ -131,10 +136,20 @@ impl RateLimiter {
         let inner = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst_size));
         Self {
             inner: Some(Arc::new(inner)),
+            fallback: None,
             log_tag,
             bw_account,
             bw_enabled: Default::default(),
         }
+    }
+
+    /// Configure a fallback rate limit, used when paid bandwidth is exhausted.
+    pub fn with_fallback(mut self, limit_kb: u32, burst_kb: u32) -> Self {
+        let limit = NonZeroU32::new((limit_kb + 1) * 1024).unwrap();
+        let burst = NonZeroU32::new(burst_kb * 1024).unwrap();
+        let fb = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst));
+        self.fallback = Some(Arc::new(fb));
+        self
     }
 
     /// Enable bandwidth accounting.
@@ -151,6 +166,7 @@ impl RateLimiter {
     pub fn unlimited(bw_account: BwAccount, log_tag: Option<String>) -> Self {
         Self {
             inner: None,
+            fallback: None,
             bw_account,
             log_tag,
             bw_enabled: Default::default(),
@@ -176,13 +192,23 @@ impl RateLimiter {
         if let Some(inner) = &self.inner {
             let mut delay: f32 = 0.005;
 
-            while inner
-                .check_n((bytes as u32).try_into().unwrap())
-                .unwrap()
-                .is_err()
-                || (self.bw_enabled.load(Ordering::SeqCst)
-                    && self.bw_account.consume_bw(bytes as _) == 0)
-            {
+            loop {
+                let out_of_bw = self.bw_enabled.load(Ordering::SeqCst)
+                    && self.bw_account.consume_bw(bytes as _) == 0;
+                let limiter = if out_of_bw {
+                    self.fallback.as_ref().unwrap_or(inner)
+                } else {
+                    inner
+                };
+
+                if limiter
+                    .check_n((bytes as u32).try_into().unwrap())
+                    .unwrap()
+                    .is_ok()
+                {
+                    break;
+                }
+
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
             }
