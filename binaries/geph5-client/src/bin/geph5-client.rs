@@ -10,6 +10,13 @@ use clap::Parser;
 use geph5_client::{logging, Client, Config};
 use nanorpc::{JrpcRequest, RpcTransport};
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 /// Run the Geph5 client.
 #[derive(Parser)]
 struct CliArgs {

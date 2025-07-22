@@ -110,6 +110,10 @@ tun = "0.6.1"
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
 
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+
+
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }
 
