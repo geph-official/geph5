@@ -64,9 +64,9 @@ pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
 }
 
 static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, Instant)>)> =
-    |_| smol::channel::bounded(1);
+    |_| smol::channel::unbounded();
 
-static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::bounded(1);
+static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::bounded(100);
