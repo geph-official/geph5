@@ -180,12 +180,15 @@ impl RateLimiter {
                 .check_n((bytes as u32).try_into().unwrap())
                 .unwrap()
                 .is_err()
-                || (self.bw_enabled.load(Ordering::SeqCst)
-                    && self.bw_account.consume_bw(bytes as _) == 0)
             {
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
             }
+        }
+
+        // if bw is out, we sleep enough to allow an extremely meagre 10 KB/s through, just so that internet isn't totally shut down
+        if self.bw_enabled.load(Ordering::SeqCst) && self.bw_account.consume_bw(bytes as _) == 0 {
+            smol::Timer::after(Duration::from_secs_f32(0.1 * bytes as f32 / 1000.0)).await;
         }
     }
 

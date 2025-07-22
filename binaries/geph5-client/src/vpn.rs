@@ -51,23 +51,21 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
         chan_len = ctx.get(VPN_CAPTURE_CHAN).0.len(),
         "vpn forcing up"
     );
-    let _ = ctx
-        .get(VPN_CAPTURE_CHAN)
-        .0
-        .send((bts, Instant::now()))
-        .await;
+    let _ = ctx.get(VPN_CAPTURE_CHAN).0.try_send((bts, Instant::now()));
 
     smol::future::yield_now().await;
 }
 
 /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
 pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
-    ctx.get(VPN_INJECT_CHAN).1.recv().await?
+    ctx.get(VPN_INJECT_CHAN).1.recv().await.unwrap()
 }
 
-static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, Instant)>)> = |_| smol::channel::unbounded();
+static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, Instant)>)> =
+    |_| smol::channel::bounded(100);
 
-static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
+static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> =
+    |_| smol::channel::bounded(100);
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = smol::channel::bounded(100);
@@ -82,7 +80,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         },
         #[cfg(not(target_os = "ios"))]
         IpStackConfig {
-            mtu: 65535,
+            mtu: 16384,
             tcp_timeout: std::time::Duration::from_secs(3600),
             udp_timeout: std::time::Duration::from_secs(600),
         },
@@ -99,11 +97,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         smolscale::spawn(async move {
             let up_loop = async {
                 loop {
-                    let (bts, time) = ctx
-                        .get(VPN_CAPTURE_CHAN)
-                        .1
-                        .recv()
-                        .await?;
+                    let (bts, time) = ctx.get(VPN_CAPTURE_CHAN).1.recv().await?;
 
                     tracing::trace!(
                         len = bts.len(),
