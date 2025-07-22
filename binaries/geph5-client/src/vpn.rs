@@ -51,9 +51,11 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
         chan_len = ctx.get(VPN_CAPTURE_CHAN).0.len(),
         "vpn forcing up"
     );
-    let _ = ctx.get(VPN_CAPTURE_CHAN).0.try_send((bts, Instant::now()));
-
-    smol::future::yield_now().await;
+    let _ = ctx
+        .get(VPN_CAPTURE_CHAN)
+        .0
+        .send((bts, Instant::now()))
+        .await;
 }
 
 /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
