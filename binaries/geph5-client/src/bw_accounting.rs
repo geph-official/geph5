@@ -64,7 +64,7 @@ pub async fn bw_accounting_client_loop(
                     })
                     .await;
                 if remaining == 0 {
-                    tracing::debug!(threshold, "totally ran out of bw, bumping threshold up");
+                    tracing::warn!(threshold, "totally ran out of bw, bumping threshold up");
                     threshold = (threshold + 1_000_000).min(100_000_000);
                 }
 
