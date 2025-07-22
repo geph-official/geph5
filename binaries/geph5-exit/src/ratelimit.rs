@@ -103,10 +103,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                         BwAccount::empty(),
                         Some(token.to_string()),
                     )
-                    .with_fallback(
-                        CONFIG_FILE.wait().free_ratelimit,
-                        100,
-                    )
+                    .with_fallback(CONFIG_FILE.wait().free_ratelimit / 10, 100)
                 })
                 .await
         }
@@ -207,7 +204,6 @@ impl RateLimiter {
                 {
                     break;
                 }
-
 
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
