@@ -38,6 +38,7 @@ pub async fn bw_accounting_client_loop(
                 let bytes = u64::from_be_bytes(buf) as usize;
 
                 bytes_left.store(bytes, Ordering::SeqCst);
+                tracing::debug!(bytes, "obtained remote bw");
                 change_event.notify_one();
             }
         }
@@ -55,7 +56,7 @@ pub async fn bw_accounting_client_loop(
                 let remaining = change_event
                     .wait_until(|| {
                         let left = bytes_left.load(Ordering::SeqCst);
-                        tracing::debug!(left, threshold, "obtained remote bw");
+
                         if left < threshold {
                             Some(left)
                         } else {
