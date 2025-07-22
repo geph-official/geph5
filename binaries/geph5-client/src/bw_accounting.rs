@@ -55,7 +55,7 @@ pub async fn bw_accounting_client_loop(
                 let remaining = change_event
                     .wait_until(|| {
                         let left = bytes_left.load(Ordering::SeqCst);
-                        tracing::trace!(left, threshold, "obtained remote bw");
+                        tracing::debug!(left, threshold, "obtained remote bw");
                         if left < threshold {
                             Some(left)
                         } else {
