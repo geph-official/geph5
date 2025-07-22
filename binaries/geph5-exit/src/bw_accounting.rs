@@ -46,7 +46,7 @@ pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> 
                     }
                 })
                 .await;
-            tracing::debug!(bytes_left, "bytes left lol");
+            tracing::trace!(bytes_left, "bytes left lol");
             last_bytes_left = bytes_left;
             write.write_all(&(bytes_left as u64).to_be_bytes()).await?;
             // debounce

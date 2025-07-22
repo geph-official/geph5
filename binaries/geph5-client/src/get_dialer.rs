@@ -146,16 +146,22 @@ async fn get_dialer_inner(
     tracing::debug!(token = %conn_token, "CONN TOKEN");
 
     let start = Instant::now();
-    let metadata = if let Ok(metadata) = get_device_metadata(ctx).await {
-        tracing::info!(
-            metadata = debug(&metadata),
-            elapsed = debug(start.elapsed()),
-            "DEVICE METADATA OBTAINED"
-        );
-        serde_json::to_value(&metadata)?
-    } else {
-        tracing::warn!("CANNOT GET DEVICE METADATA, PROCEEDING NONETHELESS");
-        serde_json::Value::Null
+    let metadata = match get_device_metadata(ctx).await {
+        Ok(metadata) => {
+            tracing::info!(
+                metadata = debug(&metadata),
+                elapsed = debug(start.elapsed()),
+                "DEVICE METADATA OBTAINED"
+            );
+            serde_json::to_value(&metadata)?
+        }
+        Err(err) => {
+            tracing::warn!(
+                err = debug(err),
+                "CANNOT GET DEVICE METADATA, PROCEEDING NONETHELESS"
+            );
+            serde_json::Value::Null
+        }
     };
 
     // Also get potential “bridge routes”:
