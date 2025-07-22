@@ -191,7 +191,6 @@ impl RateLimiter {
 
         if let Some(inner) = &self.inner {
             let mut delay: f32 = 0.005;
-
             loop {
                 let out_of_bw = self.bw_enabled.load(Ordering::SeqCst)
                     && self.bw_account.consume_bw(bytes as _) == 0;
@@ -208,6 +207,7 @@ impl RateLimiter {
                 {
                     break;
                 }
+
 
                 smol::Timer::after(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
