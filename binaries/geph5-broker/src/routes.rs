@@ -96,16 +96,7 @@ pub async fn bridge_to_leaf_route(
                         lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()}, tls_route!().await?.into(), sosistab3_route!().await?.into()]).into(),
                     })
                 }
-                // else if bridge.pool.contains("waw")
-                //     || bridge.pool.contains("ovh_de")
-                //     || country == "IR"
-                //     || country == "TM"
-                // {
-                //     anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: tls_route!().await?.into(),
-                //     })
-                // } 
+
                 if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
