@@ -69,8 +69,8 @@ static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, In
 static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> = |_| smol::channel::unbounded();
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    let (send_captured, recv_captured) = smol::channel::unbounded();
-    let (send_injected, recv_injected) = smol::channel::unbounded();
+    let (send_captured, recv_captured) = smol::channel::bounded(100);
+    let (send_injected, recv_injected) = smol::channel::bounded(100);
 
     let ipstack = IpStack::new(
         #[cfg(target_os = "ios")]
