@@ -206,4 +206,4 @@ jobs:
 
       - name: Upload to Cloudflare R2
         run: |
-          rclone copy -P ./artifacts/ r2:geph5/
+          rclone copy -P ./artifacts/ r2:geph5/ --multi-thread-streams 8 --multi-thread-cutoff 1M --timeout 10s
