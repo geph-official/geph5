@@ -31,9 +31,10 @@ pub static DATABASE: CtxField<SqlitePool> = |ctx| {
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
 
     smol::future::block_on(async move {
+        // this prevents any SQLITE_BUSY unless we have concurrent apps
         let pool = PoolOptions::new()
             .min_connections(1)
-            .max_connections(300)
+            .max_connections(1)
             .connect_lazy_with(options);
 
         sqlx::query(

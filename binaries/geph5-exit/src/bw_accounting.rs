@@ -50,7 +50,7 @@ pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> 
             last_bytes_left = bytes_left;
             write.write_all(&(bytes_left as u64).to_be_bytes()).await?;
             // debounce
-            smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() / 5.0)).await;
+            smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() / 2.0)).await;
         }
     };
     (read_fut, write_fut).race().await

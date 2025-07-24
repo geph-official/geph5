@@ -108,6 +108,8 @@ tracing = "0.1.40"
 tracing-subscriber = {version="0.3.18", features=["json"]}
 tun = "0.6.1"
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
+binary-search = "0.1.3"
+rlimit = "0.10.2"
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

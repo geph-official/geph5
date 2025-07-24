@@ -109,6 +109,14 @@ impl Client {
         std::env::remove_var("HTTP_PROXY");
         std::env::remove_var("HTTPS_PROXY");
         let ctx = AnyCtx::new(cfg.clone());
+        let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
+            if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
+                binary_search::Direction::Low(())
+            } else {
+                binary_search::Direction::High(())
+            }
+        });
+        tracing::info!("raised file descriptor limit to {}", fd_limit);
 
         #[cfg(unix)]
         if let Some(fd) = cfg.vpn_fd {
