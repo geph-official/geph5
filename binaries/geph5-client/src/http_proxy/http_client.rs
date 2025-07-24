@@ -12,7 +12,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{self, Poll};
 
-use crate::{client_inner::open_conn, Config};
+use crate::{session::open_conn, Config};
 
 use super::address::host_addr;
 use super::rt_compat::HyperRtCompat;

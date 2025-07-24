@@ -287,7 +287,7 @@ fn make_bad_request() -> Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::{client_inner::open_conn, Config};
+use crate::{session::open_conn, Config};
 
 use self::address::{host_addr, Address};
 fn authority_addr(scheme_str: Option<&str>, authority: &Authority) -> Option<Address> {

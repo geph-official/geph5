@@ -41,10 +41,12 @@ chrono = "0.4.38"
 clap = { version = "4.5.8", features = ["derive"] }
 clone-macro = "0.1.0"
 crossbeam-queue = "0.3.11"
-ctrlc = {version="3.4.5", features=["termination"]}
+ctrlc = { version = "3.4.5", features = ["termination"] }
 dashmap = "6.0.1"
 dirs = "5.0.1"
-ed25519-dalek = {version="2", default-features=false, features=["serde"]}
+ed25519-dalek = { version = "2", default-features = false, features = [
+    "serde",
+] }
 elevated-command = "1.1.2"
 event-listener = "5.3.1"
 futures-concurrency = "7.6.1"
@@ -59,12 +61,12 @@ hyper = { version = "1.4.0", features = ["http1", "client", "server"] }
 hyper-rustls = { version = "0.24.2", features = ["webpki-roots"] }
 hyper-util = { version = "0.1.6" }
 ipnet = "2.11.0"
-ipstack-geph = "0.2.0" 
+ipstack-geph = "0.2.0"
 isocountry = "0.3.2"
 itertools = "0.13.0"
 libc = "0.2.155"
 minisign-verify = "0.2.3"
-mizaru2 = { version= "0.2.15", path = "../../libraries/mizaru2" }
+mizaru2 = { version = "0.2.15", path = "../../libraries/mizaru2" }
 moka = { version = "0.12.7", features = ["future", "sync"] }
 nanorpc = "0.1.12"
 nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }
@@ -79,14 +81,16 @@ pnet_packet = "0.35.0"
 prefix-trie = "0.7.0"
 psl = "2.1.55"
 rand = "0.8.5"
-reqwest = { version = "0.12.5", default-features = false, features = ["rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12.5", default-features = false, features = [
+    "rustls-tls-webpki-roots",
+] }
 scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.120"
 serde_yaml = "0.9.34"
-sillad = { version= "0.2.6", path = "../../libraries/sillad" }
+sillad = { version = "0.2.6", path = "../../libraries/sillad" }
 sillad-conntest = { version = "0.2", path = "../../libraries/sillad-conntest" }
-sillad-native-tls = {version="0.2", path="../../libraries/sillad-native-tls"}
+sillad-native-tls = { version = "0.2", path = "../../libraries/sillad-native-tls" }
 sillad-sosistab3 = { version = "0.2.7", path = "../../libraries/sillad-sosistab3" }
 sillad-meeklike = { version = "0.1", path = "../../libraries/sillad-meeklike" }
 sillad-hex = { version = "0.1", path = "../../libraries/sillad-hex" }
@@ -105,11 +109,12 @@ thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["rt", "net", "io-util"] }
 tower-service = "0.3.2"
 tracing = "0.1.40"
-tracing-subscriber = {version="0.3.18", features=["json"]}
+tracing-subscriber = { version = "0.3.18", features = ["json"] }
 tun = "0.6.1"
-x25519-dalek = {version="2", default-features=false, features=["serde"]}
+x25519-dalek = { version = "2", default-features = false, features = ["serde"] }
 binary-search = "0.1.3"
 rlimit = "0.10.2"
+kanal = "0.1.1"
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -117,5 +122,9 @@ tikv-jemallocator = "0.6"
 
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi", "std"] }
-
+winapi = { version = "0.3.9", features = [
+    "minwindef",
+    "mmsystem",
+    "timeapi",
+    "std",
+] }

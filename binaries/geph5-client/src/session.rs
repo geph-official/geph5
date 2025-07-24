@@ -29,7 +29,7 @@ use crate::{
     bw_accounting::bw_accounting_client_loop,
     china::is_chinese_host,
     client::CtxField,
-    control_prot::{CURRENT_CONN_INFO},
+    control_prot::{CURRENT_ACTIVE_SESSIONS, CURRENT_CONNECTED_INFO},
     get_dialer::get_dialer,
     spoof_dns::fake_dns_backtranslate,
     stats::{stat_incr_num, stat_set_num},
@@ -75,7 +75,9 @@ pub async fn open_conn(
 
     let (send, recv) = oneshot::channel();
     let elem = (format!("{protocol}${dest_addr}"), send);
-    let _ = ctx.get(CONN_REQ_CHAN).0.send(elem).await;
+    if ctx.get(CONN_REQ_CHAN).0.send(elem).timeout(Duration::from_millis(100)).await.is_none() {
+        anyhow::bail!("no session picked up our request")
+    }
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
@@ -110,20 +112,18 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
 type ChanElem = (String, oneshot::Sender<picomux::Stream>);
 
 static CONN_REQ_CHAN: CtxField<(
-    smol::channel::Sender<ChanElem>,
-    smol::channel::Receiver<ChanElem>,
+    kanal::AsyncSender<ChanElem>,
+    kanal::AsyncReceiver<ChanElem>,
 )> = |_| {
-    let (a, b) = smol::channel::unbounded();
+    let (a, b) = kanal::bounded_async(0);
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 4;
+pub static CONCURRENCY: usize = 6;
 
 #[tracing::instrument(skip_all)]
-pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
+pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
-    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
-
     let start = Instant::now();
 
     tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
@@ -133,9 +133,10 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
 
         let ctx = ctx.clone();
         smolscale::spawn(async move {
+            let mut failures = 0.0f64;
             loop {
+                let wait_time = Duration::from_secs_f64((rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0));
                 let once = async {
-                    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connecting;
                     let (authed_pipe, exit) = async {
                         let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
                         let start = Instant::now();
@@ -158,11 +159,11 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                         );
                         anyhow::Ok((authed_pipe, exit))
                     }
-                    .timeout(Duration::from_secs(120))
+                    .timeout(wait_time + Duration::from_secs(5))
                     .await
                     .context("overall dial/mux/auth timeout")??;
 
-                    *ctx.get(CURRENT_CONN_INFO).lock() = ConnInfo::Connected(ConnectedInfo {
+                    *ctx.get(CURRENT_CONNECTED_INFO).lock() = Some(ConnectedInfo {
                         protocol: authed_pipe.protocol().to_string(),
                         bridge: authed_pipe
                             .remote_addr()
@@ -170,14 +171,19 @@ pub async fn client_inner(ctx: AnyCtx<Config>) -> Infallible {
                             .unwrap_or_default(),
                         exit: exit.clone(),
                     });
+                    ctx.get(CURRENT_ACTIVE_SESSIONS).fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    scopeguard::defer!({
+                        ctx.get(CURRENT_ACTIVE_SESSIONS).fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    });
                     let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
+                    failures = 0.0;
                     proxy_loop(ctx.clone(), authed_pipe, instance)
                         .await
                         .context(format!("inner connection to {addr} failed"))
 
                 };
                 if let Err(err) = once.await {
-                    let wait_time = Duration::from_secs_f64(rand::thread_rng().gen_range(0.0..1.0));
+                    failures += 1.0;
                     tracing::warn!(instance, err = debug(err), wait_time=debug(wait_time), "individual client thread failed");
                     smol::Timer::after(wait_time).await;
                 }
@@ -210,7 +216,7 @@ async fn proxy_loop(
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
         ping_interval: Duration::from_secs(1800),
-        timeout: Duration::from_secs(3),
+        timeout: Duration::from_secs(7),
     });
     mux.set_debloat(true);
     let mux = Arc::new(mux);

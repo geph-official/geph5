@@ -33,7 +33,7 @@ mod macos;
 pub use macos::*;
 
 use crate::{
-    client::CtxField, client_inner::open_conn, litecopy::litecopy, spoof_dns::fake_dns_respond,
+    client::CtxField, litecopy::litecopy, session::open_conn, spoof_dns::fake_dns_respond,
     taskpool::add_task, Config,
 };
 

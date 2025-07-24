@@ -3415,6 +3415,7 @@ dependencies = [
  "ipstack-geph",
  "isocountry",
  "itertools 0.13.0",
+ "kanal",
  "libc",
  "minisign-verify",
  "mizaru2",
@@ -4619,6 +4620,16 @@ checksum = "1cfaf33c695fc6e08064efbc1f72ec937429614f25eef83af942d0e227c3a28f"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kanal"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e3953adf0cd667798b396c2fa13552d6d9b3269d7dd1154c4c416442d1ff574"
+dependencies = [
+ "futures-core",
+ "lock_api",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-use crate::{client_inner::open_conn, litecopy::litecopy, taskpool::add_task};
+use crate::{litecopy::litecopy, session::open_conn, taskpool::add_task};
 
 use anyctx::AnyCtx;
 

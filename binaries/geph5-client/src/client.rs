@@ -19,11 +19,11 @@ use crate::{
     auth::{auth_loop, get_auth_token},
     broker::{broker_client, BrokerSource},
     bw_token::bw_token_refresh_loop,
-    client_inner::{client_inner, open_conn},
     control_prot::{ControlProtocolImpl, DummyControlProtocolTransport},
     get_dialer::ExitConstraint,
     http_proxy::http_proxy_serve,
     pac::pac_serve,
+    session::{open_conn, run_client_sessions},
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };
@@ -267,7 +267,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     } else {
         let vpn_loop = vpn_loop(&ctx);
 
-        let _client_loop = Immortal::spawn(client_inner(ctx.clone()));
+        let _client_loop = Immortal::spawn(run_client_sessions(ctx.clone()));
 
         socks5_loop(&ctx)
             .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))

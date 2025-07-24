@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    sync::LazyLock,
+    sync::{atomic::AtomicUsize, LazyLock},
     time::{Duration, SystemTime},
 };
 
@@ -11,7 +11,8 @@ use chrono::{NaiveDate, NaiveDateTime};
 use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, NetStatus, VoucherInfo};
 
 use geph5_misc_rpc::client_control::{
-    ConnInfo, ControlProtocol, ControlService, ControlUserInfo, NewsItem, RegistrationProgress,
+    ConnInfo, ConnectedInfo, ControlProtocol, ControlService, ControlUserInfo, NewsItem,
+    RegistrationProgress,
 };
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
@@ -36,7 +37,8 @@ pub struct ControlProtocolImpl {
     pub ctx: AnyCtx<Config>,
 }
 
-pub static CURRENT_CONN_INFO: CtxField<Mutex<ConnInfo>> = |_| Mutex::new(ConnInfo::Disconnected);
+pub static CURRENT_CONNECTED_INFO: CtxField<Mutex<Option<ConnectedInfo>>> = |_| Mutex::new(None);
+pub static CURRENT_ACTIVE_SESSIONS: CtxField<AtomicUsize> = |_| AtomicUsize::new(0);
 
 static REGISTRATIONS: LazyLock<Mutex<Slab<RegistrationProgress>>> =
     LazyLock::new(|| Mutex::new(Slab::new()));
@@ -55,7 +57,21 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn conn_info(&self) -> ConnInfo {
-        self.ctx.get(CURRENT_CONN_INFO).lock().clone()
+        match self.ctx.get(CURRENT_CONNECTED_INFO).lock().clone() {
+            Some(val) => {
+                if self
+                    .ctx
+                    .get(CURRENT_ACTIVE_SESSIONS)
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    > 0
+                {
+                    ConnInfo::Connected(val)
+                } else {
+                    ConnInfo::Connecting
+                }
+            }
+            None => ConnInfo::Connecting,
+        }
     }
 
     async fn stat_num(&self, stat: String) -> f64 {

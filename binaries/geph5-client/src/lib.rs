@@ -20,13 +20,13 @@ mod bw_accounting;
 mod bw_token;
 mod china;
 mod client;
-mod client_inner;
 mod control_prot;
 mod database;
 mod device_metadata;
 mod http_proxy;
 mod litecopy;
 pub mod logging;
+mod session;
 
 mod get_dialer;
 mod pac;
