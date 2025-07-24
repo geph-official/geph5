@@ -64,7 +64,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::None,
+                        ObfsProtocol::Sosistab3(gencookie()),
                     )
                 });
                 defmac!(plain_route => {
