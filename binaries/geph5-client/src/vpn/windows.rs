@@ -20,6 +20,12 @@ pub(super) async fn packet_shuffle(
     send_captured: Sender<Bytes>,
     recv_injected: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
+    smol::future::block_on(async {
+        // wait until we have a connection
+        while open_conn(&ctx, "", "").await.is_err() {
+            smol::Timer::after(Duration::from_millis(100));
+        }
+    });
     #[cfg(feature = "windivert")]
     std::thread::spawn({
         let ctx = ctx.clone();
@@ -35,7 +41,6 @@ pub(super) async fn packet_shuffle(
 
 #[cfg(feature = "windivert")]
 fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<bytes::Bytes>) -> anyhow::Result<()> {
-    smol::future::block_on(open_conn(&ctx, "", ""))?;
     let handle = windivert::PacketHandle::open("outbound and not loopback", -100)?;
     loop {
         let fallible = || {
@@ -62,7 +67,6 @@ fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<bytes::Bytes>) -> anyho
 
 #[cfg(feature = "windivert")]
 fn dn_shuffle(ctx: AnyCtx<Config>, recv_injected: Receiver<bytes::Bytes>) -> anyhow::Result<()> {
-    smol::future::block_on(open_conn(&ctx, "", ""))?;
     let handle = windivert::PacketHandle::open("false", -200)?;
     loop {
         let pkt = recv_injected.recv_blocking()?;
