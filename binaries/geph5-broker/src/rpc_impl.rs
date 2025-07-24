@@ -403,19 +403,18 @@ impl BrokerProtocol for BrokerImpl {
             .as_str()
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
         {
-            let (asn, country) = ip_to_asn_country(ip_addr).await?;
-
-            if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
-                // return a DIRECT route!
-                direct_route = Some(RouteDescriptor::ConnTest {
-                    ping_count: 1,
-                    lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
-                });
-            }
-            (asn, country)
+            ip_to_asn_country(ip_addr).await?
         } else {
             (0, "".to_string())
         };
+
+        if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
+            // return a DIRECT route!
+            direct_route = Some(RouteDescriptor::ConnTest {
+                ping_count: 1,
+                lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
+            });
+        }
 
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
 
