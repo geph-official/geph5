@@ -8,27 +8,27 @@ license.workspace = true
 
 
 [dependencies]
-serde = { version = "1.0.204", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
 stdcode = "0.1.14"
-futures-util = { version = "0.3.30", features = ["io"] }
-async-trait = "0.1.80"
-nanorpc = "0.1.12"
-serde_json = "1.0.120"
-thiserror = "1.0.61"
-anyhow = "1.0.86"
-bytes = { version = "1.6.0", features = ["serde"] }
+futures-util = { version = "0.3.31", features = ["io"] }
+async-trait = "0.1.88"
+nanorpc = "0.1.13"
+serde_json = "1.0.141"
+thiserror = "1.0.69"
+anyhow = "1.0.98"
+bytes = { version = "1.10.1", features = ["serde"] }
 ed25519-dalek = {version="2", default-features=false, features=["serde"]}
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
-blake3 = { version = "1.5.1", features = ["serde"] }
+blake3 = { version = "1.8.2", features = ["serde"] }
 sillad = { version="0.2", path = "../sillad" }
 chacha20poly1305 = "0.10.1"
-smallvec = "1.13.2"
-smolscale = "0.4.7"
+smallvec = "1.15.1"
+smolscale = "0.4.16"
 async-task = "4.7.1"
-bipe = "0.2.2"
+bipe = "0.2.8"
 tap = "1.0.1"
-pin-project = "1.1.5"
+pin-project = "1.1.10"
 socksv5 = "0.3"
-tachyonix = "0.3.0"
+tachyonix = "0.3.1"
 geph5-broker-protocol = { version="0.2", path = "../geph5-broker-protocol" }
 sillad-meeklike = {version="0.1", path="../sillad-meeklike"}

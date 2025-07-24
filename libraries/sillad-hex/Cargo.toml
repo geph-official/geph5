@@ -8,9 +8,9 @@ license.workspace = true
 
 [dependencies]
 hex = "0.4.3"
-async-trait = "0.1.80"
-pin-project = "1.1.5"
-futures-util = { version = "0.3.30", features = ["io"] }
+async-trait = "0.1.88"
+pin-project = "1.1.10"
+futures-util = { version = "0.3.31", features = ["io"] }
 sillad = { version = "0.2", path = "../sillad" }
 bipe = "0.2.8"
 smolscale = "0.4.16"

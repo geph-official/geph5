@@ -8,10 +8,10 @@ license.workspace = true
 
 [dependencies]
 sillad = { version = "0.2", path = "../sillad" }
-async-trait = "0.1.80"
-nanorpc = "0.1.12"
-serde_json = "1.0.120"
-thiserror = "1.0.61"
-anyhow = "1.0.86"
-futures-util = { version = "0.3.30", features = ["io"] }
-async-executor = "1.12.0"
+async-trait = "0.1.88"
+nanorpc = "0.1.13"
+serde_json = "1.0.141"
+thiserror = "1.0.69"
+anyhow = "1.0.98"
+futures-util = { version = "0.3.31", features = ["io"] }
+async-executor = "1.13.2"

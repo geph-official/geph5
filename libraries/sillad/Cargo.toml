@@ -7,14 +7,14 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow = "1.0.86"
-async-io = "2.3.3"
-async-trait = "0.1.80"
-futures-concurrency = "7.6.1"
-futures-lite = "2.3.0"
-futures-util = { version = "0.3.30", features = ["io"] }
-libc = "0.2.155"
-pin-project = "1.1.5"
+anyhow = "1.0.98"
+async-io = "2.5.0"
+async-trait = "0.1.88"
+futures-concurrency = "7.6.3"
+futures-lite = "2.6.0"
+futures-util = { version = "0.3.31", features = ["io"] }
+libc = "0.2.174"
+pin-project = "1.1.10"
 rand = "0.8.5"
-smol-timeout2 = "0.6.0"
-tracing = "0.1.40"
+smol-timeout2 = "0.6.1"
+tracing = "0.1.41"

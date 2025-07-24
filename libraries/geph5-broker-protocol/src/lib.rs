@@ -113,6 +113,7 @@ pub trait BrokerProtocol {
         days: u32,
         method: String,
     ) -> Result<String, GenericError>;
+
     async fn create_basic_payment(
         &self,
         auth_token: String,
