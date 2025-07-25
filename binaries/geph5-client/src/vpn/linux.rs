@@ -117,7 +117,6 @@ pub(super) async fn packet_shuffle(
         loop {
             let injected = recv_injected.recv().await?;
             tracing::trace!(n = injected.len(), "going to inject into the TUN");
-
             let _ = write.write(&injected).await?;
         }
     };
@@ -127,7 +126,6 @@ pub(super) async fn packet_shuffle(
             let n = read.read(&mut buf).await?;
             let buf = &buf[..n];
             tracing::trace!(n, "captured packet from TUN");
-
             send_captured.send(Bytes::copy_from_slice(buf)).await?;
         }
     };

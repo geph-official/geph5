@@ -119,7 +119,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub static CONCURRENCY: usize = 6;
+pub const CONCURRENCY: usize = 3;
 
 #[tracing::instrument(skip_all)]
 pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
