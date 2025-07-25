@@ -13,7 +13,7 @@ use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use smol::channel::{Receiver, Sender};
 
-use crate::{client_inner::open_conn, Config};
+use crate::{session::open_conn, Config};
 
 pub(super) async fn packet_shuffle(
     ctx: AnyCtx<Config>,
