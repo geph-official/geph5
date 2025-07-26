@@ -3457,7 +3457,6 @@ dependencies = [
  "tachyonix",
  "tap",
  "thiserror 1.0.69",
- "tikv-jemallocator",
  "tokio",
  "tower-service",
  "tracing",
