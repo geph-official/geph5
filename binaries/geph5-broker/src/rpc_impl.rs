@@ -663,7 +663,7 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn basic_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
-        Ok(vec![(30, 100), (90, 300), (365, 1095)])
+        Ok(vec![(30, 110), (90, 330), (365, 1205)])
     }
 
     async fn basic_mb_limit(&self) -> u32 {
