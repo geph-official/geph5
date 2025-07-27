@@ -103,7 +103,7 @@ pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLim
                         BwAccount::empty(),
                         Some(token.to_string()),
                     )
-                    .with_fallback(CONFIG_FILE.wait().free_ratelimit / 10, 100)
+                    .with_fallback(CONFIG_FILE.wait().free_ratelimit / 2, 100)
                 })
                 .await
         }
@@ -172,12 +172,6 @@ impl RateLimiter {
 
     /// Waits until the given number of bytes can be let through.
     pub async fn wait(&self, bytes: usize) {
-        if let Some(tag) = &self.log_tag {
-            if rand::random::<f32>() < 0.000001 * bytes as f32 {
-                tracing::debug!("TOKEN {tag}");
-            }
-        }
-
         TOTAL_BYTE_COUNT.fetch_add(bytes as _, Ordering::Relaxed);
         if bytes == 0 {
             return;
