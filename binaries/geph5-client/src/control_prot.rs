@@ -57,6 +57,9 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn conn_info(&self) -> ConnInfo {
+        if self.ctx.init().dry_run {
+            return ConnInfo::Disconnected;
+        }
         match self.ctx.get(CURRENT_CONNECTED_INFO).lock().clone() {
             Some(val) => {
                 if self
