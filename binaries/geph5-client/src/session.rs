@@ -134,7 +134,7 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
         smolscale::spawn(async move {
             let mut failures = 0.0f64;
             // sleep depending on which instance this is
-            let sleep_secs = rand::thread_rng().gen_range(0.0..=(instance as f64) * 5.0);
+            let sleep_secs = rand::thread_rng().gen_range(0.0..=(instance as f64) * 10.0);
             smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
             loop {
                 let wait_time = Duration::from_secs_f64((rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0));
