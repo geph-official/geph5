@@ -97,7 +97,12 @@ pub async fn bridge_to_leaf_route(
                     })
                 }
 
-                if !country.is_empty(){
+                if asn == 9808 || asn == 56044 || asn == 56047 || asn == 58807 || asn == 56048 || asn == 56040 || asn == 56047 {
+                     anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: tls_route!().await?.into(),
+                    })
+                } else if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: sosistab3_route!().await?.into(),
