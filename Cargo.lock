@@ -7308,6 +7308,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sillad-substitution"
+version = "0.1.0"
+dependencies = [
+ "async-task",
+ "async-trait",
+ "bipe",
+ "futures-util",
+ "pin-project",
+ "sillad",
+ "smolscale",
+]
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

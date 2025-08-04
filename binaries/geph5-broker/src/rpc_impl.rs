@@ -674,7 +674,7 @@ impl BrokerProtocol for BrokerImpl {
         Ok(vec![
             "credit-card".into(),
             "wechat".to_string(),
-            // "alipay".to_string(),
+            "alipay".to_string(),
         ])
     }
 

@@ -1,0 +1,16 @@
+[package]
+name = "sillad-substitution"
+edition = "2021"
+version = "0.1.0"
+description = "A silly substitution cipher obfuscation protocol within the sillad framework"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = "0.1.80"
+pin-project = "1.1.5"
+futures-util = { version = "0.3.30", features = ["io"] }
+sillad = { version = "0.2", path = "../sillad" }
+bipe = "0.2.8"
+smolscale = "0.4.16"
+async-task = "4.7.1"
