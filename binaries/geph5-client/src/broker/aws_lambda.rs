@@ -1,10 +1,10 @@
 #![cfg(not(target_os = "ios"))]
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use async_trait::async_trait;
-use aws_config::BehaviorVersion;
+use aws_config::{timeout::TimeoutConfig, BehaviorVersion};
 use aws_sdk_lambda::{config::Credentials, primitives::Blob};
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
@@ -59,6 +59,11 @@ impl RpcTransport for AwsLambdaTransport {
                     "test",
                 ))
                 .http_client(http_client)
+                .timeout_config(
+                    TimeoutConfig::builder()
+                        .operation_timeout(Duration::from_secs(10))
+                        .build(),
+                )
                 .load()
                 .await,
         );
