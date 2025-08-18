@@ -6,7 +6,7 @@ use mizaru2::{
     BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature,
     SingleUnblindedSignature, UnblindedSignature,
 };
-use nanorpc::nanorpc_derive;
+use nanorpc::{nanorpc_derive, JrpcRequest, JrpcResponse};
 mod route;
 pub use route::*;
 mod exit;
@@ -25,6 +25,9 @@ use thiserror::Error;
 #[async_trait]
 pub trait BrokerProtocol {
     async fn opaque_abtest(&self, test: String, id: u64) -> bool;
+
+    async fn call_geph_payments(&self, jrpc_req: JrpcRequest)
+        -> Result<JrpcResponse, GenericError>;
 
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
 

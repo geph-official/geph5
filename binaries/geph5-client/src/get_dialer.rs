@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant, SystemTime};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    time::{Duration, Instant, SystemTime},
+};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -175,6 +178,7 @@ async fn get_dialer_inner(
         })
         .await?
         .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
+
     tracing::debug!(
         "bridge routes obtained: {}",
         serde_json::to_string(&bridge_routes)?
@@ -263,7 +267,13 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Tcp(addr) => {
             smart_vpn_whitelist(ctx, addr.ip());
             let addr = *addr;
+            // if addr.ip() != IpAddr::V4(Ipv4Addr::new(175, 29, 23, 236))
+            // && addr.ip() != IpAddr::V4(Ipv4Addr::new(175, 29, 23, 240))
+            // if addr.ip() != IpAddr::V4(Ipv4Addr::new(207, 148, 98, 13)) {
+            //     FailingDialer.dynamic()
+            // } else {
             TcpDialer { dest_addr: addr }.dynamic()
+            // }
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
             let inner = route_to_dialer(ctx, lower);

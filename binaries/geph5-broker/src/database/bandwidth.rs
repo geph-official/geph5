@@ -12,11 +12,24 @@ pub async fn basic_count() -> anyhow::Result<i64> {
 }
 
 pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumptionInfo>> {
-    let pair: Option<(i32, i32, i64)> = sqlx::query_as("select (renew_mb - (mb_limit - mb_used)), renew_mb, extract(epoch from renew_date)::bigint from bw_usage natural join bw_limits where id = $1").bind(user_id).fetch_optional(&*POSTGRES).await?;
-    Ok(pair.map(|pair| BwConsumptionInfo {
-        mb_used: pair.0.max(0) as _,
-        mb_limit: pair.1.max(0) as _,
-        renew_unix: pair.2 as _,
+    let total_mb_used: i32 =
+        sqlx::query_scalar("COALESCE((select mb_used from bw_usage where id = $1), 0)")
+            .bind(user_id)
+            .fetch_one(&*POSTGRES)
+            .await?;
+    let renewmb_mblimit: Option<(i32, i32, i64)> = sqlx::query_as("select renew_mb, mb_limit, extract(epoch from renew_date)::bigint from bw_limits where id = $1")
+        .bind(user_id)
+        .fetch_optional(&*POSTGRES)
+        .await?;
+
+    Ok(renewmb_mblimit.map(|pair| {
+        let renew_mb = pair.0;
+        let mb_limit = pair.1;
+        BwConsumptionInfo {
+            mb_used: (renew_mb - (mb_limit - total_mb_used)) as _,
+            mb_limit: mb_limit as _,
+            renew_unix: pair.2 as _,
+        }
     }))
 }
 

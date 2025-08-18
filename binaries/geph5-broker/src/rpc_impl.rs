@@ -19,7 +19,7 @@ use mizaru2::{
     SingleUnblindedSignature, UnblindedSignature,
 };
 use moka::future::Cache;
-use nanorpc::{RpcService, ServerError};
+use nanorpc::{JrpcRequest, JrpcResponse, RpcService, ServerError};
 use once_cell::sync::Lazy;
 
 use std::net::Ipv4Addr;
@@ -707,6 +707,13 @@ impl BrokerProtocol for BrokerImpl {
         // } else {
         //     Ok(None)
         // }
+    }
+
+    async fn call_geph_payments(
+        &self,
+        jrpc_req: JrpcRequest,
+    ) -> Result<JrpcResponse, GenericError> {
+        todo!()
     }
 
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {

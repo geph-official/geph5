@@ -119,7 +119,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub const MAX_CONCURRENCY: usize = 16;
+pub const MAX_CONCURRENCY: usize = 1;
 
 #[tracing::instrument(skip_all)]
 pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
@@ -138,6 +138,7 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
             smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
             loop {
                 let wait_time = Duration::from_secs_f64((rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0));
+                let timeout_time = Duration::from_secs_f64((rand::thread_rng().gen_range(8.0..15.0) * failures.exp2()).min(120.0));
                 let once = async {
                     let (authed_pipe, exit) = async {
                         let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
@@ -161,7 +162,7 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
                         );
                         anyhow::Ok((authed_pipe, exit))
                     }
-                    .timeout(wait_time + Duration::from_secs(5))
+                    .timeout(timeout_time)
                     .await
                     .context("overall dial/mux/auth timeout")??;
 
@@ -214,10 +215,11 @@ async fn proxy_loop(
     authed_pipe: impl Pipe,
     instance: usize,
 ) -> anyhow::Result<()> {
+
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
-        ping_interval: Duration::from_secs(1800),
+        ping_interval: Duration::from_secs(180),
         timeout: Duration::from_secs(7),
     });
     mux.set_debloat(true);
