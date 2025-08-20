@@ -13,7 +13,7 @@ pub async fn basic_count() -> anyhow::Result<i64> {
 
 pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumptionInfo>> {
     let total_mb_used: i32 =
-        sqlx::query_scalar("COALESCE((select mb_used from bw_usage where id = $1), 0)")
+        sqlx::query_scalar("select coalesce(mb_used, 0) from bw_usage where id = $1")
             .bind(user_id)
             .fetch_one(&*POSTGRES)
             .await?;

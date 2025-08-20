@@ -17,6 +17,7 @@ use geph5_misc_rpc::client_control::{
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use slab::Slab;
 
 use crate::{
@@ -282,13 +283,32 @@ impl ControlProtocol for ControlProtocolImpl {
 
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, String> {
         let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-
         // Call the broker's redeem_voucher method directly with the secret
         client
             .redeem_voucher(secret, code)
             .await
             .map_err(|s| s.to_string())?
             .map_err(|s| s.to_string())
+    }
+
+    async fn call_geph_payments(
+        &self,
+        method: String,
+        params: Vec<Value>,
+    ) -> Result<Option<Value>, String> {
+        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
+        let jrpc_req = JrpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method,
+            params,
+            id: nanorpc::JrpcId::Number(1),
+        };
+        let ret = client
+            .call_geph_payments(jrpc_req)
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        Ok(ret.result)
     }
 
     async fn price_points(&self) -> Result<Vec<(u32, f64)>, String> {

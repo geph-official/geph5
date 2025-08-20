@@ -6,6 +6,7 @@ use geph5_broker_protocol::{
 };
 use nanorpc::nanorpc_derive;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "state")]
@@ -79,6 +80,11 @@ pub trait ControlProtocol {
     ) -> Result<String, String>;
     async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String>;
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, String>;
+    async fn call_geph_payments(
+        &self,
+        method: String,
+        params: Vec<Value>,
+    ) -> Result<Option<Value>, String>;
     async fn export_debug_pack(
         &self,
         email: Option<String>,
