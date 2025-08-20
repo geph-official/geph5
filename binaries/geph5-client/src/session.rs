@@ -26,7 +26,7 @@ use stdcode::StdcodeSerializeExt;
 
 use crate::{
     auth::get_connect_token,
-    bw_accounting::bw_accounting_client_loop,
+    bw_accounting::{bw_accounting_client_loop, notify_bw_accounting},
     china::is_chinese_host,
     client::CtxField,
     control_prot::{CURRENT_ACTIVE_SESSIONS, CURRENT_CONNECTED_INFO},
@@ -81,10 +81,12 @@ pub async fn open_conn(
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
+        notify_bw_accounting(&ctx, n);
         stat_incr_num(&ctx, "total_rx_bytes", n as _);
         ctx.get(TRAFF_COUNT).write().unwrap().incr(n as _);
     }));
     conn.set_on_write(clone!([ctx], move |n| {
+        notify_bw_accounting(&ctx, n);
         stat_incr_num(&ctx, "total_tx_bytes", n as _);
         ctx.get(TRAFF_COUNT).write().unwrap().incr(n as _);
     }));
@@ -119,7 +121,7 @@ static CONN_REQ_CHAN: CtxField<(
     (a, b)
 };
 
-pub const MAX_CONCURRENCY: usize = 1;
+const MAX_CONCURRENCY: usize = 4;
 
 #[tracing::instrument(skip_all)]
 pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {

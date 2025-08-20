@@ -1,20 +1,22 @@
-use std::{
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-
-use async_event::Event;
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 
 use stdcode::StdcodeSerializeExt;
 
-use crate::{bw_token::bw_token_consume, Config};
+use crate::{bw_token::bw_token_consume, client::CtxField, Config};
 use anyctx::AnyCtx;
+
+static FORCE_REFRESH: CtxField<(smol::channel::Sender<()>, smol::channel::Receiver<()>)> =
+    |_| smol::channel::unbounded();
+
+pub fn notify_bw_accounting(ctx: &AnyCtx<Config>, consumed: usize) {
+    if rand::random::<f64>() < (consumed as f64) * 1.05 / 10_000_000.0 {
+        // waste 5%
+        tracing::debug!("preemptively notifying bw accounting");
+        let _ = ctx.get(FORCE_REFRESH).0.try_send(());
+    }
+}
 
 /// Handles the exit-to-client bandwidth accounting protocol.
 #[tracing::instrument(skip_all)]
@@ -24,39 +26,34 @@ pub async fn bw_accounting_client_loop(
 ) -> anyhow::Result<()> {
     tracing::info!("BW ACCOUNT START!");
 
-    let (send_force_refresh, mut recv_force_refresh) = tachyonix::channel::<()>(1000);
     let (mut read, mut write) = stream.split();
 
     let read_fut = {
-        async move {
+        async {
             let mut buf = [0u8; 8];
-            let mut last_bytes = 0u64;
+
             loop {
                 read.read_exact(&mut buf).await?;
                 let current_bytes = u64::from_be_bytes(buf);
-                let delta_bytes = last_bytes.saturating_sub(current_bytes);
-                last_bytes = current_bytes;
+                tracing::debug!(current_bytes, "remote bytes received");
                 if current_bytes == 0 {
                     tracing::debug!(
                         current_bytes,
-                        delta_bytes,
                         "remote bytes went to zero, FORCING a refresh"
                     );
                 }
 
-                if current_bytes == 0 || rand::random::<f64>() < (delta_bytes as f64) / 10_000_000.0
-                {
-                    let _ = send_force_refresh.send(()).await;
+                if current_bytes == 0 {
+                    let _ = ctx.get(FORCE_REFRESH).0.send(()).await;
                 }
             }
         }
     };
 
     let write_fut = {
-        let ctx = ctx.clone();
-        async move {
+        async {
             loop {
-                let _ = recv_force_refresh.recv().await;
+                let _ = ctx.get(FORCE_REFRESH).1.recv().await;
 
                 let (token, sig) = bw_token_consume(&ctx).await?;
 
@@ -64,7 +61,7 @@ pub async fn bw_accounting_client_loop(
                 write.write_all(enc.as_bytes()).await?;
                 write.write_all(b"\n").await?;
                 tracing::debug!("consuming a bandwidth token");
-                smol::Timer::after(Duration::from_millis(200)).await;
+                // smol::Timer::after(Duration::from_millis(200)).await;
             }
         }
     };
