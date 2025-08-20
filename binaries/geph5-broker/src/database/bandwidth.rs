@@ -12,11 +12,11 @@ pub async fn basic_count() -> anyhow::Result<i64> {
 }
 
 pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumptionInfo>> {
-    let total_mb_used: i32 =
-        sqlx::query_scalar("select coalesce(mb_used, 0) from bw_usage where id = $1")
-            .bind(user_id)
-            .fetch_one(&*POSTGRES)
-            .await?;
+    let total_mb_used: i32 = sqlx::query_scalar("select mb_used from bw_usage where id = $1")
+        .bind(user_id)
+        .fetch_optional(&*POSTGRES)
+        .await?
+        .unwrap_or(0);
     let renewmb_mblimit: Option<(i32, i32, i64)> = sqlx::query_as("select renew_mb, mb_limit, extract(epoch from renew_date)::bigint from bw_limits where id = $1")
         .bind(user_id)
         .fetch_optional(&*POSTGRES)
