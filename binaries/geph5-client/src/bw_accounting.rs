@@ -35,7 +35,7 @@ pub async fn bw_accounting_client_loop(
             loop {
                 read.read_exact(&mut buf).await?;
                 let current_bytes = u64::from_be_bytes(buf);
-                tracing::debug!(current_bytes, "remote bytes received");
+
                 if current_bytes == 0 {
                     tracing::debug!(
                         current_bytes,
