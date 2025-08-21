@@ -5,7 +5,7 @@ use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
-    client_control::{ConnInfo, ConnectedInfo}, exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner}, read_prepend_length, write_prepend_length
+    client_control::{ConnectedInfo}, exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner}, read_prepend_length, write_prepend_length
 };
 use nursery_macro::nursery;
 
