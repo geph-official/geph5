@@ -216,7 +216,7 @@ pub async fn get_subscription_expiry(user_id: i32) -> anyhow::Result<Option<(i64
     static ALL_SUBSCRIPTIONS_CACHE: LazyLock<Cache<i32, Arc<BTreeMap<i32, (i64, bool)>>>> =
         LazyLock::new(|| {
             Cache::builder()
-                .time_to_idle(Duration::from_secs(60))
+                .time_to_live(Duration::from_secs(60))
                 .build()
         });
     static PERIOD_COUNT_CACHE: LazyLock<Cache<u128, i32>> = LazyLock::new(|| {
