@@ -3367,7 +3367,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.82"
+version = "0.2.83"
 dependencies = [
  "anyctx",
  "anyhow",
