@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use bytes::Bytes;
 use clap::Parser;
-use geph5_client::{logging, Client, Config};
+use geph5_client::{Client, Config};
 use nanorpc::{JrpcRequest, RpcTransport};
 
 /// Run the Geph5 client.
@@ -28,8 +28,6 @@ struct CliArgs {
 
 fn main() -> anyhow::Result<()> {
     smolscale::permanently_single_threaded();
-    // Initialize logging with JSON support
-    logging::init_logging()?;
 
     let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;

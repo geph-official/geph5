@@ -95,7 +95,11 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn recent_logs(&self) -> Vec<String> {
-        get_json_logs().split("\n").map(|s| s.to_string()).collect()
+        get_json_logs(&self.ctx)
+            .await
+            .split("\n")
+            .map(|s| s.to_string())
+            .collect()
     }
 
     async fn check_secret(&self, secret: String) -> Result<bool, String> {

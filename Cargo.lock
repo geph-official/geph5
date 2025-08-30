@@ -3374,6 +3374,7 @@ dependencies = [
  "arc-writer",
  "arrayref",
  "async-broadcast 0.7.2",
+ "async-channel 2.5.0",
  "async-compat",
  "async-dup",
  "async-event 0.2.1",

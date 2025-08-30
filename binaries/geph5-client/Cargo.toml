@@ -115,6 +115,7 @@ x25519-dalek = { version = "2", default-features = false, features = ["serde"] }
 binary-search = "0.1.3"
 rlimit = "0.10.2"
 kanal = "0.1.1"
+async-channel = "2.5.0"
 
 
 [target.'cfg(windows)'.dependencies]

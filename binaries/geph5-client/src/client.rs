@@ -23,6 +23,7 @@ use crate::{
     get_dialer::ExitConstraint,
     http_proxy::http_proxy_serve,
     pac::pac_serve,
+    logging,
     session::{open_conn, run_client_sessions},
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
@@ -109,6 +110,8 @@ impl Client {
         std::env::remove_var("HTTP_PROXY");
         std::env::remove_var("HTTPS_PROXY");
         let ctx = AnyCtx::new(cfg.clone());
+        // Initialize logging once we have context so JSON logs go to SQLite
+        let _ = logging::init_logging(&ctx);
         let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
             if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
                 binary_search::Direction::Low(())
