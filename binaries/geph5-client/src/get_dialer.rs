@@ -156,16 +156,6 @@ async fn get_dialer_inner(
         }
     };
 
-    let client_country = if let Some(ip) = metadata["ip_addr"]
-        .as_str()
-        .and_then(|ip| Ipv4Addr::from_str(ip).ok())
-    {
-        Some(ip_to_asn_country(ip).await?.1)
-    } else {
-        None
-    };
-    tracing::debug!("GOT client_country={:?}", client_country);
-
     // Use our new helper function to pick the best exit:
     let rendezvous_key = blake3::hash(serde_json::to_string(&ctx.init().credentials)?.as_bytes());
     let (pubkey, exit) = pick_exit_with_constraint(
@@ -173,7 +163,6 @@ async fn get_dialer_inner(
         &ctx.init().exit_constraint,
         level,
         &net_status_verified,
-        client_country,
     )?;
 
     tracing::debug!(exit = ?exit, "narrowed down choice of exit");
@@ -210,48 +199,31 @@ fn pick_exit_with_constraint<'a>(
     constraint: &ExitConstraint,
     level: AccountLevel,
     net_status: &'a NetStatus,
-    client_country: Option<String>,
 ) -> anyhow::Result<(&'a VerifyingKey, &'a ExitDescriptor)> {
     let all_exits = net_status.exits.values();
 
     // Figure out which fields we need to match
-    let mut country_constraints = Vec::new();
+    let mut country_constraint = None;
     let mut city_constraint = None;
     let mut hostname_constraint = None;
 
     match constraint {
         ExitConstraint::Hostname(host) => hostname_constraint = Some(host.clone()),
-        ExitConstraint::Country(country) => country_constraints.push(*country),
+        ExitConstraint::Country(country) => country_constraint = Some(*country),
         ExitConstraint::CountryCity(country, city) => {
-            country_constraints.push(*country);
+            country_constraint = Some(*country);
             city_constraint = Some(city.clone());
         }
-        ExitConstraint::Auto => {
-            if let Some(country) = client_country {
-                if country == "CN" {
-                    tracing::debug!(
-                        "IN CN with ExitConstraint::Auto! Picking only from Asian exits"
-                    );
-                    country_constraints.push(CountryCode::JPN);
-                    country_constraints.push(CountryCode::HKG);
-                    country_constraints.push(CountryCode::TWN);
-                    country_constraints.push(CountryCode::SGP);
-                }
-            }
-        }
+        ExitConstraint::Auto => {}
         ExitConstraint::Direct(_) => panic!("should not reach here"),
     }
 
     let filtered: Vec<_> = all_exits
         .filter(|(_, exit, meta)| {
-            let mut pass = country_constraints.is_empty();
-            if !pass {
-                for c in &country_constraints {
-                    if exit.country == *c {
-                        pass = true;
-                        break;
-                    }
-                }
+            let mut pass = if let Some(c) = country_constraint {
+                exit.country == c
+            } else {
+                true
             };
             pass &= match &city_constraint {
                 Some(city) => exit.city == *city,
