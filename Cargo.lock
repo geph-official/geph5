@@ -3405,6 +3405,7 @@ dependencies = [
  "futures-intrusive",
  "futures-util",
  "geph5-broker-protocol",
+ "geph5-ip-to-asn",
  "geph5-misc-rpc",
  "hex",
  "http 1.3.1",

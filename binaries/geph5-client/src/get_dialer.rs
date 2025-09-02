@@ -1,5 +1,7 @@
 use std::{
     // net::{IpAddr, Ipv4Addr},
+    net::Ipv4Addr,
+    str::FromStr,
     time::{Duration, Instant, SystemTime},
 };
 
@@ -13,6 +15,7 @@ use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
     AccountLevel, ExitCategory, ExitDescriptor, GetRoutesArgs, NetStatus, RouteDescriptor,
 };
+use geph5_ip_to_asn::ip_to_asn_country;
 use isocountry::CountryCode;
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
@@ -134,20 +137,6 @@ async fn get_dialer_inner(
         )?
     );
 
-    // Use our new helper function to pick the best exit:
-    let rendezvous_key = blake3::hash(serde_json::to_string(&ctx.init().credentials)?.as_bytes());
-    let (pubkey, exit) = pick_exit_with_constraint(
-        rendezvous_key,
-        &ctx.init().exit_constraint,
-        level,
-        &net_status_verified,
-    )?;
-
-    tracing::debug!(exit = ?exit, "narrowed down choice of exit");
-    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
-
-    tracing::debug!(token = %conn_token, "CONN TOKEN");
-
     let start = Instant::now();
     let metadata = match get_device_metadata(ctx).await {
         Ok(metadata) => {
@@ -166,6 +155,31 @@ async fn get_dialer_inner(
             serde_json::Value::Null
         }
     };
+
+    let client_country = if let Some(ip) = metadata["ip_addr"]
+        .as_str()
+        .and_then(|ip| Ipv4Addr::from_str(ip).ok())
+    {
+        Some(ip_to_asn_country(ip).await?.1)
+    } else {
+        None
+    };
+    tracing::debug!("GOT client_country={:?}", client_country);
+
+    // Use our new helper function to pick the best exit:
+    let rendezvous_key = blake3::hash(serde_json::to_string(&ctx.init().credentials)?.as_bytes());
+    let (pubkey, exit) = pick_exit_with_constraint(
+        rendezvous_key,
+        &ctx.init().exit_constraint,
+        level,
+        &net_status_verified,
+        client_country,
+    )?;
+
+    tracing::debug!(exit = ?exit, "narrowed down choice of exit");
+    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
+
+    tracing::debug!(token = %conn_token, "CONN TOKEN");
 
     // Also get potential “bridge routes”:
     let broker = broker_client(ctx)?;
@@ -196,30 +210,48 @@ fn pick_exit_with_constraint<'a>(
     constraint: &ExitConstraint,
     level: AccountLevel,
     net_status: &'a NetStatus,
+    client_country: Option<String>,
 ) -> anyhow::Result<(&'a VerifyingKey, &'a ExitDescriptor)> {
     let all_exits = net_status.exits.values();
 
     // Figure out which fields we need to match
-    let mut country_constraint = None;
+    let mut country_constraints = Vec::new();
     let mut city_constraint = None;
     let mut hostname_constraint = None;
 
     match constraint {
         ExitConstraint::Hostname(host) => hostname_constraint = Some(host.clone()),
-        ExitConstraint::Country(country) => country_constraint = Some(*country),
+        ExitConstraint::Country(country) => country_constraints.push(*country),
         ExitConstraint::CountryCity(country, city) => {
-            country_constraint = Some(*country);
+            country_constraints.push(*country);
             city_constraint = Some(city.clone());
         }
-        ExitConstraint::Auto => {}
+        ExitConstraint::Auto => {
+            if let Some(country) = client_country {
+                if country == "CN" {
+                    tracing::debug!(
+                        "IN CN with ExitConstraint::Auto! Picking only from Asian exits"
+                    );
+                    country_constraints.push(CountryCode::JPN);
+                    country_constraints.push(CountryCode::HKG);
+                    country_constraints.push(CountryCode::TWN);
+                    country_constraints.push(CountryCode::SGP);
+                }
+            }
+        }
         ExitConstraint::Direct(_) => panic!("should not reach here"),
     }
 
     let filtered: Vec<_> = all_exits
         .filter(|(_, exit, meta)| {
-            let mut pass = match country_constraint {
-                Some(c) => exit.country == c,
-                None => true,
+            let mut pass = country_constraints.is_empty();
+            if !pass {
+                for c in &country_constraints {
+                    if exit.country == *c {
+                        pass = true;
+                        break;
+                    }
+                }
             };
             pass &= match &city_constraint {
                 Some(city) => exit.city == *city,

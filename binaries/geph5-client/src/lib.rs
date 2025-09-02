@@ -25,7 +25,7 @@ mod database;
 mod device_metadata;
 mod http_proxy;
 mod litecopy;
-mod logging;
+pub mod logging;
 mod session;
 
 mod get_dialer;
