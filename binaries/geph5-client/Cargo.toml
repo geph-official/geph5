@@ -96,7 +96,7 @@ sillad-sosistab3 = { version = "0.2.7", path = "../../libraries/sillad-sosistab3
 sillad-meeklike = { version = "0.1", path = "../../libraries/sillad-meeklike" }
 sillad-hex = { version = "0.1", path = "../../libraries/sillad-hex" }
 simple-dns = "0.7.1"
-slab = "0.4.10"
+slab = "0.4.11"
 smol = "2.0.2"
 smol-timeout2 = "0.6.1"
 smol_str = { version = "0.2.2", features = ["serde"] }
