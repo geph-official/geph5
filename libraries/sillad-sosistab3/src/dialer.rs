@@ -69,6 +69,12 @@ impl<D: Dialer> Dialer for SosistabDialer<D> {
             ));
         }
         // read their padding
+        if their_handshake.padding_len > 100_000 {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "the server handshake gave us a way-too-long padding length",
+            ));
+        }
         let mut buff = vec![0u8; their_handshake.padding_len as usize];
         lower.read_exact(&mut buff).await?;
         if blake3::hash(&buff) != their_handshake.padding_hash {
