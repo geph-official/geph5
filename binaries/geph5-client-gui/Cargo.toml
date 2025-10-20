@@ -32,7 +32,7 @@ geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
 serde_yaml = "0.9.34"
 smol-timeout2 = "0.6.1"
 tracing = "0.1.41"
-tracing-subscriber = {version="0.3.19", features=["json"]}
+tracing-subscriber = {version="0.3.20", features=["json"]}
 serde_json = "1.0.141"
 oneshot = "0.1.11"
 chrono = "0.4.41"
