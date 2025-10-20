@@ -30,7 +30,7 @@ pub struct SosistabListener<P: Pipe> {
 impl<P: Pipe> SosistabListener<P> {
     /// Listens to incoming sosistab3 pipes by wrapping an existing sillad Listener.
     pub fn new(listener: impl Listener<P = P>, cookie: Cookie) -> Self {
-        let (send_pipe, recv_pipe) = tachyonix::channel(1);
+        let (send_pipe, recv_pipe) = tachyonix::channel(1000);
         let _task = smolscale::spawn(listen_loop(listener, send_pipe, cookie));
         Self { recv_pipe, _task }
     }
@@ -52,17 +52,18 @@ async fn listen_loop<P: Pipe>(
     lexec
         .run(async {
             loop {
-                let lower = listener.accept().await?;
+                let mut lower = listener.accept().await?;
                 let send_pipe = send_pipe.clone();
                 lexec
                     .spawn(async move {
                         let deadline = Instant::now()
                             + Duration::from_secs_f64(rand::random::<f64>() * 10.0 + 10.0);
                         let left = async {
-                            let pipe = listener_handshake(lower, cookie, dedup).await;
-                            match pipe {
-                                Ok(pipe) => {
-                                    let _ = send_pipe.send(pipe).await;
+                            let state = listener_handshake(&mut lower, cookie, dedup).await;
+                            match state {
+                                Ok(state) => {
+                                    let pipe = SosistabPipe::new(lower, state);
+                                    let _ = send_pipe.try_send(pipe);
                                 }
                                 Err(err) => {
                                     tracing::warn!(err = debug(err), "listener handshake failed");
@@ -82,10 +83,10 @@ async fn listen_loop<P: Pipe>(
 }
 
 async fn listener_handshake<P: Pipe>(
-    mut lower: P,
+    lower: &mut P,
     cookie: Cookie,
     dedup: &Mutex<Dedup<Hash>>,
-) -> std::io::Result<SosistabPipe<P>> {
+) -> std::io::Result<State> {
     let current_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -169,10 +170,9 @@ async fn listener_handshake<P: Pipe>(
     tracing::debug!(
         their_handshake_hash = debug(their_handshake_hash),
         their_padding_hash = debug(their_handshake.padding_hash),
-        "pipe established"
+        "state established"
     );
-    let pipe = SosistabPipe::new(lower, state);
-    Ok(pipe)
+    Ok(state)
 }
 
 #[async_trait]
