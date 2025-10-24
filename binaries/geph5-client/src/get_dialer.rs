@@ -15,7 +15,7 @@ use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
     AccountLevel, ExitCategory, ExitDescriptor, GetRoutesArgs, NetStatus, RouteDescriptor,
 };
-use geph5_ip_to_asn::ip_to_asn_country;
+
 use isocountry::CountryCode;
 use itertools::Itertools;
 use ordered_float::OrderedFloat;

@@ -3,7 +3,7 @@ name = "geph5-client"
 edition = "2021"
 license = "MPL-2.0"
 description = "Geph5 client"
-version= "0.2.84"
+version = "0.2.84"
 repository.workspace = true
 
 [features]
@@ -54,7 +54,7 @@ futures-intrusive = "0.5.0"
 futures-util = "0.3.31"
 geph5-broker-protocol = { version = "0.2", path = "../../libraries/geph5-broker-protocol" }
 geph5-misc-rpc = { version = "0.2", path = "../../libraries/geph5-misc-rpc" }
-geph5-ip-to-asn = { version = "0.2", path = "../../libraries/geph5-ip-to-asn"}
+# geph5-ip-to-asn = { version = "0.2", path = "../../libraries/geph5-ip-to-asn"}
 hex = "0.4.3"
 http = "1.3.1"
 http-body-util = "0.1.3"
