@@ -27,7 +27,7 @@ pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumption
         let mb_limit = pair.1;
         BwConsumptionInfo {
             mb_used: (renew_mb - (mb_limit - total_mb_used)) as _,
-            mb_limit: mb_limit as _,
+            mb_limit: renew_mb as _,
             renew_unix: pair.2 as _,
         }
     }))
