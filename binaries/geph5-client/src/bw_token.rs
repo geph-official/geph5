@@ -48,23 +48,39 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     let mut retry_secs = 1.0;
                     loop {
                         let fallible = async {
-                            let broker = broker_client(&ctx)?;
+                            let broker = broker_client(&ctx)
+                                .map_err(|e| format!("broker_client: {e}"))?;
                             let token = ClientToken::random();
-                            let (blind_token, secret) = token.blind(&mizaru_bw.inner()?);
+                            let (blind_token, secret) = token
+                                .blind(
+                                    &mizaru_bw
+                                        .inner()
+                                        .map_err(|e| format!("mizaru_bw.inner: {e}"))?
+                                );
                             let lele = broker
-                                .get_bw_token(get_auth_token(&ctx).await?, blind_token)
-                                .await??;
-                            let sig = lele.unblind(&secret, token)?;
+                                .get_bw_token(
+                                    get_auth_token(&ctx)
+                                        .await
+                                        .map_err(|e| format!("get_auth_token: {e}"))?,
+                                    blind_token,
+                                )
+                                .await
+                                .map_err(|e| format!("get_bw_token await: {e}"))?
+                                .map_err(|e| format!("get_bw_token inner: {e}"))?;
+                            let sig = lele
+                                .unblind(&secret, token)
+                                .map_err(|e| format!("lele.unblind: {e}"))?;
                             sqlx::query("insert into bw_tokens values ($1, $2)")
                                 .bind((token, sig).stdcode())
                                 .bind(token.stdcode())
                                 .execute(ctx.get(DATABASE))
-                                .await?;
+                                .await
+                                .map_err(|e| format!("insert bw_tokens: {e}"))?;
                             BW_TOKEN_SUPPLIED.notify(usize::MAX);
-                            anyhow::Ok(())
+                            Ok(())
                         };
                         if let Err(err) = fallible.await {
-                            tracing::warn!(err = debug(err), retry_secs, "cannot obtain bw token");
+                            tracing::warn!(err = debug::<String>(err), retry_secs, "cannot obtain bw token");
                             smol::Timer::after(Duration::from_secs_f64(retry_secs)).await;
                             retry_secs = rand::thread_rng()
                                 .gen_range(retry_secs..retry_secs * 2.0)
