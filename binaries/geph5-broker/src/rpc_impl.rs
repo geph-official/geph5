@@ -720,6 +720,10 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {
+        if code.contains("!") {
+            return Ok(0);
+        }
+
         // Validate the secret and get the user ID
         let user_id = validate_credential(Credential::Secret(secret)).await?;
 
