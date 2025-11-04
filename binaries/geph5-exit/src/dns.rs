@@ -107,7 +107,7 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
 
     let start = Instant::now();
     let resp = CLIENT
-        .post("https://dns.quad9.net/dns-query")
+        .post("https://ordns.he.net/dns-query")
         .body(req)
         .header("content-type", "application/dns-message")
         .send()
