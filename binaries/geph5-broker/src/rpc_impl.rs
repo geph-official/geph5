@@ -408,7 +408,12 @@ impl BrokerProtocol for BrokerImpl {
             (0, "".to_string())
         };
 
-        if country != "TM" && country != "IR" && country != "RU" && country != "CN" {
+        if country != "TM"
+            && country != "IR"
+            && country != "RU"
+            && country != "CN"
+            && country != "BY"
+        {
             // return a DIRECT route!
             direct_route = Some(RouteDescriptor::ConnTest {
                 ping_count: 1,
