@@ -408,18 +408,18 @@ impl BrokerProtocol for BrokerImpl {
             (0, "".to_string())
         };
 
-        if country != "TM"
-            && country != "IR"
-            && country != "RU"
-            && country != "CN"
-            && country != "BY"
-        {
-            // return a DIRECT route!
-            direct_route = Some(RouteDescriptor::ConnTest {
-                ping_count: 1,
-                lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
-            });
-        }
+        // if country != "TM"
+        //     && country != "IR"
+        //     && country != "RU"
+        //     && country != "CN"
+        //     && country != "BY"
+        // {
+        //     // return a DIRECT route!
+        //     direct_route = Some(RouteDescriptor::ConnTest {
+        //         ping_count: 1,
+        //         lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
+        //     });
+        // }
 
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
 
