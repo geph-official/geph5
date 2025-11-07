@@ -2,7 +2,6 @@ use blind_rsa_signatures as brs;
 use brs::reexports::rsa::pkcs1::EncodeRsaPublicKey as _;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -10,6 +9,7 @@ use std::{
     },
     time::SystemTime,
 };
+use thiserror::Error;
 
 const KEY_COUNT: usize = 65536;
 const KEY_BITS: usize = 2048;
@@ -129,11 +129,7 @@ pub struct BlindedSignature {
 }
 
 impl BlindedSignature {
-    pub fn unblind(
-        self,
-        secret: &brs::Secret,
-        msg: ClientToken,
-    ) -> Result<UnblindedSignature> {
+    pub fn unblind(self, secret: &brs::Secret, msg: ClientToken) -> Result<UnblindedSignature> {
         let pk = brs::PublicKey::from_der(&self.used_key)?;
         let blind_sig = brs::BlindSignature::new(self.blinded_sig.clone());
         let unblinded = pk.finalize(
@@ -174,11 +170,7 @@ impl PublicKey {
         *self.0.as_bytes()
     }
 
-    pub fn blind_verify(
-        &self,
-        unblinded: ClientToken,
-        sig: &UnblindedSignature,
-    ) -> Result<()> {
+    pub fn blind_verify(&self, unblinded: ClientToken, sig: &UnblindedSignature) -> Result<()> {
         self.verify_member(sig.epoch, &sig.used_key, &sig.merkle_branch)?;
         let signature = brs::Signature::new(sig.unblinded_sig.clone());
         signature.verify(
@@ -190,12 +182,7 @@ impl PublicKey {
         Ok(())
     }
 
-    pub fn verify_member(
-        &self,
-        epoch: u16,
-        subkey: &[u8],
-        branch: &[blake3::Hash],
-    ) -> Result<()> {
+    pub fn verify_member(&self, epoch: u16, subkey: &[u8], branch: &[blake3::Hash]) -> Result<()> {
         let mut acc = blake3::hash(subkey);
         for (i, h) in branch.iter().enumerate() {
             acc = if epoch >> i & 1 == 0 {

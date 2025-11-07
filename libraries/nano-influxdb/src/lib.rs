@@ -1,5 +1,5 @@
-use std::{sync::LazyLock, time::Duration};
 use serde::Deserialize;
+use std::{sync::LazyLock, time::Duration};
 
 /// Configuration for an InfluxDB endpoint with authentication details
 #[derive(Deserialize, Debug, Clone)]

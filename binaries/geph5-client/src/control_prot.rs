@@ -233,7 +233,9 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn latest_news(&self, lang: String) -> Result<Vec<NewsItem>, String> {
-        let (manifest, _) = get_update_manifest().await.map_err(|e| e.to_string())?;
+        let (manifest, _) = get_update_manifest(&self.ctx)
+            .await
+            .map_err(|e| e.to_string())?;
         let news = manifest["news"]
             .as_array()
             .ok_or_else(|| "No news array".to_string())?;
@@ -396,7 +398,9 @@ impl ControlProtocol for ControlProtocolImpl {
     }
 
     async fn get_update_manifest(&self) -> Result<(serde_json::Value, String), String> {
-        get_update_manifest().await.map_err(|e| format!("{:?}", e))
+        get_update_manifest(&self.ctx)
+            .await
+            .map_err(|e| format!("{:?}", e))
     }
 }
 

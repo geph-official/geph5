@@ -4,8 +4,8 @@ use geph5_broker_protocol::VoucherInfo;
 
 use super::POSTGRES;
 use crate::{
-    payments::{PaymentClient, PaymentTransport},
     CONFIG_FILE,
+    payments::{PaymentClient, PaymentTransport},
 };
 
 pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo>> {

@@ -174,9 +174,7 @@ where
         // If the channel is closed (due to an underlying listener failure), return an error.
         match self.incoming.recv().await {
             Ok(pipe) => Ok(pipe),
-            Err(_) => Err(std::io::Error::other(
-                "Underlying listener failure",
-            )),
+            Err(_) => Err(std::io::Error::other("Underlying listener failure")),
         }
     }
 }

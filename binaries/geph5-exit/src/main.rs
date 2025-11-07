@@ -148,10 +148,7 @@ static SIGNING_SECRET: Lazy<SigningKey> = Lazy::new(|| {
 
 fn exit_metadata() -> ExitMetadata {
     let cfg = CONFIG_FILE.wait();
-    let mut metadata = cfg
-        .metadata
-        .clone()
-        .unwrap_or_else(default_exit_metadata);
+    let mut metadata = cfg.metadata.clone().unwrap_or_else(default_exit_metadata);
     if cfg.free_ratelimit == 0 {
         metadata
             .allowed_levels

@@ -20,7 +20,7 @@ fn check_c_error<T>(retcode: T, is_success: impl FnOnce(&T) -> bool) -> Result<T
     if is_success(&retcode) {
         Ok(retcode)
     } else {
-        let err = unsafe { GetLastError() }; 
+        let err = unsafe { GetLastError() };
         Err(InternalError(err))
     }
 }
@@ -51,7 +51,7 @@ impl Handle {
                 flags,
             )
         };
-        let handle = check_c_error(possibly_handle,  |h| *h != INVALID_HANDLE_VALUE)?;
+        let handle = check_c_error(possibly_handle, |h| *h != INVALID_HANDLE_VALUE)?;
         tracing::info!("initialized windivert = {:?}", handle);
         Ok(Self { handle })
     }

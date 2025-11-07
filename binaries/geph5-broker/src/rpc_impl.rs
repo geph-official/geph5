@@ -9,7 +9,7 @@ use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
     Credential, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS, ExitCategory, ExitDescriptor, ExitList,
     ExitMetadata, GenericError, GetRoutesArgs, JsonSigned, LegacyNewsItem, Mac, NetStatus,
-    RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
+    RouteDescriptor, StdcodeSigned, UpdateManifestBundle, UserInfo, VoucherInfo,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
@@ -183,6 +183,40 @@ impl BrokerImpl {
             .map_err(|e: Arc<GenericError>| e.deref().clone())?;
         Ok(ns)
     }
+}
+
+const UPDATE_MANIFEST_BASE_URL: &str = "https://f001.backblazeb2.com/file/geph4-dl/geph-releases";
+
+static UPDATE_MANIFEST_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .no_proxy()
+        .build()
+        .unwrap()
+});
+
+async fn fetch_update_manifest_bundle() -> Result<UpdateManifestBundle, GenericError> {
+    let client = &*UPDATE_MANIFEST_CLIENT;
+    let manifest_yaml = client
+        .get(format!("{UPDATE_MANIFEST_BASE_URL}/metadata.yaml"))
+        .send()
+        .await
+        .map_err(|e| GenericError::from(e))?
+        .text()
+        .await
+        .map_err(|e| GenericError::from(e))?;
+    let signature = client
+        .get(format!("{UPDATE_MANIFEST_BASE_URL}/metadata.yaml.minisig"))
+        .send()
+        .await
+        .map_err(|e| GenericError::from(e))?
+        .text()
+        .await
+        .map_err(|e| GenericError::from(e))?;
+    Ok(UpdateManifestBundle {
+        manifest_yaml,
+        signature,
+    })
 }
 
 fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
@@ -655,6 +689,10 @@ impl BrokerProtocol for BrokerImpl {
         let (send, recv) = oneshot::channel();
         smolscale::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
         recv.await.unwrap().map_err(|e: anyhow::Error| e.into())
+    }
+
+    async fn get_update_manifest(&self) -> Result<UpdateManifestBundle, GenericError> {
+        fetch_update_manifest_bundle().await
     }
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError> {
