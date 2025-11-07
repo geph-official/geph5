@@ -101,15 +101,16 @@ impl BrokerImpl {
         method: String,
         item: crate::payments::Item,
     ) -> Result<String, GenericError> {
+        let (method, promo) = method.split_once("+++").unwrap_or_else(|| (&method, ""));
         let user_id = validate_credential(Credential::Secret(secret.clone())).await?;
         let rpc = PaymentClient(PaymentTransport);
         let sessid = payment_sessid(user_id).await?;
-        match method.as_str() {
+        match method {
             "credit-card" => Ok(rpc
                 .start_stripe_url(
                     sessid,
                     StartStripeArgs {
-                        promo: "".to_string(),
+                        promo: promo.to_string(),
                         days: days as _,
                         item,
                         is_recurring: true,
@@ -121,10 +122,10 @@ impl BrokerImpl {
                 .start_aliwechat(
                     sessid,
                     StartAliwechatArgs {
-                        promo: "".to_string(),
+                        promo: promo.to_string(),
                         days: days as _,
                         item,
-                        method,
+                        method: method.to_string(),
                         mobile: false,
                     },
                 )
@@ -134,10 +135,10 @@ impl BrokerImpl {
                 .start_aliwechat(
                     sessid,
                     StartAliwechatArgs {
-                        promo: "".to_string(),
+                        promo: promo.to_string(),
                         days: days as _,
                         item,
-                        method,
+                        method: method.to_string(),
                         mobile: false,
                     },
                 )
