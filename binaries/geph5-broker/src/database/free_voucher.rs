@@ -4,8 +4,8 @@ use geph5_broker_protocol::VoucherInfo;
 
 use super::POSTGRES;
 use crate::{
-    payments::{PaymentClient, PaymentTransport},
     CONFIG_FILE,
+    payments::{PaymentClient, PaymentTransport},
 };
 
 pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo>> {
@@ -48,9 +48,10 @@ pub async fn get_free_voucher(user_id: i32) -> anyhow::Result<Option<VoucherInfo
     }
 }
 
-pub async fn delete_free_voucher(user_id: i32) -> anyhow::Result<bool> {
-    let result = sqlx::query("DELETE FROM free_vouchers WHERE id = $1")
+pub async fn delete_free_voucher(user_id: i32, code: String) -> anyhow::Result<bool> {
+    let result = sqlx::query("DELETE FROM free_vouchers WHERE id = $1 AND voucher = $2")
         .bind(user_id)
+        .bind(code)
         .execute(&*POSTGRES)
         .await?;
 

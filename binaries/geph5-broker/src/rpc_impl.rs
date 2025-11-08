@@ -726,10 +726,6 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, GenericError> {
-        if code.contains("!") {
-            return Ok(0);
-        }
-
         // Validate the secret and get the user ID
         let user_id = validate_credential(Credential::Secret(secret)).await?;
 
@@ -737,7 +733,11 @@ impl BrokerProtocol for BrokerImpl {
         let sessid = payment_sessid(user_id).await?;
 
         // Delete the free voucher after successful redemption
-        delete_free_voucher(user_id).await?;
+        delete_free_voucher(user_id, code.clone()).await?;
+
+        if code.contains("!") {
+            return Ok(0);
+        }
 
         // Call the payment service to spend the gift card
         let days = PaymentClient(PaymentTransport)
