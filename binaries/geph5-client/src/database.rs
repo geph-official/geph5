@@ -25,7 +25,7 @@ pub static DATABASE: CtxField<SqlitePool> = |ctx| {
                         .to_string()
                 })
                 .unwrap_or_else(|| {
-                    log::error!(
+                    tracing::error!(
                         "No cache path configured and dirs::config_dir() unavailable; falling back \
                          to in-memory database. Set the `cache` field in geph5-client's config to \
                          avoid hitting broker rate limits."
