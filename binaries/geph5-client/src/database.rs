@@ -15,13 +15,23 @@ pub static DATABASE: CtxField<SqlitePool> = |ctx| {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| {
             dirs::config_dir()
-                .unwrap()
-                .join(format!(
-                    "geph5-persist-{}.db",
-                    hex::encode(blake3::hash(&ctx.init().credentials.stdcode()).as_bytes())
-                ))
-                .to_string_lossy()
-                .to_string()
+                .map(|config_dir| {
+                    config_dir
+                        .join(format!(
+                            "geph5-persist-{}.db",
+                            hex::encode(blake3::hash(&ctx.init().credentials.stdcode()).as_bytes())
+                        ))
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .unwrap_or_else(|| {
+                    log::error!(
+                        "No cache path configured and dirs::config_dir() unavailable; falling back \
+                         to in-memory database. Set the `cache` field in geph5-client's config to \
+                         avoid hitting broker rate limits."
+                    );
+                    ":memory:".into()
+                })
         });
     tracing::debug!("INITIALIZING DATABASE");
     let options = SqliteConnectOptions::from_str(&db_path)
