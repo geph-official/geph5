@@ -3,12 +3,13 @@ use std::net::{IpAddr, SocketAddr};
 use crate::CONFIG_FILE;
 
 pub fn proxy_allowed(addr: SocketAddr, is_free: bool) -> bool {
-    if is_free
-        && !CONFIG_FILE
-            .wait()
-            .free_port_whitelist
-            .contains(&addr.port())
-    {
+    let cfg = CONFIG_FILE.wait();
+    let whitelist = if is_free {
+        &cfg.free_port_whitelist
+    } else {
+        &cfg.plus_port_whitelist
+    };
+    if !whitelist.is_empty() && !whitelist.contains(&addr.port()) {
         return false;
     }
     is_globally_routable(&addr.ip())
