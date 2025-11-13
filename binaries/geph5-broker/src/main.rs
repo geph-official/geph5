@@ -1,5 +1,5 @@
 use anyhow::Context;
-use axum::{routing::post, Json, Router};
+use axum::{Json, Router, routing::post};
 use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
@@ -15,7 +15,7 @@ use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::Duration};
 use tikv_jemallocator::Jemalloc;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::database::bandwidth::bw_consumption;
 

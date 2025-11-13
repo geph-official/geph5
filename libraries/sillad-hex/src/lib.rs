@@ -83,43 +83,68 @@ impl HexPipe {
 }
 
 impl AsyncRead for HexPipe {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut [u8]) -> std::task::Poll<std::io::Result<usize>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
         self.project().read_incoming.poll_read(cx, buf)
     }
 }
 
 impl AsyncWrite for HexPipe {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
         self.project().write_outgoing.poll_write(cx, buf)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         self.project().write_outgoing.poll_flush(cx)
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         self.project().write_outgoing.poll_close(cx)
     }
 }
 
 impl Pipe for HexPipe {
-    fn protocol(&self) -> &str { "hex" }
-    fn remote_addr(&self) -> Option<&str> { self.addr.as_deref() }
+    fn protocol(&self) -> &str {
+        "hex"
+    }
+    fn remote_addr(&self) -> Option<&str> {
+        self.addr.as_deref()
+    }
 }
 
-pub struct HexDialer<D: Dialer> { pub inner: D }
+pub struct HexDialer<D: Dialer> {
+    pub inner: D,
+}
 
 #[async_trait]
 impl<D: Dialer> Dialer for HexDialer<D> {
     type P = HexPipe;
-    async fn dial(&self) -> std::io::Result<Self::P> { self.inner.dial().await.map(HexPipe::new) }
+    async fn dial(&self) -> std::io::Result<Self::P> {
+        self.inner.dial().await.map(HexPipe::new)
+    }
 }
 
-pub struct HexListener<L: Listener> { pub inner: L }
+pub struct HexListener<L: Listener> {
+    pub inner: L,
+}
 
 #[async_trait]
 impl<L: Listener> Listener for HexListener<L> {
     type P = HexPipe;
-    async fn accept(&mut self) -> std::io::Result<Self::P> { self.inner.accept().await.map(HexPipe::new) }
+    async fn accept(&mut self) -> std::io::Result<Self::P> {
+        self.inner.accept().await.map(HexPipe::new)
+    }
 }
-

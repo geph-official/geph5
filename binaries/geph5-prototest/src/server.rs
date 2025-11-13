@@ -7,7 +7,7 @@ use rand::RngCore;
 use sillad::{listener::Listener, Pipe};
 
 use crate::command::Command;
-use crate::stack::{listener_from_stack, parse_stack, dummy_tls_acceptor};
+use crate::stack::{dummy_tls_acceptor, listener_from_stack, parse_stack};
 use geph5_misc_rpc::bridge::ObfsProtocol;
 
 pub async fn server_main(listen: SocketAddr, stack: Option<String>) -> anyhow::Result<()> {
@@ -22,7 +22,8 @@ pub async fn server_main(listen: SocketAddr, stack: Option<String>) -> anyhow::R
     let mut listener = listener_from_stack(protocol, base, &tls_acceptor);
     loop {
         let wire = listener.accept().await?;
-        smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err))).detach();
+        smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))
+            .detach();
     }
 }
 

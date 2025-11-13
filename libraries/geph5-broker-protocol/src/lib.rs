@@ -103,6 +103,7 @@ pub trait BrokerProtocol {
     async fn delete_account(&self, secret: String) -> Result<(), GenericError>;
 
     async fn get_news(&self, lang: String) -> Result<Vec<LegacyNewsItem>, GenericError>;
+    async fn get_update_manifest(&self) -> Result<UpdateManifestBundle, GenericError>;
 
     async fn raw_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
     async fn basic_price_points(&self) -> Result<Vec<(u32, u32)>, GenericError>;
@@ -232,4 +233,10 @@ pub struct LegacyNewsItem {
     pub title: String,
     pub date_unix: u64,
     pub contents: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UpdateManifestBundle {
+    pub manifest_yaml: String,
+    pub signature: String,
 }
