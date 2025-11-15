@@ -1,13 +1,21 @@
 use std::net::{IpAddr, SocketAddr};
 
+use geph5_broker_protocol::ExitCategory;
+
 use crate::CONFIG_FILE;
 
 pub fn proxy_allowed(addr: SocketAddr, is_free: bool) -> bool {
     let cfg = CONFIG_FILE.wait();
-    let whitelist = if is_free {
-        &cfg.free_port_whitelist
+    let is_streaming = cfg
+        .metadata
+        .as_ref()
+        .map_or(false, |meta| meta.category == ExitCategory::Streaming);
+    let whitelist: &[u16] = if is_free {
+        cfg.free_port_whitelist.as_slice()
+    } else if is_streaming {
+        &[]
     } else {
-        &cfg.plus_port_whitelist
+        cfg.plus_port_whitelist.as_slice()
     };
     if !whitelist.is_empty() && !whitelist.contains(&addr.port()) {
         return false;
