@@ -27,7 +27,7 @@ sysctl -p
 # 2. Packages & binaries
 ########################################################################
 echo -e "\033[1mUpdating package lists and installing dependencies\033[0m"
-apt-get update
+apt-get update || true
 apt-get install -y curl jq
 
 echo -e "\033[1mDownloading geph5-exit\033[0m"
