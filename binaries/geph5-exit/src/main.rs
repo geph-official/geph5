@@ -69,9 +69,6 @@ struct ConfigFile {
     #[serde(default = "default_free_port_whitelist")]
     free_port_whitelist: Vec<u16>,
 
-    #[serde(default = "default_plus_port_whitelist")]
-    plus_port_whitelist: Vec<u16>,
-
     #[serde(default = "default_task_limit")]
     task_limit: usize,
 
@@ -98,16 +95,6 @@ fn default_task_limit() -> usize {
 
 fn default_free_port_whitelist() -> Vec<u16> {
     vec![80, 443, 8080, 8443, 22, 53]
-}
-
-fn default_plus_port_whitelist() -> Vec<u16> {
-    vec![
-        20, 21, 43, 53, 79, 80, 81, 88, 110, 143, 220, 389, 443, 464, 531, 543, 544, 554, 636,
-        706, 749, 873, 902, 903, 904, 981, 989, 990, 991, 992, 993, 995, 1194, 1220, 1293, 1500,
-        1533, 1677, 1723, 1755, 1863, 2083, 2086, 2087, 2095, 2096, 2102, 2103, 2104, 3690, 4321,
-        4643, 5050, 5190, 5222, 5223, 5228, 8008, 8074, 8082, 8087, 8088, 8332, 8333, 8443, 8888,
-        9418, 10000, 11371, 19294, 19638, 50002, 64738,
-    ]
 }
 
 fn default_country_blacklist() -> Vec<String> {
