@@ -20,7 +20,7 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<(BridgeDescriptor, u
 
     static CACHE: LazyLock<Cache<u64, Vec<(BridgeDescriptor, u32, bool)>>> = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(30))
+            .time_to_live(Duration::from_secs(10))
             .build()
     });
 

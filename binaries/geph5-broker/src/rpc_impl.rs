@@ -538,7 +538,7 @@ impl BrokerProtocol for BrokerImpl {
             country: descriptor.country.alpha2().into(),
             city: descriptor.city.clone(),
             load: descriptor.load,
-            expiry: (now + 60) as _,
+            expiry: (now + 10) as _,
         };
         insert_exit(&exit).await?;
         Ok(())
@@ -570,7 +570,7 @@ impl BrokerProtocol for BrokerImpl {
             country: descriptor.country.alpha2().into(),
             city: descriptor.city.clone(),
             load: descriptor.load,
-            expiry: (now + 60) as _,
+            expiry: (now + 10) as _,
         };
         insert_exit(&exit).await?;
         insert_exit_metadata(pubkey.to_bytes(), metadata).await?;

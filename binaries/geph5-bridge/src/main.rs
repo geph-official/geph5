@@ -133,20 +133,20 @@ async fn broker_loop(control_listen: SocketAddr, control_cookie: String) {
         );
 
         let res = async {
-            broker_rpc
-                .insert_bridge(Mac::new(
-                    BridgeDescriptor {
-                        control_listen,
-                        control_cookie: control_cookie.clone(),
-                        pool: pool.clone(),
-                        expiry: SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs()
-                            + 120,
-                    },
-                    blake3::hash(auth_token.as_bytes()).as_bytes(),
-                ))
+                broker_rpc
+                    .insert_bridge(Mac::new(
+                        BridgeDescriptor {
+                            control_listen,
+                            control_cookie: control_cookie.clone(),
+                            pool: pool.clone(),
+                            expiry: SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs()
+                                + 30,
+                        },
+                        blake3::hash(auth_token.as_bytes()).as_bytes(),
+                    ))
                 .timeout(Duration::from_secs(2))
                 .await
                 .context("insert bridge timed out")??
