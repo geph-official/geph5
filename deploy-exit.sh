@@ -142,7 +142,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c "curl -s https://pub-a02e86bb722a4b079127aeee6d399e5d.r2.dev/musl-latest/geph5-exit -o /tmp/geph5-exit && \
+ExecStart=/bin/bash -c "curl -f -s https://pub-a02e86bb722a4b079127aeee6d399e5d.r2.dev/musl-latest/geph5-exit -o /tmp/geph5-exit && \
 if ! cmp -s /tmp/geph5-exit /usr/local/bin/geph5-exit; then \
     mv /tmp/geph5-exit /usr/local/bin/geph5-exit && \
     chmod +x /usr/local/bin/geph5-exit && \
