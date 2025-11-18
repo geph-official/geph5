@@ -93,7 +93,7 @@ pub async fn bridge_to_leaf_route(
                   {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()}, tls_route!().await?.into(), sosistab3_route!().await?.into()]).into(),
+                        lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()}, tls_route!().await?, sosistab3_route!().await?]).into(),
                     })
                 }
 

@@ -96,7 +96,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
             }
             .dynamic(),
             ObfsProtocol::ConnTest(sub) => {
-                let lower = inner(&*sub, lower);
+                let lower = inner(sub, lower);
                 ConnTestDialer {
                     inner: lower,
                     ping_count: 1,
@@ -104,7 +104,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                 .dynamic()
             }
             ObfsProtocol::PlainTls(sub) => {
-                let lower = inner(&*sub, lower);
+                let lower = inner(sub, lower);
                 let connector = TlsConnector::new()
                     .use_sni(false)
                     .danger_accept_invalid_certs(true)
@@ -114,11 +114,11 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                 TlsDialer::new(lower, connector, "example.com".into()).dynamic()
             }
             ObfsProtocol::Hex(sub) => {
-                let lower = inner(&*sub, lower);
+                let lower = inner(sub, lower);
                 HexDialer { inner: lower }.dynamic()
             }
             ObfsProtocol::Sosistab3New(cookie, sub) => {
-                let lower = inner(&*sub, lower);
+                let lower = inner(sub, lower);
                 SosistabDialer {
                     inner: lower,
                     cookie: Cookie::new(cookie),
@@ -126,7 +126,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                 .dynamic()
             }
             ObfsProtocol::Meeklike(key, cfg, sub) => {
-                let lower = inner(&*sub, lower);
+                let lower = inner(sub, lower);
                 MeeklikeDialer {
                     inner: lower.into(),
                     key: *blake3::hash(key.as_bytes()).as_bytes(),

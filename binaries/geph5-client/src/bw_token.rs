@@ -108,7 +108,7 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 static BW_TOKEN_CONSUMED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
 
-static BW_TOKEN_SUPPLIED: LazyLock<Event> = LazyLock::new(|| Event::new());
+static BW_TOKEN_SUPPLIED: LazyLock<Event> = LazyLock::new(Event::new);
 
 /// Consumes a bandwidth token from the local database, returning it if present.
 #[tracing::instrument(skip(ctx))]

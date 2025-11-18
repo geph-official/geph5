@@ -55,11 +55,10 @@ RETURNING mb_used;
         .fetch_optional(&mut *txn)
         .await?;
 
-    if let Some(limit) = limit {
-        if mb_used > limit {
+    if let Some(limit) = limit
+        && mb_used > limit {
             anyhow::bail!("consumed over limit")
         }
-    }
     txn.commit().await?;
     Ok(())
 }

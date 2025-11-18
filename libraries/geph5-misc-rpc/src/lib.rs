@@ -23,8 +23,7 @@ pub async fn read_prepend_length<R: AsyncRead + Unpin>(mut input: R) -> std::io:
     input.read_exact(&mut len_buf).await?;
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > 100_000 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        return Err(std::io::Error::other(
             "cannot read length-prepended messages that are too big",
         ));
     }

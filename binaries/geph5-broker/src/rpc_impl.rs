@@ -35,7 +35,6 @@ use std::{
 
 use crate::BW_MIZARU_SK;
 use crate::database::auth::validate_secret;
-use crate::database::bandwidth::basic_count;
 use crate::database::{
     auth::{get_user_info, new_auth_token, register_secret, valid_auth_token, validate_credential},
     bandwidth::consume_bw,
@@ -207,7 +206,7 @@ fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {
     async fn opaque_abtest(&self, test: String, id: u64) -> bool {
-        if test == "basic" { true } else { false }
+        test == "basic"
     }
 
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes {
@@ -399,7 +398,7 @@ impl BrokerProtocol for BrokerImpl {
             .context("cannot find this exit")?;
 
         // for known good countries, we return a direct route!
-        let mut direct_route = None;
+        let direct_route = None;
         let (asn, country) = if let Some(ip_addr) = args.client_metadata["ip_addr"]
             .as_str()
             .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
