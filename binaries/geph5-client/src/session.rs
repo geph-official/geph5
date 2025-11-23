@@ -5,7 +5,9 @@ use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_util::{future::join_all, AsyncReadExt as _};
 use geph5_misc_rpc::{
-    client_control::{ConnectedInfo}, exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner}, read_prepend_length, write_prepend_length
+    client_control::ConnectedInfo,
+    exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
+    read_prepend_length, write_prepend_length,
 };
 use nursery_macro::nursery;
 
@@ -35,7 +37,6 @@ use crate::{
     stats::{stat_incr_num, stat_set_num},
     traffcount::TRAFF_COUNT,
     vpn::smart_vpn_whitelist,
-
 };
 
 use super::Config;
@@ -75,7 +76,14 @@ pub async fn open_conn(
 
     let (send, recv) = oneshot::channel();
     let elem = (format!("{protocol}${dest_addr}"), send);
-    if ctx.get(CONN_REQ_CHAN).0.send(elem).timeout(Duration::from_millis(100)).await.is_none() {
+    if ctx
+        .get(CONN_REQ_CHAN)
+        .0
+        .send(elem)
+        .timeout(Duration::from_millis(100))
+        .await
+        .is_none()
+    {
         anyhow::bail!("no session picked up our request")
     }
     let mut conn = recv.await?;
@@ -92,7 +100,6 @@ pub async fn open_conn(
     }));
     Ok(Box::new(conn))
 }
-
 
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if host.is_empty() || host.contains("[") {
@@ -113,13 +120,11 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
 
 type ChanElem = (String, oneshot::Sender<picomux::Stream>);
 
-static CONN_REQ_CHAN: CtxField<(
-    kanal::AsyncSender<ChanElem>,
-    kanal::AsyncReceiver<ChanElem>,
-)> = |_| {
-    let (a, b) = kanal::bounded_async(0);
-    (a, b)
-};
+static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiver<ChanElem>)> =
+    |_| {
+        let (a, b) = kanal::bounded_async(0);
+        (a, b)
+    };
 
 const MAX_CONCURRENCY: usize = 4;
 
@@ -139,8 +144,12 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
             let sleep_secs = rand::thread_rng().gen_range(0.0..=(instance as f64) * 10.0);
             smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
             loop {
-                let wait_time = Duration::from_secs_f64((rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0));
-                let timeout_time = Duration::from_secs_f64((rand::thread_rng().gen_range(8.0..15.0) * failures.exp2()).min(120.0));
+                let wait_time = Duration::from_secs_f64(
+                    (rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0),
+                );
+                let timeout_time = Duration::from_secs_f64(
+                    (rand::thread_rng().gen_range(8.0..15.0) * failures.exp2()).min(120.0),
+                );
                 let once = async {
                     let (authed_pipe, exit) = async {
                         let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
@@ -176,20 +185,26 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
                             .unwrap_or_default(),
                         exit: exit.clone(),
                     });
-                    ctx.get(CURRENT_ACTIVE_SESSIONS).fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    ctx.get(CURRENT_ACTIVE_SESSIONS)
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     scopeguard::defer!({
-                        ctx.get(CURRENT_ACTIVE_SESSIONS).fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        ctx.get(CURRENT_ACTIVE_SESSIONS)
+                            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     });
                     let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
                     failures = 0.0;
                     proxy_loop(ctx.clone(), authed_pipe, instance)
                         .await
                         .context(format!("inner connection to {addr} failed"))
-
                 };
                 if let Err(err) = once.await {
                     failures += 1.0;
-                    tracing::warn!(instance, err = debug(err), wait_time=debug(wait_time), "individual client thread failed");
+                    tracing::warn!(
+                        instance,
+                        err = debug(err),
+                        wait_time = debug(wait_time),
+                        "individual client thread failed"
+                    );
                     smol::Timer::after(wait_time).await;
                 }
             }
@@ -197,8 +212,8 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
     };
 
     let _refresh = {
-            let ctx = ctx.clone();
-            smolscale::spawn(async move {
+        let ctx = ctx.clone();
+        smolscale::spawn(async move {
             loop {
                 let sleep_secs = rand::thread_rng().gen_range(300..3600);
                 smol::Timer::after(Duration::from_secs(sleep_secs)).await;
@@ -217,7 +232,6 @@ async fn proxy_loop(
     authed_pipe: impl Pipe,
     instance: usize,
 ) -> anyhow::Result<()> {
-
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
@@ -228,7 +242,8 @@ async fn proxy_loop(
     let mux = Arc::new(mux);
 
     // we first register the session metadata
-    mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?).await?;
+    mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?)
+        .await?;
 
     async {
         nursery!({
@@ -253,7 +268,7 @@ async fn proxy_loop(
                         }
                     }
                     anyhow::Ok(())
-                }) 
+                })
                 .detach();
 
             }
@@ -274,7 +289,7 @@ async fn client_auth(
     ctx: &AnyCtx<Config>,
     mut pipe: impl Pipe,
     pubkey: VerifyingKey,
-    instance: usize
+    instance: usize,
 ) -> anyhow::Result<impl Pipe> {
     let server = pipe.remote_addr().unwrap_or("").to_string();
 
@@ -284,7 +299,7 @@ async fn client_auth(
         let (level, token, sig) = get_connect_token(ctx)
             .await
             .context("cannot get connect token")?;
-        tracing::info!(level=debug(level), "authentication with a connect token");
+        tracing::info!(level = debug(level), "authentication with a connect token");
         (level, token, sig).stdcode().into()
     };
     match pipe.shared_secret().map(|s| s.to_owned()) {

@@ -92,11 +92,10 @@ pub fn init_logging(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let (tx, rx) = async_channel::unbounded::<Vec<u8>>();
     spawn_log_consumer(ctx.clone(), rx);
 
-    #[cfg(not(target_os="ios"))]
+    #[cfg(not(target_os = "ios"))]
     tracing_subscriber::registry()
         // Standard logs to stderr (for console display)
         .with(fmt::layer().compact().with_writer(std::io::stderr))
-
         // JSON logs persisted via DB writer
         .with(
             fmt::layer()
@@ -111,10 +110,9 @@ pub fn init_logging(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         )
         .try_init()?;
 
-    #[cfg(target_os="ios")]
+    #[cfg(target_os = "ios")]
     tracing_subscriber::registry()
         // Standard logs to stderr (for console display)
-
         .with(OsLogger::new("geph.io.daemon", "default"))
         // JSON logs persisted via DB writer
         .with(

@@ -1,5 +1,5 @@
-use std::{env, sync::LazyLock};
 use nano_influxdb::InfluxDbEndpoint;
+use std::{env, sync::LazyLock};
 
 /// Global LazyLock for InfluxDB endpoint configuration, reads from environment variables:
 pub static INFLUXDB_ENDPOINT: LazyLock<Option<InfluxDbEndpoint>> = LazyLock::new(|| {

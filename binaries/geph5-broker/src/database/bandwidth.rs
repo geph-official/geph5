@@ -56,9 +56,10 @@ RETURNING mb_used;
         .await?;
 
     if let Some(limit) = limit
-        && mb_used > limit {
-            anyhow::bail!("consumed over limit")
-        }
+        && mb_used > limit
+    {
+        anyhow::bail!("consumed over limit")
+    }
     txn.commit().await?;
     Ok(())
 }

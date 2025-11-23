@@ -48,15 +48,14 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     let mut retry_secs = 1.0;
                     loop {
                         let fallible = async {
-                            let broker = broker_client(&ctx)
-                                .map_err(|e| format!("broker_client: {e}"))?;
+                            let broker =
+                                broker_client(&ctx).map_err(|e| format!("broker_client: {e}"))?;
                             let token = ClientToken::random();
-                            let (blind_token, secret) = token
-                                .blind(
-                                    &mizaru_bw
-                                        .inner()
-                                        .map_err(|e| format!("mizaru_bw.inner: {e}"))?
-                                );
+                            let (blind_token, secret) = token.blind(
+                                &mizaru_bw
+                                    .inner()
+                                    .map_err(|e| format!("mizaru_bw.inner: {e}"))?,
+                            );
                             let lele = broker
                                 .get_bw_token(
                                     get_auth_token(&ctx)
@@ -80,7 +79,11 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                             Ok(())
                         };
                         if let Err(err) = fallible.await {
-                            tracing::warn!(err = debug::<String>(err), retry_secs, "cannot obtain bw token");
+                            tracing::warn!(
+                                err = debug::<String>(err),
+                                retry_secs,
+                                "cannot obtain bw token"
+                            );
                             smol::Timer::after(Duration::from_secs_f64(retry_secs)).await;
                             retry_secs = rand::thread_rng()
                                 .gen_range(retry_secs..retry_secs * 2.0)

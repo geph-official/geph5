@@ -79,7 +79,10 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<LegacyNewsItem>> 
 }
 
 // Separate function to refresh the news cache
-async fn refresh_news_cache(lang_code: &str, cache_path: &str) -> anyhow::Result<Vec<LegacyNewsItem>> {
+async fn refresh_news_cache(
+    lang_code: &str,
+    cache_path: &str,
+) -> anyhow::Result<Vec<LegacyNewsItem>> {
     // Replace with your actual OpenAI API key
     let api_key = CONFIG_FILE.wait().openai_key.clone();
 

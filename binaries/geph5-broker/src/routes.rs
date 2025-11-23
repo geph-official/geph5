@@ -82,14 +82,14 @@ pub async fn bridge_to_leaf_route(
                     )
                 });
 
-                if let Ok(version) = semver::Version::parse(version) && 
+                if let Ok(version) = semver::Version::parse(version) &&
                 VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
                 bridge.pool.contains("ovh_de") && // only have one group do this
                 (
                     asn == 197207 || // hamrah-e avval
                     asn == 44244 || // irancell
-                    asn == 58244  // TCI
-                )  
+                    asn == 58244 // TCI
+                )
                   {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
@@ -102,7 +102,7 @@ pub async fn bridge_to_leaf_route(
                 //         milliseconds: delay_ms,
                 //         lower: tls_route!().await?.into(),
                 //     })
-                // } else 
+                // } else
                 if !country.is_empty(){
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
