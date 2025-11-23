@@ -110,7 +110,7 @@ thiserror = "1.0.69"
 tokio = { version = "1.46.1", features = ["rt", "net", "io-util"] }
 tower-service = "0.3.3"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["json"] }
+tracing-subscriber = { version = "0.3.20", features = ["json"] }
 tun = "0.6.1"
 x25519-dalek = { version = "2", default-features = false, features = ["serde"] }
 binary-search = "0.1.3"
