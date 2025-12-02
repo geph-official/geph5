@@ -105,12 +105,6 @@ pub struct Client {
 impl Client {
     /// Starts the client logic in the loop, returning the handle.
     pub fn start(cfg: Config) -> Self {
-        unsafe {
-            std::env::remove_var("http_proxy");
-            std::env::remove_var("https_proxy");
-            std::env::remove_var("HTTP_PROXY");
-            std::env::remove_var("HTTPS_PROXY");
-        }
         let ctx = AnyCtx::new(cfg.clone());
         // Initialize logging once we have context so JSON logs go to SQLite
         let _ = logging::init_logging(&ctx);
