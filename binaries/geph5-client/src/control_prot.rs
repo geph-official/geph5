@@ -8,31 +8,21 @@ use anyctx::AnyCtx;
 use arrayref::array_ref;
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
-use geph5_broker_protocol::{puzzle::solve_puzzle, AccountLevel, NetStatus, VoucherInfo};
+use geph5_broker_protocol::{puzzle::solve_puzzle, NetStatus};
 
 use geph5_misc_rpc::client_control::{
-    ConnInfo, ConnectedInfo, ControlProtocol, ControlService, ControlUserInfo, NewsItem,
-    RegistrationProgress,
+    ConnInfo, ConnectedInfo, ControlProtocol, ControlService, NewsItem, RegistrationProgress,
 };
-use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport};
+use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use slab::Slab;
 
 use crate::{
     broker::get_net_status, broker_client, client::CtxField, logging::get_json_logs,
     stats::stat_get_num, traffcount::TRAFF_COUNT, updates::get_update_manifest, Config,
 };
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct UserInfo {
-    pub user_id: u64,
-    pub level: AccountLevel,
-
-    pub recurring: bool,
-    pub expiry: Option<u64>,
-}
 
 pub struct ControlProtocolImpl {
     pub ctx: AnyCtx<Config>,
@@ -49,12 +39,10 @@ impl ControlProtocol for ControlProtocolImpl {
     async fn ab_test(&self, key: String, secret: String) -> Result<bool, String> {
         let id = blake3::hash(secret.as_bytes());
         let id = u64::from_be_bytes(*array_ref![id.as_bytes(), 0, 8]);
-        let res = broker_client(&self.ctx)
-            .map_err(|e| format!("{:?}", e))?
-            .opaque_abtest(key, id)
-            .await
-            .map_err(|e| format!("{:?}", e))?;
-        Ok(res)
+        let res = self
+            .broker_rpc("opaque_abtest".into(), vec![json!(key), json!(id)])
+            .await?;
+        serde_json::from_value(res).map_err(|e| e.to_string())
     }
 
     async fn conn_info(&self) -> ConnInfo {
@@ -102,36 +90,24 @@ impl ControlProtocol for ControlProtocolImpl {
             .collect()
     }
 
-    async fn check_secret(&self, secret: String) -> Result<bool, String> {
-        let res = broker_client(&self.ctx)
+    async fn broker_rpc(&self, method: String, params: Vec<Value>) -> Result<Value, String> {
+        let jrpc = JrpcRequest {
+            jsonrpc: "2.0".into(),
+            method,
+            params,
+            id: JrpcId::Number(1),
+        };
+        let resp = broker_client(&self.ctx)
             .map_err(|e| format!("{:?}", e))?
-            .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
+            .0
+            .call_raw(jrpc)
             .await
-            .map_err(|e| format!("{:?}", e))?
             .map_err(|e| format!("{:?}", e))?;
-        Ok(res.is_some())
-    }
-
-    async fn user_info(&self, secret: String) -> Result<ControlUserInfo, String> {
-        let res = broker_client(&self.ctx)
-            .map_err(|e| format!("{:?}", e))?
-            .get_user_info_by_cred(geph5_broker_protocol::Credential::Secret(secret))
-            .await
-            .map_err(|e| format!("{:?}", e))?
-            .map_err(|e| format!("{:?}", e))?
-            .ok_or_else(|| "no such user".to_string())?;
-        Ok(ControlUserInfo {
-            user_id: res.user_id,
-            level: if res.plus_expires_unix.is_some() {
-                AccountLevel::Plus
-            } else {
-                AccountLevel::Free
-            },
-            expiry: res.plus_expires_unix,
-            recurring: res.recurring,
-
-            bw_consumption: res.bw_consumption,
-        })
+        if let Some(err) = resp.error {
+            Err(err.message)
+        } else {
+            Ok(resp.result.unwrap_or(Value::Null))
+        }
     }
 
     async fn start_registration(&self) -> Result<usize, String> {
@@ -182,17 +158,6 @@ impl ControlProtocol for ControlProtocolImpl {
         Ok(idx)
     }
 
-    async fn delete_account(&self, secret: String) -> Result<(), String> {
-        tracing::debug!("FROM delete_account: secret={secret}");
-        broker_client(&self.ctx)
-            .map_err(|e| format!("{:?}", e))?
-            .delete_account(secret)
-            .await
-            .map_err(|e| format!("BROKER TRANSPORT ERROR: {:?}", e))?
-            .map_err(|e| format!("ERROR FROM BROKER {:?}", e))?;
-        Ok(())
-    }
-
     async fn poll_registration(&self, idx: usize) -> Result<RegistrationProgress, String> {
         tracing::debug!(idx, "polling registration");
         let registers = REGISTRATIONS.lock();
@@ -200,22 +165,6 @@ impl ControlProtocol for ControlProtocolImpl {
             .get(idx)
             .cloned()
             .ok_or_else(|| "no such registration".to_string())
-    }
-
-    async fn convert_legacy_account(
-        &self,
-        username: String,
-        password: String,
-    ) -> Result<String, String> {
-        Ok(broker_client(&self.ctx)
-            .map_err(|e| format!("{:?}", e))?
-            .upgrade_to_secret(geph5_broker_protocol::Credential::LegacyUsernamePassword {
-                username,
-                password,
-            })
-            .await
-            .map_err(|e| format!("{:?}", e))?
-            .map_err(|e| format!("{:?}", e))?)
     }
 
     async fn stat_history(&self, stat: String) -> Result<Vec<f64>, String> {
@@ -274,125 +223,6 @@ impl ControlProtocol for ControlProtocolImpl {
         }
 
         Ok(out)
-    }
-
-    async fn get_free_voucher(&self, secret: String) -> Result<Option<VoucherInfo>, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .get_free_voucher(secret)
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?)
-    }
-
-    async fn redeem_voucher(&self, secret: String, code: String) -> Result<i32, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        // Call the broker's redeem_voucher method directly with the secret
-        client
-            .redeem_voucher(secret, code)
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())
-    }
-
-    async fn call_geph_payments(
-        &self,
-        method: String,
-        params: Vec<Value>,
-    ) -> Result<Option<Value>, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        let jrpc_req = JrpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method,
-            params,
-            id: nanorpc::JrpcId::Number(1),
-        };
-        let ret = client
-            .call_geph_payments(jrpc_req)
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
-        Ok(ret.result)
-    }
-
-    async fn price_points(&self) -> Result<Vec<(u32, f64)>, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .raw_price_points()
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?
-            .into_iter()
-            .map(|(a, b)| (a, b as f64 / 100.0))
-            .collect())
-    }
-
-    async fn basic_price_points(&self) -> Result<Vec<(u32, f64)>, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .basic_price_points()
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?
-            .into_iter()
-            .map(|(a, b)| (a, b as f64 / 100.0))
-            .collect())
-    }
-
-    async fn basic_mb_limit(&self) -> Result<u32, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client.basic_mb_limit().await.map_err(|s| s.to_string())?)
-    }
-
-    async fn payment_methods(&self) -> Result<Vec<String>, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .payment_methods()
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?)
-    }
-
-    async fn create_payment(
-        &self,
-        secret: String,
-        days: u32,
-        method: String,
-    ) -> Result<String, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .create_payment(secret, days, method)
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?)
-    }
-
-    async fn create_basic_payment(
-        &self,
-        secret: String,
-        days: u32,
-        method: String,
-    ) -> Result<String, String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        Ok(client
-            .create_basic_payment(secret, days, method)
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?)
-    }
-
-    async fn export_debug_pack(
-        &self,
-        email: Option<String>,
-        contents: String,
-    ) -> Result<(), String> {
-        let client = broker_client(&self.ctx).map_err(|e| format!("{:?}", e))?;
-        client
-            .upload_debug_pack(email, contents)
-            .await
-            .map_err(|s| s.to_string())?
-            .map_err(|s| s.to_string())?;
-        Ok(())
     }
 
     async fn get_update_manifest(&self) -> Result<(serde_json::Value, String), String> {
