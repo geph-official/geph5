@@ -19,7 +19,7 @@ pub struct FrontedHttpTransport {
 impl RpcTransport for FrontedHttpTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::debug!(
+        tracing::trace!(
             method = req.method,
             url = self.url,
             host = debug(&self.host),
@@ -54,7 +54,7 @@ impl RpcTransport for FrontedHttpTransport {
             .context("cannot send request to front")?;
 
         let resp_bytes = response.bytes().await?;
-        tracing::debug!(
+        tracing::trace!(
             method = req.method,
             url = self.url,
             host = debug(&self.host),

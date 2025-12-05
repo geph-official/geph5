@@ -33,7 +33,7 @@ impl RpcTransport for AwsLambdaTransport {
         )
         .to_string();
 
-        tracing::debug!(method = req.method, "calling broker through lambda");
+        tracing::trace!(method = req.method, "calling broker through lambda");
         let start = Instant::now();
         // To use webpki-roots we need to create a custom http client, as explained here: https://github.com/smithy-lang/smithy-rs/discussions/3022
 
@@ -83,7 +83,7 @@ impl RpcTransport for AwsLambdaTransport {
             status_code: usize,
             body: String,
         }
-        tracing::debug!(
+        tracing::trace!(
             method = req.method,
             resp_len = blob.as_ref().len(),
             elapsed = debug(start.elapsed()),

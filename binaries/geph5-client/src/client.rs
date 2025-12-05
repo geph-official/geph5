@@ -85,16 +85,13 @@ impl Config {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Default)]
 pub enum BridgeMode {
+    #[default]
     Auto,
     ForceBridges,
 }
 
-impl Default for BridgeMode {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 #[derive(Clone)]
 pub struct Client {

@@ -195,17 +195,14 @@ pub enum AuthError {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Credential {
+    #[default]
     TestDummy,
     LegacyUsernamePassword { username: String, password: String },
     Secret(String),
 }
 
-impl Default for Credential {
-    fn default() -> Self {
-        Self::TestDummy
-    }
-}
 
 pub const DOMAIN_EXIT_DESCRIPTOR: &str = "exit-descriptor";
 

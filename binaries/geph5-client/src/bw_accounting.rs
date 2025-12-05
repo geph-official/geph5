@@ -11,9 +11,8 @@ static FORCE_REFRESH: CtxField<(smol::channel::Sender<()>, smol::channel::Receiv
     |_| smol::channel::unbounded();
 
 pub fn notify_bw_accounting(ctx: &AnyCtx<Config>, consumed: usize) {
-    if rand::random::<f64>() < (consumed as f64) * 1.05 / 10_000_000.0 {
-        // waste 5%
-        tracing::debug!("preemptively notifying bw accounting");
+    if rand::random::<f64>() < (consumed as f64) * 1.01 / 10_000_000.0 {
+        // waste 1%
         let _ = ctx.get(FORCE_REFRESH).0.try_send(());
     }
 }
@@ -24,7 +23,7 @@ pub async fn bw_accounting_client_loop(
     ctx: AnyCtx<Config>,
     stream: picomux::Stream,
 ) -> anyhow::Result<()> {
-    tracing::info!("BW ACCOUNT START!");
+    tracing::info!("starting bandwidth accounting");
 
     let (mut read, mut write) = stream.split();
 
