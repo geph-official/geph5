@@ -20,14 +20,14 @@ use std::{
     convert::Infallible,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
 
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::get_connect_token,
+    auth::{get_connect_token, IS_PLUS},
     bw_accounting::{bw_accounting_client_loop, notify_bw_accounting},
     china::is_chinese_host,
     client::CtxField,
@@ -273,9 +273,10 @@ async fn proxy_loop(
 
             }
         })
-    }.or(mux.wait_until_dead())
+    }
+    .or(mux.wait_until_dead())
     .or(async {
-        if instance == 0 {
+        if instance == 0 && ctx.get(IS_PLUS).load(Ordering::SeqCst) {
             bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting-2").await?).await
         } else {
             smol::future::pending().await

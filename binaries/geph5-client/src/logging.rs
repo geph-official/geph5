@@ -20,7 +20,7 @@ impl Write for DbLogWriter {
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
-} 
+}
 
 async fn ensure_logs_table(ctx: &AnyCtx<Config>) -> Result<(), sqlx::Error> {
     // Ensure table exists

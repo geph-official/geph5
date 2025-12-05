@@ -199,10 +199,12 @@ pub enum AuthError {
 pub enum Credential {
     #[default]
     TestDummy,
-    LegacyUsernamePassword { username: String, password: String },
+    LegacyUsernamePassword {
+        username: String,
+        password: String,
+    },
     Secret(String),
 }
-
 
 pub const DOMAIN_EXIT_DESCRIPTOR: &str = "exit-descriptor";
 

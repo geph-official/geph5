@@ -1,4 +1,7 @@
-use std::{sync::LazyLock, time::Duration};
+use std::{
+    sync::{atomic::AtomicBool, LazyLock},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
@@ -12,12 +15,13 @@ use stdcode::StdcodeSerializeExt;
 
 use crate::{
     broker::broker_client,
-    client::Config,
+    client::{Config, CtxField},
     database::{db_read, db_read_or_wait, db_remove, db_write},
 };
 
 static ACCOUNT_STATUS_CHECKED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
+pub static IS_PLUS: CtxField<AtomicBool> = |_| AtomicBool::new(false);
 
 pub async fn get_connect_token(
     ctx: &AnyCtx<Config>,
@@ -25,6 +29,10 @@ pub async fn get_connect_token(
     ACCOUNT_STATUS_CHECKED.wait().await;
     let epoch = mizaru2::current_epoch();
     let res = get_conn_token_inner(ctx, epoch, true).await?;
+    ctx.get(IS_PLUS).store(
+        res.0 == AccountLevel::Plus,
+        std::sync::atomic::Ordering::SeqCst,
+    );
     Ok(res)
 }
 
@@ -88,6 +96,13 @@ async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::R
             .context("no such user")?
             .plus_expires_unix
             .unwrap_or_default();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("time went backwards")?
+            .as_secs();
+        let is_plus = plus_expiry > now;
+        ctx.get(IS_PLUS)
+            .store(is_plus, std::sync::atomic::Ordering::SeqCst);
         tracing::debug!(plus_expiry, "got latest plus expiry");
 
         let currently_plus =
