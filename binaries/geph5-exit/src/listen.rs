@@ -26,9 +26,10 @@ use crate::{
     auth::verify_user,
     broker::{broker_loop, ACCEPT_FREE},
     bw_accounting::{bw_accounting_loop, BwAccount},
-    ipv6::{configure_ipv6_routing, EyeballDialer},
+    ipv6::{configure_ipv6_routing, get_eyeball_dialer},
     proxy::proxy_stream,
     ratelimit::{get_ratelimiter, RateLimiter},
+    session::SessionKey,
     tasklimit::new_task_until_death,
     CONFIG_FILE, SIGNING_SECRET,
 };
@@ -150,8 +151,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     };
 
     let mut is_free = false;
-
-    // TODO initialize this properly
+    let mut session_key = SessionKey::new(&client_hello);
 
     let ratelimit = if CONFIG_FILE.wait().broker.is_some() {
         let (level, token, sig): (AccountLevel, ClientToken, UnblindedSignature) =
@@ -164,7 +164,8 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             tracing::warn!(err = debug(e), "**** BAD BAD bad token received ***")
         })?;
         is_free = level == AccountLevel::Free;
-        get_ratelimiter(level, token).await
+        session_key = SessionKey::new(&(level, token));
+        get_ratelimiter(level, token, session_key).await
     } else {
         RateLimiter::unlimited(BwAccount::unlimited(), None)
     };
@@ -186,7 +187,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     mux.set_debloat(true);
 
     let mut sess_metadata = Arc::new(serde_json::Value::Null);
-    let dialer = EyeballDialer::new();
+    let dialer = get_eyeball_dialer(session_key).await;
     loop {
         let stream = mux.accept().await?;
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();

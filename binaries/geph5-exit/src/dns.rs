@@ -142,7 +142,7 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
     let addrs = CACHE
         .try_get_with(name.to_string(), async move {
             // Kick off both DNS queries in parallel (A and AAAA)
-            let (res_a, _) = futures_util::future::join(
+            let (res_a, res_aaaa) = futures_util::future::join(
                 async {
                     let packet = build_dns_query(host, false)?;
                     let resp = raw_dns_respond(packet, filter).await?;
@@ -158,7 +158,7 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
 
             // Merge the results
             let mut ips = vec![];
-            // ips.extend_from_slice(&res_aaaa?);
+            ips.extend_from_slice(&res_aaaa?);
             ips.extend_from_slice(&res_a?);
 
             tracing::debug!(name, ?ips, "ips received!");

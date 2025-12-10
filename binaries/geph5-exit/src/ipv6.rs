@@ -11,7 +11,10 @@ use rand::Rng;
 use smol::{net::TcpStream, process::Command, Async};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use crate::CONFIG_FILE;
+use crate::{
+    session::{SessionKey, EYEBALL_DIALER_CACHE},
+    CONFIG_FILE,
+};
 
 /// Something that can be used for happy-eyeballs dialing, with its own IPv6 address.
 #[derive(Clone, Debug)]
@@ -59,6 +62,13 @@ impl EyeballDialer {
     }
 }
 
+/// Grab or create a cached eyeball dialer for a session.
+pub async fn get_eyeball_dialer(session_key: SessionKey) -> EyeballDialer {
+    EYEBALL_DIALER_CACHE
+        .get_with(session_key, async { EyeballDialer::new() })
+        .await
+}
+
 /// Given an `Ipv6Net`, generate a random IPv6 address within that subnet.
 fn random_ipv6_in_net(net: Ipv6Net) -> Ipv6Addr {
     let prefix_len = net.prefix_len();
@@ -98,7 +108,7 @@ async fn connect_from(from: Ipv6Addr, remote: SocketAddr) -> anyhow::Result<TcpS
     );
     let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
     socket.set_reuse_address(true)?;
-    socket.set_reuse_port(true)?;
+    // socket.set_reuse_port(true)?;
     let local_addr = SocketAddr::new(std::net::IpAddr::V6(from), 0);
     socket
         .bind(&SockAddr::from(local_addr))

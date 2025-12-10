@@ -39,6 +39,7 @@ ed25519-dalek = { version = "2", default-features = false, features = [
 blake3 = "1.8.2"
 tracing-subscriber = "0.3.19"
 tap = "1.0.1"
+derive_more = "=2.0.1"
 geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
 stdcode = "0.1.14"
 x25519-dalek = { version = "2", default-features = false, features = ["serde"] }

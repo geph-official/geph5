@@ -13,25 +13,15 @@ use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use geph5_broker_protocol::AccountLevel;
 use governor::{DefaultDirectRateLimiter, Quota};
 use mizaru2::ClientToken;
-use moka::future::Cache;
 use once_cell::sync::Lazy;
 use smol_timeout2::TimeoutExt;
-use stdcode::StdcodeSerializeExt;
 use sysinfo::System;
 
-use crate::{bw_accounting::BwAccount, CONFIG_FILE};
-
-static FREE_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_idle(Duration::from_secs(86400))
-        .build()
-});
-
-static PLUS_RL_CACHE: Lazy<Cache<blake3::Hash, RateLimiter>> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_idle(Duration::from_secs(86400))
-        .build()
-});
+use crate::{
+    bw_accounting::BwAccount,
+    session::{SessionKey, RATE_LIMITER_CACHE},
+    CONFIG_FILE,
+};
 
 static CPU_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 static CURRENT_SPEED: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
@@ -80,34 +70,30 @@ pub fn update_load_loop() {
     }
 }
 
-pub async fn get_ratelimiter(level: AccountLevel, token: ClientToken) -> RateLimiter {
-    match level {
-        AccountLevel::Free => {
-            FREE_RL_CACHE
-                .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().free_ratelimit,
-                        100,
-                        BwAccount::empty(),
-                        None,
-                    )
-                })
-                .await
-        }
-        AccountLevel::Plus => {
-            PLUS_RL_CACHE
-                .get_with(blake3::hash(&(level, token).stdcode()), async {
-                    RateLimiter::new(
-                        CONFIG_FILE.wait().plus_ratelimit,
-                        100,
-                        BwAccount::empty(),
-                        Some(token.to_string()),
-                    )
-                    .with_fallback(CONFIG_FILE.wait().free_ratelimit / 2, 100)
-                })
-                .await
-        }
-    }
+pub async fn get_ratelimiter(
+    level: AccountLevel,
+    token: ClientToken,
+    session_key: SessionKey,
+) -> RateLimiter {
+    RATE_LIMITER_CACHE
+        .get_with(session_key, async move {
+            match level {
+                AccountLevel::Free => RateLimiter::new(
+                    CONFIG_FILE.wait().free_ratelimit,
+                    100,
+                    BwAccount::empty(),
+                    None,
+                ),
+                AccountLevel::Plus => RateLimiter::new(
+                    CONFIG_FILE.wait().plus_ratelimit,
+                    100,
+                    BwAccount::empty(),
+                    Some(token.to_string()),
+                )
+                .with_fallback(CONFIG_FILE.wait().free_ratelimit / 2, 100),
+            }
+        })
+        .await
 }
 
 /// A generic rate limiter.

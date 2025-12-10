@@ -13,12 +13,7 @@ use mizaru2::{ClientToken, SingleUnblindedSignature};
 use rand::Rng;
 use stdcode::StdcodeSerializeExt;
 
-use crate::{
-    auth::{get_auth_token, IS_PLUS},
-    broker_client,
-    database::DATABASE,
-    Config,
-};
+use crate::{auth::get_auth_token, broker_client, database::DATABASE, Config};
 
 #[tracing::instrument(skip_all)]
 pub async fn bw_token_refresh_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
@@ -37,12 +32,6 @@ pub async fn bw_token_refresh_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 }
 
 async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    if !ctx.get(IS_PLUS).load(Ordering::SeqCst) {
-        tracing::debug!("not plus, skipping bw token refresh");
-        smol::Timer::after(Duration::from_secs(5)).await;
-        return Ok(());
-    }
-
     let mizaru_bw = mizaru2::SinglePublicKey::from_der(
         &hex::decode(&ctx.init().broker_keys.as_ref().unwrap().mizaru_bw)
             .context("bad hex in mizaru_bw")?,

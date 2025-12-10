@@ -201,11 +201,12 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
                     failures += 1.0;
                     tracing::warn!(
                         instance,
-                        err = debug(err),
+                        err = debug(&err),
                         wait_time = debug(wait_time),
-                        "individual client thread failed"
+                        "individual client thread failed..."
                     );
                     smol::Timer::after(wait_time).await;
+                    tracing::warn!(instance, wait_time = debug(wait_time), "retrying now!");
                 }
             }
         })

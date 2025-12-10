@@ -1,6 +1,7 @@
 mod bw_accounting;
 mod dns;
 mod ipv6;
+mod session;
 mod tasklimit;
 
 use clap::Parser;
