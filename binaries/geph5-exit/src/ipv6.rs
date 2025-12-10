@@ -5,16 +5,20 @@ use std::{
 };
 
 use anyhow::Context;
+use blake3::Hasher;
 use futures_concurrency::future::RaceOk;
 use ipnet::Ipv6Net;
+use once_cell::sync::OnceCell;
 use rand::Rng;
 use smol::{net::TcpStream, process::Command, Async};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 use crate::{
-    session::{SessionKey, EYEBALL_DIALER_CACHE},
+    session::SessionKey,
     CONFIG_FILE,
 };
+
+static IPV6_POOL: OnceCell<Vec<Ipv6Addr>> = OnceCell::new();
 
 /// Something that can be used for happy-eyeballs dialing, with its own IPv6 address.
 #[derive(Clone, Debug)]
@@ -23,16 +27,9 @@ pub struct EyeballDialer {
 }
 
 impl EyeballDialer {
-    /// Create a new eyeball dialer.
-    pub fn new() -> Self {
-        let subnet = CONFIG_FILE.wait().ipv6_subnet;
-        if subnet == Ipv6Net::default() {
-            Self { inner: None }
-        } else {
-            Self {
-                inner: Some(random_ipv6_in_net(subnet)),
-            }
-        }
+    /// Create a new eyeball dialer with a specific IPv6 address (or none).
+    pub fn new(ipv6_addr: Option<Ipv6Addr>) -> Self {
+        Self { inner: ipv6_addr }
     }
 
     /// Connect to a given remote.
@@ -62,11 +59,28 @@ impl EyeballDialer {
     }
 }
 
-/// Grab or create a cached eyeball dialer for a session.
-pub async fn get_eyeball_dialer(session_key: SessionKey) -> EyeballDialer {
-    EYEBALL_DIALER_CACHE
-        .get_with(session_key, async { EyeballDialer::new() })
-        .await
+/// Pick a deterministic IPv6 from the pool for a session.
+pub fn eyeball_addr_for_session(session_key: SessionKey) -> Option<Ipv6Addr> {
+    let pool = IPV6_POOL.get()?;
+    if pool.is_empty() {
+        return None;
+    }
+
+    let key_bytes = session_key.as_u128().to_le_bytes();
+    let mut best: Option<(u64, Ipv6Addr)> = None;
+    for addr in pool {
+        let mut hasher = Hasher::new();
+        hasher.update(&key_bytes);
+        hasher.update(&addr.octets());
+        let hash = hasher.finalize();
+        let weight = u64::from_le_bytes(hash.as_bytes()[..8].try_into().unwrap());
+        match best {
+            None => best = Some((weight, *addr)),
+            Some((best_weight, _)) if weight > best_weight => best = Some((weight, *addr)),
+            _ => {}
+        }
+    }
+    best.map(|(_, addr)| addr)
 }
 
 /// Given an `Ipv6Net`, generate a random IPv6 address within that subnet.
@@ -131,31 +145,69 @@ async fn connect_from(from: Ipv6Addr, remote: SocketAddr) -> anyhow::Result<TcpS
 }
 
 pub async fn configure_ipv6_routing() -> anyhow::Result<()> {
-    let range = CONFIG_FILE.wait().ipv6_subnet;
-    if range != Ipv6Net::default() {
-        let iface = detect_ipv6_interface().await?;
+    let cfg = CONFIG_FILE.wait();
+    let range = cfg.ipv6_subnet;
+    if range == Ipv6Net::default() {
+        IPV6_POOL.set(Vec::new()).ok();
+        return Ok(());
+    }
+    let iface = detect_ipv6_interface().await?;
+    let pool = ensure_ipv6_pool(range, cfg.ipv6_pool_size, &iface).await?;
+    IPV6_POOL.set(pool).ok();
+    Ok(())
+}
+
+async fn ensure_ipv6_pool(
+    range: Ipv6Net,
+    desired: usize,
+    iface: &str,
+) -> anyhow::Result<Vec<Ipv6Addr>> {
+    let mut pool = existing_ipv6_addresses(range, iface).await?;
+    while pool.len() < desired {
+        let candidate = random_ipv6_in_net(range);
+        if pool.contains(&candidate) {
+            continue;
+        }
         Command::new("ip")
             .arg("-6")
-            .arg("route")
-            .arg("del")
-            .arg("local")
-            .arg(format!("{}", range))
-            .spawn()?
-            .output()
-            .await?;
-        Command::new("ip")
-            .arg("-6")
-            .arg("route")
+            .arg("addr")
             .arg("add")
-            .arg("local")
-            .arg(format!("{}", range))
+            .arg(format!("{}/128", candidate))
             .arg("dev")
             .arg(iface)
             .spawn()?
             .output()
             .await?;
+        pool.push(candidate);
     }
-    Ok(())
+    Ok(pool)
+}
+
+async fn existing_ipv6_addresses(range: Ipv6Net, iface: &str) -> anyhow::Result<Vec<Ipv6Addr>> {
+    let output = Command::new("ip")
+        .args(["-6", "addr", "show", "dev", iface])
+        .output()
+        .await?;
+    let stdout = String::from_utf8(output.stdout)?;
+    let mut addrs = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.starts_with("inet6 ") {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        parts.next();
+        if let Some(addr_part) = parts.next() {
+            if let Some(addr_str) = addr_part.split('/').next() {
+                if let Ok(addr) = addr_str.parse::<Ipv6Addr>() {
+                    if range.contains(&addr) && !addrs.contains(&addr) {
+                        addrs.push(addr);
+                    }
+                }
+            }
+        }
+    }
+    Ok(addrs)
 }
 
 async fn detect_ipv6_interface() -> anyhow::Result<String> {

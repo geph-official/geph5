@@ -26,4 +26,5 @@ total_ratelimit: 125000
 free_port_whitelist: [80,443,8080,8443,22,53]
 task_limit: 1000000
 ipv6_subnet: "2001:db8::/64"
+ipv6_pool_size: 100
 ```

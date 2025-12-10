@@ -5,7 +5,7 @@ use moka::future::Cache;
 use once_cell::sync::Lazy;
 use stdcode::StdcodeSerializeExt;
 
-use crate::{ipv6::EyeballDialer, ratelimit::RateLimiter};
+use crate::ratelimit::RateLimiter;
 
 /// Opaque identifier derived from session-specific data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -26,12 +26,6 @@ impl SessionKey {
 }
 
 pub static RATE_LIMITER_CACHE: Lazy<Cache<SessionKey, RateLimiter>> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_idle(Duration::from_secs(86400))
-        .build()
-});
-
-pub static EYEBALL_DIALER_CACHE: Lazy<Cache<SessionKey, EyeballDialer>> = Lazy::new(|| {
     Cache::builder()
         .time_to_idle(Duration::from_secs(86400))
         .build()

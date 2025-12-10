@@ -76,6 +76,9 @@ struct ConfigFile {
     #[serde_as(as = "DisplayFromStr")]
     #[serde(default)]
     ipv6_subnet: Ipv6Net,
+
+    #[serde(default = "default_ipv6_pool_size")]
+    ipv6_pool_size: usize,
 }
 
 fn default_free_ratelimit() -> u32 {
@@ -100,6 +103,10 @@ fn default_free_port_whitelist() -> Vec<u16> {
 
 fn default_country_blacklist() -> Vec<String> {
     vec![]
+}
+
+fn default_ipv6_pool_size() -> usize {
+    100
 }
 
 fn default_exit_metadata() -> ExitMetadata {

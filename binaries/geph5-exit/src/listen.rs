@@ -26,7 +26,7 @@ use crate::{
     auth::verify_user,
     broker::{broker_loop, ACCEPT_FREE},
     bw_accounting::{bw_accounting_loop, BwAccount},
-    ipv6::{configure_ipv6_routing, get_eyeball_dialer},
+    ipv6::{configure_ipv6_routing, eyeball_addr_for_session, EyeballDialer},
     proxy::proxy_stream,
     ratelimit::{get_ratelimiter, RateLimiter},
     session::SessionKey,
@@ -187,7 +187,8 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     mux.set_debloat(true);
 
     let mut sess_metadata = Arc::new(serde_json::Value::Null);
-    let dialer = get_eyeball_dialer(session_key).await;
+    let eyeball_addr = eyeball_addr_for_session(session_key);
+    let dialer = EyeballDialer::new(eyeball_addr);
     loop {
         let stream = mux.accept().await?;
         let metadata = String::from_utf8_lossy(stream.metadata()).to_string();
