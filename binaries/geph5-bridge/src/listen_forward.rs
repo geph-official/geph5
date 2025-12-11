@@ -93,15 +93,15 @@ async fn handle_one_listener(
         let remote_ip = SocketAddr::from_str(client_conn.remote_addr().unwrap())
             .unwrap()
             .ip();
-        let remote_asn = asn_count::ip_to_asn(remote_ip).await?;
-        tracing::trace!(
-            count,
-            asn = remote_asn,
-            b2e_dest = debug(b2e_dest),
-            "handled a connection"
-        );
         let metadata = metadata.clone();
         smolscale::spawn(async move {
+            let remote_asn = asn_count::ip_to_asn(remote_ip).await.unwrap_or(0);
+            tracing::trace!(
+                count,
+                asn = remote_asn,
+                b2e_dest = debug(b2e_dest),
+                "handled a connection"
+            );
             scopeguard::defer!({
                 let count = COUNT.fetch_sub(1, Ordering::Relaxed);
                 tracing::trace!(
