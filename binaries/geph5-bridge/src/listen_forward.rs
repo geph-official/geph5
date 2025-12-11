@@ -199,7 +199,7 @@ impl SinglePool {
         let (send, recv) = async_channel::bounded(100);
         let live_count = Arc::new(AtomicUsize::new(0));
         let mut tasks = vec![];
-        for _ in 0..32 {
+        for _ in 0..256 {
             let recv = recv.clone();
             let live_count = live_count.clone();
             let task = smolscale::spawn(async move {
@@ -217,7 +217,7 @@ impl SinglePool {
                             tracing::error!(dest = display(dest), "remote_once error: {}", err);
                         }
                     }
-                    smol::Timer::after(Duration::from_secs(30)).await;
+                    smol::Timer::after(Duration::from_secs(1)).await;
                 }
             });
             tasks.push(task);

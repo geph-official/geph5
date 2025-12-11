@@ -13,10 +13,7 @@ use rand::Rng;
 use smol::{net::TcpStream, process::Command, Async};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use crate::{
-    session::SessionKey,
-    CONFIG_FILE,
-};
+use crate::{session::SessionKey, CONFIG_FILE};
 
 static IPV6_POOL: OnceCell<Vec<Ipv6Addr>> = OnceCell::new();
 
@@ -59,7 +56,7 @@ impl EyeballDialer {
     }
 }
 
-/// Pick a deterministic IPv6 from the pool for a session.
+/// Pick a deterministic IPv6 from the pool for a session using rendezvous hashing.
 pub fn eyeball_addr_for_session(session_key: SessionKey) -> Option<Ipv6Addr> {
     let pool = IPV6_POOL.get()?;
     if pool.is_empty() {

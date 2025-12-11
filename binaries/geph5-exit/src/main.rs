@@ -106,7 +106,7 @@ fn default_country_blacklist() -> Vec<String> {
 }
 
 fn default_ipv6_pool_size() -> usize {
-    100
+    1000
 }
 
 fn default_exit_metadata() -> ExitMetadata {
