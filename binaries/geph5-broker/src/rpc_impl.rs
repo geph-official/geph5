@@ -410,7 +410,7 @@ impl BrokerProtocol for BrokerImpl {
         };
 
         for attempt in 0u64.. {
-            let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
+            let raw_descriptors = query_bridges(&format!("{:?}-{attempt}", args.token)).await?;
             let raw_descriptors =
                 filter_raw_bridge_descriptors(raw_descriptors, account_level, &country);
             if raw_descriptors.is_empty() {
