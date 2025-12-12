@@ -17,10 +17,11 @@ use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+mod bridge_to_route;
+mod bridge_filter;
 mod database;
 mod news;
 mod payments;
-mod routes;
 mod rpc_impl;
 
 #[global_allocator]

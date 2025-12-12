@@ -34,6 +34,7 @@ use std::{
 };
 
 use crate::BW_MIZARU_SK;
+use crate::bridge_filter::filter_raw_bridge_descriptors;
 use crate::database::auth::validate_secret;
 use crate::database::{
     auth::{get_user_info, new_auth_token, register_secret, valid_auth_token, validate_credential},
@@ -44,13 +45,14 @@ use crate::database::{
     puzzle::{new_puzzle, verify_puzzle_solution},
 };
 use crate::{
-    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK, log_error,
+    CONFIG_FILE, FREE_MIZARU_SK, MASTER_SECRET, PLUS_MIZARU_SK,
+    bridge_to_route::bridge_to_leaf_route,
+    log_error,
     news::fetch_news,
     payments::{
         GiftcardWireInfo, PaymentClient, PaymentTransport, StartAliwechatArgs, StartStripeArgs,
         payment_sessid,
     },
-    routes::bridge_to_leaf_route,
 };
 
 pub struct WrappedBrokerService(BrokerService<BrokerImpl>);
@@ -408,50 +410,26 @@ impl BrokerProtocol for BrokerImpl {
             (0, "".to_string())
         };
 
-        // if country != "TM"
-        //     && country != "IR"
-        //     && country != "RU"
-        //     && country != "CN"
-        //     && country != "BY"
-        // {
-        //     // return a DIRECT route!
-        //     direct_route = Some(RouteDescriptor::ConnTest {
-        //         ping_count: 1,
-        //         lower: RouteDescriptor::Tcp(exit.c2e_listen).into(),
-        //     });
-        // }
-
         let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
-
-        let raw_descriptors = if account_level == AccountLevel::Free {
-            raw_descriptors
-                .into_iter()
-                .filter(|(_, _, is_plus)| !is_plus)
-                .collect()
-        } else {
-            raw_descriptors
-        };
-
-        let raw_descriptors = raw_descriptors.into_iter().filter(|desc| {
-            // for China Plus users, filter out ovh
-            if account_level == AccountLevel::Plus && country == "CN" {
-                return !desc.0.pool.contains("ovh");
-            }
-            // TM-only bridges
-            if desc.0.pool.contains("TM") {
-                return country == "TM";
-            }
-            true
-        });
+        let raw_descriptors =
+            filter_raw_bridge_descriptors(raw_descriptors, account_level, &country);
 
         let mut routes = vec![];
         let version = args.client_metadata["version"]
             .as_str()
             .map(|s| s.to_string())
             .unwrap_or_default();
-        for route in (join_all(raw_descriptors.into_iter().map(|(desc, delay_ms, _)| {
-            let bridge = desc.control_listen;
-            bridge_to_leaf_route(desc, delay_ms, &exit, &country, asn, &version).inspect_err(
+        for route in (join_all(raw_descriptors.into_iter().map(|meta| {
+            let bridge = meta.descriptor.control_listen;
+            bridge_to_leaf_route(
+                meta.descriptor,
+                meta.delay_ms,
+                &exit,
+                &country,
+                asn,
+                &version,
+            )
+            .inspect_err(
                 move |err| {
                     tracing::warn!(
                         err = debug(err),
