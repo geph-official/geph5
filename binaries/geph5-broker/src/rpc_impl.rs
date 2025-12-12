@@ -399,7 +399,6 @@ impl BrokerProtocol for BrokerImpl {
             .find(|exit| exit.b2e_listen == args.exit_b2e)
             .context("cannot find this exit")?;
 
-        // for known good countries, we return a direct route!
         let direct_route = None;
         let (asn, country) = if let Some(ip_addr) = args.client_metadata["ip_addr"]
             .as_str()
@@ -410,54 +409,68 @@ impl BrokerProtocol for BrokerImpl {
             (0, "".to_string())
         };
 
-        let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
-        let raw_descriptors =
-            filter_raw_bridge_descriptors(raw_descriptors, account_level, &country);
+        for attempt in 0u64.. {
+            let raw_descriptors = query_bridges(&format!("{:?}", args.token)).await?;
+            let raw_descriptors =
+                filter_raw_bridge_descriptors(raw_descriptors, account_level, &country);
+            if raw_descriptors.is_empty() {
+                if attempt < 10 {
+                    tracing::warn!(
+                        attempt,
+                        asn,
+                        country,
+                        "EMPTY descriptor list, retrying with a new key..."
+                    );
+                    continue;
+                } else {
+                    return Err(GenericError("no bridges available".into()));
+                }
+            }
 
-        let mut routes = vec![];
-        let version = args.client_metadata["version"]
-            .as_str()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        for route in (join_all(raw_descriptors.into_iter().map(|meta| {
-            let bridge = meta.descriptor.control_listen;
-            bridge_to_leaf_route(
-                meta.descriptor,
-                meta.delay_ms,
-                &exit,
-                &country,
-                asn,
-                &version,
-            )
-            .inspect_err(
-                move |err| {
+            let mut routes = vec![];
+            let version = args.client_metadata["version"]
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            for route in (join_all(raw_descriptors.into_iter().map(|meta| {
+                let bridge = meta.descriptor.control_listen;
+                bridge_to_leaf_route(
+                    meta.descriptor,
+                    meta.delay_ms,
+                    &exit,
+                    &country,
+                    asn,
+                    &version,
+                )
+                .inspect_err(move |err| {
                     tracing::warn!(
                         err = debug(err),
                         bridge = debug(bridge),
                         exit = debug(args.exit_b2e),
                         "failed to call bridge_to_leaf_route"
                     )
-                },
-            )
-        }))
-        .await)
-            .into_iter()
-            .flatten()
-        {
-            routes.push(route)
-        }
+                })
+            }))
+            .await)
+                .into_iter()
+                .flatten()
+            {
+                routes.push(route)
+            }
 
-        Ok(if let Some(route) = direct_route {
-            RouteDescriptor::Race(vec![
-                route,
-                RouteDescriptor::Delay {
-                    milliseconds: 2000,
-                    lower: RouteDescriptor::Race(routes).into(),
-                },
-            ])
-        } else {
-            RouteDescriptor::Race(routes)
-        })
+            return Ok(if let Some(route) = direct_route {
+                RouteDescriptor::Race(vec![
+                    route,
+                    RouteDescriptor::Delay {
+                        milliseconds: 2000,
+                        lower: RouteDescriptor::Race(routes).into(),
+                    },
+                ])
+            } else {
+                RouteDescriptor::Race(routes)
+            });
+        }
+        unreachable!()
     }
 
     async fn get_routes(
