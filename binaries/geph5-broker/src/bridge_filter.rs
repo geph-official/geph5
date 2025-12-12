@@ -11,6 +11,14 @@ pub(crate) fn filter_raw_bridge_descriptors(
         .filter(|meta| account_level != AccountLevel::Free || !meta.is_plus)
         .filter(|meta| {
             // For China Plus users, filter out ovh.
+            if country == "CN" && meta.china_fail_count > meta.china_success_count {
+                tracing::debug!(
+                    "filtering out {}/{} due to GFW blocking in China",
+                    meta.descriptor.pool,
+                    meta.descriptor.control_listen.ip()
+                );
+                return false;
+            }
             if account_level == AccountLevel::Plus
                 && country == "CN"
                 && meta.descriptor.pool.contains("ovh")
