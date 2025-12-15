@@ -31,7 +31,7 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
             .try_into()
             .unwrap(),
     );
-    let key = key % 10000;
+    let key = key % 1000;
 
     CACHE
         .try_get_with(key, async {
