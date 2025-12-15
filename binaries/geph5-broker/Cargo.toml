@@ -57,3 +57,4 @@ tikv-jemallocator = "0.6.0"
 geph5-ip-to-asn = { path = "../../libraries/geph5-ip-to-asn" }
 defmac = "0.2.1"
 semver = "1.0.26"
+sha2 = "0.10.9"
