@@ -25,9 +25,10 @@ pub(crate) fn filter_raw_bridge_descriptors(
             {
                 return false;
             }
-            // TM-only bridges.
-            if meta.descriptor.pool.contains("TM") {
-                return country == "TM";
+            for only in ["CN", "TM"] {
+                if meta.descriptor.pool.contains(only) {
+                    return country == only;
+                }
             }
             true
         })
