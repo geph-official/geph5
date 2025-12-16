@@ -3,9 +3,12 @@ use super::POSTGRES;
 use anyhow::Context;
 use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
+use sha2::{Digest, Sha256};
 use smol::lock::Semaphore;
 use smol_timeout2::TimeoutExt;
 use std::{
+    collections::HashMap,
+    collections::hash_map::Entry,
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -20,46 +23,58 @@ pub struct BridgeMetadata {
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
-    static CACHE: LazyLock<Cache<u64, Vec<BridgeMetadata>>> = LazyLock::new(|| {
-        Cache::builder()
-            .time_to_live(Duration::from_secs(30))
-            .build()
-    });
-
     let key = u64::from_le_bytes(
         blake3::hash(key.as_bytes()).as_bytes()[..8]
             .try_into()
             .unwrap(),
     );
-    let key = key % 10000;
+
+    let bridges = cached_bridges().await?;
+    Ok(rendezvous_bridges(bridges, key))
+}
+
+fn rendezvous_bridges(bridges: Vec<BridgeMetadata>, key: u64) -> Vec<BridgeMetadata> {
+    let mut chosen: HashMap<String, (u128, BridgeMetadata)> = HashMap::new();
+
+    for bridge in bridges {
+        let pool = bridge.descriptor.pool.clone();
+        let listen = bridge.descriptor.control_listen.to_string();
+        let score = rendezvous_score(key, &listen);
+        match chosen.entry(pool) {
+            Entry::Vacant(entry) => {
+                entry.insert((score, bridge));
+            }
+            Entry::Occupied(mut entry) => {
+                if score < entry.get().0 {
+                    entry.insert((score, bridge));
+                }
+            }
+        }
+    }
+
+    chosen.into_values().map(|(_, meta)| meta).collect()
+}
+
+fn rendezvous_score(key: u64, listen: &str) -> u128 {
+    let mut hasher = Sha256::new();
+    hasher.update(listen.as_bytes());
+    hasher.update(key.to_le_bytes());
+    let digest: [u8; 32] = hasher.finalize().into();
+    u128::from_be_bytes(digest[..16].try_into().unwrap())
+}
+
+async fn cached_bridges() -> anyhow::Result<Vec<BridgeMetadata>> {
+    static CACHE: LazyLock<Cache<(), Vec<BridgeMetadata>>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(30))
+            .build()
+    });
 
     CACHE
-        .try_get_with(key, async {
-            static SEMAPH: Semaphore = Semaphore::new(100);
-            let _guard = SEMAPH
-                .acquire()
-                .timeout(Duration::from_millis(200))
-                .await
-                .context("too many users trying to get routes right now, try again later")?;
-
+        .try_get_with((), async {
             let start = Instant::now();
             let raw: Vec<(String, String, String, i64, i32, bool, i64, i64)> = sqlx::query_as(
-                r#"WITH selected_bridges AS (
-    SELECT DISTINCT ON (bn.pool)
-        bn.listen,
-        bn.cookie,
-        bn.pool,
-        bn.expiry,
-        COALESCE(bgd.delay_ms, 0)     AS delay,
-        COALESCE(bgd.is_plus, false)  AS is_plus
-    FROM bridges_new bn
-    LEFT JOIN bridge_group_delays bgd
-           ON bn.pool = bgd.pool
-    ORDER BY
-        bn.pool,
-        ENCODE(DIGEST(bn.listen || $1, 'sha256'), 'hex')
-),
-recent_probes AS (
+                r#"WITH recent_probes AS (
     SELECT
         ip_addr,
         SUM((is_blocked = false)::INT) AS success_count,
@@ -70,18 +85,19 @@ recent_probes AS (
     GROUP BY ip_addr
 )
 SELECT
-    sb.listen,
-    sb.cookie,
-    sb.pool,
-    sb.expiry,
-    sb.delay,
-    sb.is_plus,
+    bn.listen,
+    bn.cookie,
+    bn.pool,
+    bn.expiry,
+    COALESCE(bgd.delay_ms, 0)     AS delay,
+    COALESCE(bgd.is_plus, false)  AS is_plus,
     COALESCE(rp.success_count, 0),
     COALESCE(rp.fail_count, 0)
-FROM selected_bridges sb
-LEFT JOIN recent_probes rp ON rp.ip_addr = split_part(sb.listen, ':', 1)"#,
+FROM bridges_new bn
+LEFT JOIN bridge_group_delays bgd
+       ON bn.pool = bgd.pool
+LEFT JOIN recent_probes rp ON rp.ip_addr = split_part(bn.listen, ':', 1)"#,
             )
-            .bind(key.to_string())
             .fetch_all(&*POSTGRES)
             .await?;
             tracing::debug!(elapsed = debug(start.elapsed()), "fetched bridges from DB");

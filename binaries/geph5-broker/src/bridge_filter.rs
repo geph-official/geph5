@@ -12,7 +12,7 @@ pub(crate) fn filter_raw_bridge_descriptors(
         .filter(|meta| {
             // For China Plus users, filter out ovh.
             if country == "CN" && meta.china_fail_count > meta.china_success_count {
-                tracing::debug!(
+                tracing::trace!(
                     "filtering out {}/{} due to GFW blocking in China",
                     meta.descriptor.pool,
                     meta.descriptor.control_listen.ip()
@@ -25,9 +25,10 @@ pub(crate) fn filter_raw_bridge_descriptors(
             {
                 return false;
             }
-            // TM-only bridges.
-            if meta.descriptor.pool.contains("TM") {
-                return country == "TM";
+            for only in ["CN", "TM"] {
+                if meta.descriptor.pool.contains(only) {
+                    return country == only;
+                }
             }
             true
         })
