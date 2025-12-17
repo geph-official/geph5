@@ -3,7 +3,7 @@ name = "geph5-client"
 edition = "2021"
 license = "MPL-2.0"
 description = "Geph5 client"
-version = "0.2.88"
+version = "0.2.89"
 repository.workspace = true
 
 [features]
@@ -93,7 +93,7 @@ serde_yaml = "0.9.34"
 sillad = { version = "0.2.6", path = "../../libraries/sillad" }
 sillad-conntest = { version = "0.2", path = "../../libraries/sillad-conntest" }
 sillad-native-tls = { version = "0.2", path = "../../libraries/sillad-native-tls" }
-sillad-sosistab3 = { version = "0.2.14", path = "../../libraries/sillad-sosistab3" }
+sillad-sosistab3 = { version = "0.2.15", path = "../../libraries/sillad-sosistab3" }
 sillad-meeklike = { version = "0.1", path = "../../libraries/sillad-meeklike" }
 sillad-hex = { version = "0.1", path = "../../libraries/sillad-hex" }
 simple-dns = "0.7.1"
