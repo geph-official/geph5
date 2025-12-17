@@ -95,7 +95,7 @@ impl ControlProtocol for ControlProtocolImpl {
             jsonrpc: "2.0".into(),
             method,
             params,
-            id: JrpcId::Number(1),
+            id: JrpcId::Number(rand::random()),
         };
         let resp = broker_client(&self.ctx)
             .map_err(|e| format!("{:?}", e))?
