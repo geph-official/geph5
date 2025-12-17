@@ -228,7 +228,7 @@ async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
     //     )
     //     .await;
 
-    let resp = WrappedBrokerService::new().respond_raw(payload);
+    let resp = WrappedBrokerService::new().respond_raw(payload).await;
     Json(resp)
 }
 
