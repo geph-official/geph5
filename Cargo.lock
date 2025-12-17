@@ -2550,6 +2550,7 @@ dependencies = [
  "crossbeam-queue",
  "ctrlc",
  "dashmap 6.1.0",
+ "derive_more",
  "dirs",
  "ed25519-dalek",
  "elevated-command",
