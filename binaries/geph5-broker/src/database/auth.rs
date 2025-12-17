@@ -200,6 +200,11 @@ pub async fn get_user_info(user_id: i32) -> Result<Option<UserInfo>, AuthError> 
     let plus_expires_unix = get_subscription_expiry(user_id)
         .await
         .map_err(|_| AuthError::RateLimited)?;
+    tracing::debug!(
+        user_id,
+        plus_expires_unix = debug(plus_expires_unix),
+        "got expires unix"
+    );
 
     Ok(Some(UserInfo {
         user_id: user_id as _,
