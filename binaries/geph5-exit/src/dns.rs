@@ -101,13 +101,14 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
     static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(1))
+            .resolve("dns.mullvad.net", "194.242.2.2:0".parse().unwrap())
             .build()
             .unwrap()
     });
 
     let start = Instant::now();
     let resp = CLIENT
-        .post("https://cloudflare-dns.com/dns-query")
+        .post("https://dns.mullvad.net/dns-query")
         .body(req)
         .header("content-type", "application/dns-message")
         .send()
