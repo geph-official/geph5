@@ -17,8 +17,8 @@ use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-mod bridge_to_route;
 mod bridge_filter;
+mod bridge_to_route;
 mod database;
 mod news;
 mod payments;
@@ -210,24 +210,25 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
-    // we assume the JrpcRequest IDs are reasonably unique, so we use this technique to deduplicate duplicate requests. Duplicate requests often happen when multiple different broker sources race against each other on censored networks.
-    static DEDUP_CACHE: LazyLock<Cache<(JrpcId, String), JrpcResponse>> = LazyLock::new(|| {
-        Cache::builder()
-            .time_to_live(Duration::from_secs(120))
-            .build()
-    });
+    // // we assume the JrpcRequest IDs are reasonably unique, so we use this technique to deduplicate duplicate requests. Duplicate requests often happen when multiple different broker sources race against each other on censored networks.
+    // static DEDUP_CACHE: LazyLock<Cache<(JrpcId, String), JrpcResponse>> = LazyLock::new(|| {
+    //     Cache::builder()
+    //         .time_to_live(Duration::from_secs(120))
+    //         .build()
+    // });
 
-    if rand::random::<f32>() < 0.001 {
-        tracing::debug!("{} entries in DEDUP_CACHE", DEDUP_CACHE.entry_count());
-    }
+    // if rand::random::<f32>() < 0.001 {
+    //     tracing::debug!("{} entries in DEDUP_CACHE", DEDUP_CACHE.entry_count());
+    // }
 
-    let resp = DEDUP_CACHE
-        .get_with(
-            (payload.id.clone(), payload.method.clone()),
-            WrappedBrokerService::new().respond_raw(payload),
-        )
-        .await;
+    // let resp = DEDUP_CACHE
+    //     .get_with(
+    //         (payload.id.clone(), payload.method.clone()),
+    //         WrappedBrokerService::new().respond_raw(payload),
+    //     )
+    //     .await;
 
+    let resp = WrappedBrokerService::new().respond_raw(payload);
     Json(resp)
 }
 
