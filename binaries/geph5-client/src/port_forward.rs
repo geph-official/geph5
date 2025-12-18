@@ -19,8 +19,19 @@ pub async fn port_forward(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     let listened = listener.accept().await?;
                     let connect = fwd.connect.clone();
                     let ctx = &ctx;
+                    tracing::debug!(
+                        listen = display(&fwd.listen),
+                        connect = display(&fwd.connect),
+                        "accepted port forward"
+                    );
+                    let fwd = fwd.clone();
                     spawn!(async move {
                         let connected = open_conn(ctx, "tcp", &connect).await?;
+                        tracing::debug!(
+                            listen = display(&fwd.listen),
+                            connect = display(&fwd.connect),
+                            "started port forward"
+                        );
                         let (read_listened, write_listened) = listened.split();
                         let (read_connected, write_connected) = connected.split();
                         litecopy(read_listened, write_connected)
@@ -33,5 +44,9 @@ pub async fn port_forward(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
             })
         })
         .collect::<Vec<_>>();
-    tasks.try_join().await.map(|_: Vec<()>| ())
+    if tasks.is_empty() {
+        smol::future::pending().await
+    } else {
+        tasks.try_join().await.map(|_: Vec<()>| ())
+    }
 }
