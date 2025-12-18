@@ -24,6 +24,7 @@ use crate::{
     http_proxy::http_proxy_serve,
     logging,
     pac::pac_serve,
+    port_forward::port_forward,
     session::{open_conn, run_client_sessions},
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
@@ -45,6 +46,9 @@ pub struct Config {
     pub broker_keys: Option<BrokerKeys>,
 
     #[serde(default)]
+    pub port_forward: Vec<PortForwardCfg>,
+
+    #[serde(default)]
     pub vpn: bool,
     #[serde(default)]
     pub vpn_fd: Option<i32>,
@@ -60,6 +64,12 @@ pub struct Config {
     #[serde(default)]
     pub sess_metadata: serde_json::Value,
     pub task_limit: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PortForwardCfg {
+    pub listen: SocketAddr,
+    pub connect: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -280,6 +290,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             )
             .race(rpc_serve)
             .race(pac_serve(&ctx))
+            .race(port_forward(&ctx))
             .await
     }
 }

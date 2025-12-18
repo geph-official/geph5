@@ -30,6 +30,7 @@ mod session;
 
 mod get_dialer;
 mod pac;
+mod port_forward;
 mod socks5;
 mod spoof_dns;
 mod stats;
