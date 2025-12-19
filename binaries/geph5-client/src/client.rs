@@ -39,7 +39,8 @@ pub struct Config {
     pub control_listen: Option<SocketAddr>,
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
-    pub bridge_mode: BridgeMode,
+    pub allow_direct: bool,
+
     pub cache: Option<PathBuf>,
 
     pub broker: Option<BrokerSource>,
@@ -92,13 +93,6 @@ impl Config {
         this.control_listen = None;
         this
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum BridgeMode {
-    #[default]
-    Auto,
-    ForceBridges,
 }
 
 #[derive(Clone)]

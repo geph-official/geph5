@@ -182,7 +182,21 @@ async fn get_dialer_inner(
         serde_json::to_string(&bridge_routes)?
     );
 
-    let bridge_dialer = route_to_dialer(ctx, &bridge_routes);
+    let combined_routes = if ctx.init().allow_direct {
+        RouteDescriptor::Race(vec![
+            RouteDescriptor::ConnTest {
+                ping_count: 1,
+                lower: Box::new(RouteDescriptor::Tcp(exit.c2e_listen)),
+            },
+            RouteDescriptor::Delay {
+                milliseconds: 1000,
+                lower: Box::new(bridge_routes),
+            },
+        ])
+    } else {
+        bridge_routes
+    };
+    let bridge_dialer = route_to_dialer(ctx, &combined_routes);
 
     Ok((*pubkey, exit.clone(), bridge_dialer))
 }

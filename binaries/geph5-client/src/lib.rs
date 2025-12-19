@@ -7,7 +7,7 @@ pub use broker::broker_client;
 pub use broker::BrokerSource;
 use bytes::Bytes;
 pub use client::Client;
-pub use client::{BridgeMode, BrokerKeys, Config};
+pub use client::{BrokerKeys, Config};
 
 pub use get_dialer::ExitConstraint;
 use nanorpc::JrpcRequest;
@@ -145,7 +145,8 @@ mod tests {
             http_proxy_listen: Some(HTTP_ADDR),
             control_listen: Some(CONTROL_ADDR),
             exit_constraint: super::ExitConstraint::Auto,
-            bridge_mode: BridgeMode::Auto,
+            allow_direct: false,
+            port_forward: vec![],
             cache: None,
             vpn_fd: None,
             broker: Some(BrokerSource::Race(vec![
