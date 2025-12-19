@@ -3,7 +3,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
-use futures_util::{future::join_all, AsyncReadExt as _};
+use futures_util::{AsyncReadExt as _, future::join_all};
 use geph5_misc_rpc::{
     client_control::ConnectedInfo,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
@@ -13,21 +13,21 @@ use nursery_macro::nursery;
 
 use picomux::{LivenessConfig, PicoMux};
 use rand::Rng;
-use sillad::{dialer::Dialer as _, EitherPipe, Pipe};
+use sillad::{EitherPipe, Pipe, dialer::Dialer as _};
 use smol::future::FutureExt as _;
 use smol_timeout2::TimeoutExt;
 use std::{
     convert::Infallible,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    auth::{get_connect_token, IS_PLUS},
+    auth::{IS_PLUS, get_connect_token},
     bw_accounting::{bw_accounting_client_loop, notify_bw_accounting},
     china::is_chinese_host,
     client::CtxField,
@@ -61,17 +61,18 @@ pub async fn open_conn(
     };
 
     if let Some((dest_host, _)) = dest_addr.rsplit_once(":")
-        && whitelist_host(ctx, dest_host) {
-            let addrs = smol::net::resolve(&dest_addr).await?;
-            for addr in addrs.iter() {
-                smart_vpn_whitelist(ctx, addr.ip());
-            }
-            tracing::debug!(
-                dest_addr = debug(dest_addr),
-                "passing through whitelisted address"
-            );
-            return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
+        && whitelist_host(ctx, dest_host)
+    {
+        let addrs = smol::net::resolve(&dest_addr).await?;
+        for addr in addrs.iter() {
+            smart_vpn_whitelist(ctx, addr.ip());
         }
+        tracing::debug!(
+            dest_addr = debug(dest_addr),
+            "passing through whitelisted address"
+        );
+        return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
+    }
 
     let (send, recv) = oneshot::channel();
     let elem = (format!("{protocol}${dest_addr}"), send);
@@ -140,7 +141,7 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
         smolscale::spawn(async move {
             let mut failures = 0.0f64;
             // sleep depending on which instance this is
-            let sleep_secs = rand::thread_rng().gen_range(0.0..=(instance as f64) * 10.0);
+            let sleep_secs = (instance as f64) + rand::thread_rng().gen_range(0.0..1.0);
             smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
             loop {
                 let wait_time = Duration::from_secs_f64(
