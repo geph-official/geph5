@@ -23,7 +23,7 @@ use sillad::{
 use sillad_conntest::ConnTestDialer;
 use sillad_hex::HexDialer;
 use sillad_meeklike::MeeklikeDialer;
-use sillad_sosistab3::{dialer::SosistabDialer, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 
 use crate::{
     auth::get_connect_token,
@@ -127,7 +127,7 @@ async fn get_dialer_inner(
             &net_status_verified
                 .exits
                 .iter()
-                .map(|s| &s.1 .1)
+                .map(|s| &s.1.1)
                 .collect_vec()
         )?
     );

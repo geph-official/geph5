@@ -36,7 +36,6 @@ fn main() {
         if std::env::var("GEPH5_BRIDGE_CHILD").is_err() {
             for _ in 0..available_parallelism().unwrap().get() {
                 std::thread::spawn(|| {
-                    std::env::set_var("GEPH5_BRIDGE_CHILD", "1");
                     let current_exe = std::env::current_exe().unwrap();
 
                     // Collect the current command-line arguments
@@ -48,6 +47,7 @@ fn main() {
                     // Spawn a new process with the same command
                     let mut child = std::process::Command::new(current_exe)
                         .args(args_to_pass)
+                        .env("GEPH5_BRIDGE_CHILD", "1")
                         .spawn()
                         .unwrap();
 

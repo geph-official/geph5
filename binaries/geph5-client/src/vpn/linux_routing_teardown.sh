@@ -22,7 +22,12 @@ iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS || echo "No I
 iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS || echo "No IPv4 TCP DNS redirection rule found"
 
 # Remove redirection of DNS requests for IPv6
-#ip6tables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS_IPV6 || echo "No IPv6 UDP DNS redirection rule found"
-#ip6tables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS_IPV6 || echo "No IPv6 TCP DNS redirection rule found"
+if [ -n "$GEPH_DNS_IPV6" ]; then
+  ip6tables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS_IPV6 || echo "No IPv6 UDP DNS redirection rule found"
+  ip6tables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS_IPV6 || echo "No IPv6 TCP DNS redirection rule found"
+fi
+
+# Remove the IPv6 address from the TUN interface
+ip -6 addr del fd64:8964::1/64 dev tun-geph || echo "No IPv6 address on tun-geph"
 
 echo "Script execution complete. Reverse actions applied."

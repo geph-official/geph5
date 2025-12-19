@@ -1,6 +1,6 @@
 [package]
 name = "sillad-native-tls"
-edition = "2021"
+edition = "2024"
 version = "0.2.11"
 description = "A native-tls wrapper within the sillad framework"
 repository.workspace = true

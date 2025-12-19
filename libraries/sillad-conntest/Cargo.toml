@@ -1,6 +1,6 @@
 [package]
 name = "sillad-conntest"
-edition = "2021"
+edition = "2024"
 description = "A connection-testing protocol within the sillad framework"
 version = "0.2.0"
 repository.workspace = true

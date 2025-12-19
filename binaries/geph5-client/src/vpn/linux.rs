@@ -32,7 +32,13 @@ pub(super) fn vpn_whitelist(addr: IpAddr) {
 #[allow(clippy::redundant_closure)]
 fn setup_routing() -> anyhow::Result<()> {
     let cmd = include_str!("linux_routing_setup.sh");
-    let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .env("GEPH_DNS", GEPH_DNS.lock().clone())
+        .env("GEPH_DNS_IPV6", GEPH_DNS_IPV6.lock().clone())
+        .spawn()
+        .unwrap();
     child.wait().context("iptables was not set up properly")?;
 
     unsafe {
@@ -44,15 +50,21 @@ fn setup_routing() -> anyhow::Result<()> {
 }
 
 static GEPH_DNS: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
+static GEPH_DNS_IPV6: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 
 extern "C" fn teardown_routing() {
     tracing::debug!(
         "!!!!!!!!!!!!!!!!!!!!!!! teardown_routing starting !!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     );
     WHITELIST.clear();
-    std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
     let cmd = include_str!("linux_routing_teardown.sh");
-    let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .env("GEPH_DNS", GEPH_DNS.lock().clone())
+        .env("GEPH_DNS_IPV6", GEPH_DNS_IPV6.lock().clone())
+        .spawn()
+        .unwrap();
     child.wait().expect("iptables was not set up properly");
     std::process::exit(0);
 }
@@ -64,7 +76,17 @@ pub(super) async fn packet_shuffle(
 ) -> anyhow::Result<()> {
     let dns_proxy = UdpSocket::bind("127.0.0.1:0").await?;
     *GEPH_DNS.lock() = dns_proxy.local_addr()?.to_string();
-    std::env::set_var("GEPH_DNS", GEPH_DNS.lock().clone());
+    let dns_proxy_v6 = match UdpSocket::bind("[::1]:0").await {
+        Ok(sock) => {
+            *GEPH_DNS_IPV6.lock() = sock.local_addr()?.to_string();
+            Some(sock)
+        }
+        Err(err) => {
+            *GEPH_DNS_IPV6.lock() = String::new();
+            tracing::warn!(err = debug(err), "failed to bind IPv6 DNS proxy");
+            None
+        }
+    };
 
     tracing::info!(
         addr = display(dns_proxy.local_addr().unwrap()),
@@ -99,6 +121,51 @@ pub(super) async fn packet_shuffle(
             }
         }
     };
+    if let Some(dns_proxy_v6) = dns_proxy_v6 {
+        let ctx = ctx.clone();
+        smolscale::spawn(async move {
+            let dns_proxy_loop_v6 = async move {
+                tracing::info!(
+                    addr = display(dns_proxy_v6.local_addr().unwrap()),
+                    "start IPv6 DNS proxy"
+                );
+                loop {
+                    let mut buf = [0u8; 8192];
+                    let (n, src) = dns_proxy_v6.recv_from(&mut buf).await?;
+                    tracing::trace!(n, src = display(src), "received IPv6 DNS packet");
+                    if ctx.init().spoof_dns {
+                        if let Ok(resp) = fake_dns_respond(&ctx, &buf[..n]) {
+                            let _ = dns_proxy_v6.send_to(&resp, src).await;
+                        }
+                    } else {
+                        let dns_proxy_v6 = dns_proxy_v6.clone();
+                        let ctx = ctx.clone();
+                        smolscale::spawn(async move {
+                            let buf = &buf[..n];
+                            let mut conn =
+                                open_conn(&ctx, "udp", "[2606:4700:4700::1111]:53").await?;
+                            conn.write_all(&(buf.len() as u16).to_le_bytes()).await?;
+                            conn.write_all(buf).await?;
+                            let mut len_buf = [0u8; 2];
+                            conn.read_exact(&mut len_buf).await?;
+                            let len = u16::from_le_bytes(len_buf) as usize;
+                            let mut buf = vec![0u8; len];
+                            conn.read_exact(&mut buf).await?;
+                            dns_proxy_v6.send_to(&buf, src).await?;
+                            anyhow::Ok(())
+                        })
+                        .detach();
+                    }
+                }
+                #[allow(unreachable_code)]
+                Ok::<(), anyhow::Error>(())
+            };
+            if let Err(err) = dns_proxy_loop_v6.await {
+                tracing::warn!(err = debug(err), "IPv6 DNS proxy stopped");
+            }
+        })
+        .detach();
+    }
 
     use std::os::fd::{AsRawFd, FromRawFd};
     let tun_device = configure_tun_device();
@@ -154,29 +221,30 @@ struct SingleWhitelister {
 impl Drop for SingleWhitelister {
     fn drop(&mut self) {
         tracing::debug!("DROPPING whitelist to {}", self.dest);
-        Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "/usr/bin/env ip rule del to {} lookup main pref 1",
-                self.dest
-            ))
-            .status()
-            .expect("cannot run iptables");
+        run_ip_rule(self.dest, "del");
     }
 }
 
 impl SingleWhitelister {
     fn new(dest: IpAddr) -> Self {
-        Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "/usr/bin/env ip rule add to {} lookup main pref 1",
-                dest
-            ))
-            .status()
-            .expect("cannot run iptables");
+        run_ip_rule(dest, "add");
         Self { dest }
     }
+}
+
+fn run_ip_rule(dest: IpAddr, action: &str) {
+    let ip_cmd = match dest {
+        IpAddr::V4(_) => "ip",
+        IpAddr::V6(_) => "ip -6",
+    };
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "/usr/bin/env {} rule {} to {} lookup main pref 1",
+            ip_cmd, action, dest
+        ))
+        .status()
+        .expect("cannot run ip rule");
 }
 
 static WHITELIST: Lazy<DashMap<IpAddr, SingleWhitelister>> = Lazy::new(DashMap::new);

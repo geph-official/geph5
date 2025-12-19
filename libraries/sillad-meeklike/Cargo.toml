@@ -1,6 +1,6 @@
 [package]
 name = "sillad-meeklike"
-edition = "2021"
+edition = "2024"
 version = "0.1.1"
 description = "A meek-like HTTP polling protocol within the sillad framework"
 repository.workspace = true

@@ -7,6 +7,7 @@ resolver = "2"
 version = "0.2.88"
 repository = "https://github.com/geph-official/geph5"
 license = "ISC"
+edition = "2024"
 
 
 [patch.crates-io]

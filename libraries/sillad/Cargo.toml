@@ -1,6 +1,6 @@
 [package]
 name = "sillad"
-edition = "2021"
+edition = "2024"
 description = "A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
 version = "0.2.6"
 repository.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "mizaru2"
-edition = "2021"
+edition = "2024"
 description = "Mizaru2"
 version = "0.2.15"
 repository.workspace = true

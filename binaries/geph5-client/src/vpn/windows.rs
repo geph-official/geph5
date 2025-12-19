@@ -4,13 +4,13 @@ mod windivert;
 use std::{net::IpAddr, time::Duration};
 
 use anyctx::AnyCtx;
-use anyhow::Context;
 
 use bytes::Bytes;
 
 use dashmap::DashSet;
 
 use once_cell::sync::Lazy;
+use pnet_packet::{ipv4::Ipv4Packet, ipv6::Ipv6Packet};
 use smol::channel::{Receiver, Sender};
 
 use crate::{session::open_conn, Config};
@@ -45,9 +45,14 @@ fn up_shuffle(ctx: AnyCtx<Config>, send_captured: Sender<bytes::Bytes>) -> anyho
     loop {
         let fallible = || {
             let raw_pkt = handle.receive()?;
-            let ip_pkt = pnet_packet::ipv4::Ipv4Packet::new(&raw_pkt)
-                .context("cannot parse packet as IPv4")?;
-            if WHITELIST.contains(&IpAddr::V4(ip_pkt.get_destination())) {
+            let dest = if let Some(ip_pkt) = Ipv4Packet::new(&raw_pkt) {
+                IpAddr::V4(ip_pkt.get_destination())
+            } else if let Some(ip_pkt) = Ipv6Packet::new(&raw_pkt) {
+                IpAddr::V6(ip_pkt.get_destination())
+            } else {
+                anyhow::bail!("cannot parse packet as IPv4 or IPv6");
+            };
+            if WHITELIST.contains(&dest) {
                 handle.inject(&raw_pkt, true)?;
                 anyhow::Ok(None)
             } else {

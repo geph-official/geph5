@@ -1,6 +1,6 @@
 [package]
 name = "sillad-substitution"
-edition = "2021"
+edition = "2024"
 version = "0.1.0"
 description = "A silly substitution cipher obfuscation protocol within the sillad framework"
 repository.workspace = true

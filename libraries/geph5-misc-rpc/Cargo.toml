@@ -1,6 +1,6 @@
 [package]
 name = "geph5-misc-rpc"
-edition = "2021"
+edition = "2024"
 description = "Geph5 misc RPC protocols"
 version.workspace = true
 repository.workspace = true

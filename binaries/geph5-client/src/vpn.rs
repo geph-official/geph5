@@ -161,7 +161,11 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     "captured a UDP"
                 );
                 let peer_addr = if captured.peer_addr().port() == 53 {
-                    "1.1.1.1:53".parse()?
+                    if captured.peer_addr().is_ipv6() {
+                        "[2606:4700:4700::1111]:53".parse()?
+                    } else {
+                        "1.1.1.1:53".parse()?
+                    }
                 } else {
                     peer_addr
                 };

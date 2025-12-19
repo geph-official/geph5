@@ -1,6 +1,6 @@
 [package]
 name = "geph5-broker-protocol"
-edition = "2021"
+edition = "2024"
 description = "Broker protocol for Geph5"
 version.workspace = true
 repository.workspace = true

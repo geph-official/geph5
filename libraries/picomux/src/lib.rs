@@ -10,8 +10,8 @@ use std::{
     ops::Deref,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     task::Poll,
     time::{Duration, Instant},
@@ -24,10 +24,10 @@ use async_task::Task;
 use bdp::BwEstimate;
 use buffer_table::BufferTable;
 use bytes::Bytes;
-use frame::{Frame, CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN};
+use frame::{CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN, Frame};
 use futures_lite::{Future, FutureExt as LiteExt};
 use futures_util::{
-    future::Shared, io::BufReader, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt,
+    AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, future::Shared, io::BufReader,
 };
 
 use async_io::Timer;
@@ -348,8 +348,8 @@ async fn picomux_inner(
                 std::io::Error::new(ErrorKind::BrokenPipe, "open request channel died")
             })?;
             let stream_id = {
-                let mut rng = rand::thread_rng();
-                std::iter::repeat_with(|| rng.gen())
+                let mut rng = rand::rng();
+                std::iter::repeat_with(|| rng.random())
                     .find(|key| !buffer_table.contains_id(*key))
                     .unwrap()
             };
@@ -437,7 +437,7 @@ async fn picomux_inner(
                                     return Err(std::io::Error::new(
                                         ErrorKind::NotConnected,
                                         "dead",
-                                    ))
+                                    ));
                                 }
                             }
                         }
@@ -528,17 +528,17 @@ impl AsyncRead for Stream {
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        if fastrand::f32() < 0.1 {
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            let this = self.project();
-            let r = this.read_incoming.poll_read(cx, buf);
-            if r.is_ready() {
-                (this.on_read)(buf.len());
-            }
-            r
+        // if fastrand::f32() < 0.1 {
+        //     cx.waker().wake_by_ref();
+        //     Poll::Pending
+        // } else {
+        let this = self.project();
+        let r = this.read_incoming.poll_read(cx, buf);
+        if r.is_ready() {
+            (this.on_read)(buf.len());
         }
+        r
+        // }
     }
 }
 
