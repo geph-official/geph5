@@ -43,11 +43,10 @@ impl EyeballDialer {
                         smol::Timer::after(Duration::from_millis(500 * idx as u64)).await;
                         tracing::debug!(idx, addr = display(addr), "eyeballed to non-ideal");
                     }
-                    if addr.is_ipv6() {
-                        if let Some(my_addr) = my_addr {
+                    if addr.is_ipv6()
+                        && let Some(my_addr) = my_addr {
                             return connect_from(my_addr, addr).await;
                         }
-                    }
                     Ok(TcpStream::connect(addr).await?)
                 })
                 .collect();
@@ -194,15 +193,12 @@ async fn existing_ipv6_addresses(range: Ipv6Net, iface: &str) -> anyhow::Result<
         }
         let mut parts = line.split_whitespace();
         parts.next();
-        if let Some(addr_part) = parts.next() {
-            if let Some(addr_str) = addr_part.split('/').next() {
-                if let Ok(addr) = addr_str.parse::<Ipv6Addr>() {
-                    if range.contains(&addr) && !addrs.contains(&addr) {
+        if let Some(addr_part) = parts.next()
+            && let Some(addr_str) = addr_part.split('/').next()
+                && let Ok(addr) = addr_str.parse::<Ipv6Addr>()
+                    && range.contains(&addr) && !addrs.contains(&addr) {
                         addrs.push(addr);
                     }
-                }
-            }
-        }
     }
     Ok(addrs)
 }

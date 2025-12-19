@@ -60,8 +60,8 @@ pub async fn open_conn(
         dest_addr.to_string()
     };
 
-    if let Some((dest_host, _)) = dest_addr.rsplit_once(":") {
-        if whitelist_host(ctx, dest_host) {
+    if let Some((dest_host, _)) = dest_addr.rsplit_once(":")
+        && whitelist_host(ctx, dest_host) {
             let addrs = smol::net::resolve(&dest_addr).await?;
             for addr in addrs.iter() {
                 smart_vpn_whitelist(ctx, addr.ip());
@@ -72,7 +72,6 @@ pub async fn open_conn(
             );
             return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
         }
-    }
 
     let (send, recv) = oneshot::channel();
     let elem = (format!("{protocol}${dest_addr}"), send);

@@ -1,5 +1,5 @@
 use std::{
-    sync::{atomic::Ordering, LazyLock},
+    sync::LazyLock,
     time::Duration,
     usize,
 };

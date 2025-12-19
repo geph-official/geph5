@@ -389,8 +389,8 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
     let mut extra_headers = Vec::new();
 
     for connection in headers.get_all("Connection") {
-        if let Ok(conn) = connection.to_str() {
-            if !conn.eq_ignore_ascii_case("close") {
+        if let Ok(conn) = connection.to_str()
+            && !conn.eq_ignore_ascii_case("close") {
                 for header in conn.split(',') {
                     let header = header.trim();
 
@@ -399,12 +399,11 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
                     }
                 }
             }
-        }
     }
 
     for connection in headers.get_all("Proxy-Connection") {
-        if let Ok(conn) = connection.to_str() {
-            if !conn.eq_ignore_ascii_case("close") {
+        if let Ok(conn) = connection.to_str()
+            && !conn.eq_ignore_ascii_case("close") {
                 for header in conn.split(',') {
                     let header = header.trim();
 
@@ -413,7 +412,6 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
                     }
                 }
             }
-        }
     }
 
     for header in extra_headers {

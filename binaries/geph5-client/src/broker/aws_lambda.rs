@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use async_trait::async_trait;
-use aws_config::{timeout::TimeoutConfig, BehaviorVersion};
+use aws_config::{BehaviorVersion, timeout::TimeoutConfig};
 use aws_sdk_lambda::{config::Credentials, primitives::Blob};
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
@@ -49,7 +49,7 @@ impl RpcTransport for AwsLambdaTransport {
         let http_client = HyperClientBuilder::new().build(tls_connector);
 
         let client = aws_sdk_lambda::Client::new(
-            &aws_config::defaults(BehaviorVersion::v2024_03_28())
+            &aws_config::defaults(BehaviorVersion::v2025_08_07())
                 .region(string_to_static_str(self.region.clone()))
                 .credentials_provider(Credentials::new(
                     access_key_id,

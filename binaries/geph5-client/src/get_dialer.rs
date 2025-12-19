@@ -52,11 +52,10 @@ pub async fn get_dialer(
     > = |_| smol::lock::Mutex::new(None);
     let mut cached_value = ctx.get(SEMAPH).lock().await;
 
-    if let Some(inner) = cached_value.clone() {
-        if inner.3.elapsed()? < Duration::from_secs(120) {
+    if let Some(inner) = cached_value.clone()
+        && inner.3.elapsed()? < Duration::from_secs(120) {
             return Ok((inner.0, inner.1, inner.2));
         }
-    }
 
     let res = get_dialer_inner(ctx).await;
     match res {

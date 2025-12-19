@@ -2,15 +2,6 @@ use geph5_broker_protocol::BwConsumptionInfo;
 
 use super::POSTGRES;
 
-pub async fn basic_count() -> anyhow::Result<i64> {
-    let count: i64 = sqlx::query_scalar(
-        "select count(distinct user_id) from plus_periods where end_time > NOW() and tier = 0",
-    )
-    .fetch_one(&*POSTGRES)
-    .await?;
-    Ok(count)
-}
-
 pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumptionInfo>> {
     let total_mb_used: i32 = sqlx::query_scalar("select mb_used from bw_usage where id = $1")
         .bind(user_id)

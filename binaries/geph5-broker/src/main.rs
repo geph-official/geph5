@@ -4,16 +4,15 @@ use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
-use moka::future::Cache;
 use nano_influxdb::InfluxDbEndpoint;
-use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService};
+use nanorpc::{JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
 use database::self_stat::self_stat_loop;
 use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
-use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::Duration};
+use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf};
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 

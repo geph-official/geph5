@@ -201,7 +201,8 @@ pub(super) async fn packet_shuffle(
 
 #[cfg(target_os = "linux")]
 fn configure_tun_device() -> tun::platform::Device {
-    let device = tun::platform::Device::new(
+    
+    tun::platform::Device::new(
         tun::Configuration::default()
             .name("tun-geph")
             .address(FAKE_LOCAL_ADDR)
@@ -210,8 +211,7 @@ fn configure_tun_device() -> tun::platform::Device {
             .mtu(16384)
             .up(),
     )
-    .expect("could not initialize TUN device");
-    device
+    .expect("could not initialize TUN device")
 }
 
 struct SingleWhitelister {

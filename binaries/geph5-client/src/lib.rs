@@ -82,22 +82,20 @@ pub unsafe extern "C" fn daemon_rpc(
 pub unsafe extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
     let slice: &'static [u8] =
         unsafe { std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize) };
-    if let Some(client) = CLIENT.get() {
-        if let Ok(_) = smol::future::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
+    if let Some(client) = CLIENT.get()
+        && let Ok(_) = smol::future::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
         {
             return 0;
         }
-    }
     -1
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv_pkt(out_buf: *mut c_char, out_buflen: c_int) -> c_int {
-    if let Some(client) = CLIENT.get() {
-        if let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet()) {
+    if let Some(client) = CLIENT.get()
+        && let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet()) {
             return unsafe { fill_buffer(out_buf, out_buflen, &pkt) };
         }
-    }
     -1
 }
 
