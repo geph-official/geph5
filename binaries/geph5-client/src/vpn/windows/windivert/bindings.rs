@@ -231,7 +231,7 @@ fn bindgen_test_layout__OVERLAPPED() {
     );
 }
 pub type LPOVERLAPPED = *mut _OVERLAPPED;
-extern "C" {
+unsafe extern "C" {
     pub fn GetLastError() -> DWORD;
 }
 pub const WINDIVERT_LAYER_WINDIVERT_LAYER_NETWORK: WINDIVERT_LAYER = 0;
@@ -896,7 +896,7 @@ pub const WINDIVERT_EVENT_WINDIVERT_EVENT_SOCKET_CLOSE: WINDIVERT_EVENT = 7;
 pub const WINDIVERT_EVENT_WINDIVERT_EVENT_REFLECT_OPEN: WINDIVERT_EVENT = 8;
 pub const WINDIVERT_EVENT_WINDIVERT_EVENT_REFLECT_CLOSE: WINDIVERT_EVENT = 9;
 pub type WINDIVERT_EVENT = ::std::os::raw::c_int;
-extern "C" {
+unsafe extern "C" {
     pub fn WinDivertOpen(
         filter: *const ::std::os::raw::c_char,
         layer: WINDIVERT_LAYER,
@@ -904,7 +904,7 @@ extern "C" {
         flags: UINT64,
     ) -> HANDLE;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn WinDivertRecv(
         handle: HANDLE,
         pPacket: *mut ::std::os::raw::c_void,
@@ -913,7 +913,7 @@ extern "C" {
         pAddr: *mut WINDIVERT_ADDRESS,
     ) -> BOOL;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn WinDivertRecvEx(
         handle: HANDLE,
         pPacket: *mut ::std::os::raw::c_void,
@@ -925,7 +925,7 @@ extern "C" {
         lpOverlapped: LPOVERLAPPED,
     ) -> BOOL;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn WinDivertSend(
         handle: HANDLE,
         pPacket: *const ::std::os::raw::c_void,
@@ -934,7 +934,7 @@ extern "C" {
         pAddr: *const WINDIVERT_ADDRESS,
     ) -> BOOL;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn WinDivertSendEx(
         handle: HANDLE,
         pPacket: *const ::std::os::raw::c_void,
@@ -946,6 +946,6 @@ extern "C" {
         lpOverlapped: LPOVERLAPPED,
     ) -> BOOL;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn WinDivertClose(handle: HANDLE) -> BOOL;
 }
