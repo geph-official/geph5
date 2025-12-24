@@ -3,6 +3,8 @@ use async_channel::{Receiver, Sender};
 use chrono::Utc;
 use std::io::{self, Write};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+#[cfg(target_os = "ios")]
+use tracing_oslog::OsLogger;
 
 use crate::{client::Config, database::DATABASE};
 

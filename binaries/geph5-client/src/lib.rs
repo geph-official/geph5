@@ -119,6 +119,7 @@ mod tests {
     use smol::Timer;
 
     use super::*;
+    use serde_json::json;
     use std::{
         ffi::CString,
         net::{Ipv4Addr, SocketAddr},
@@ -186,10 +187,15 @@ mod tests {
 
         // call daemon_rpc;
         for _ in 0..2 {
+            let cred = geph5_broker_protocol::Credential::Secret(String::new());
             let jrpc_req = JrpcRequest {
                 jsonrpc: "2.0".into(),
-                method: "user_info".into(),
-                params: [].into(),
+                method: "broker_rpc".into(),
+                params: vec![
+                    json!("get_user_info_by_cred"),
+                    serde_json::to_value(vec![cred]).unwrap(),
+                ]
+                .into(),
                 id: nanorpc::JrpcId::Number(1),
             };
             let jrpc_req_str = CString::new(serde_json::to_string(&jrpc_req).unwrap()).unwrap();
@@ -203,6 +209,8 @@ mod tests {
             assert!(rpc_ret >= 0);
             let output = unsafe { CStr::from_ptr(out_buf_ptr) }.to_str().unwrap();
             println!("daemon_rpc output = {output}");
+            let resp: nanorpc::JrpcResponse = serde_json::from_str(output).unwrap();
+            assert!(resp.error.is_none(), "daemon_rpc error: {:?}", resp.error);
             smolscale::block_on(async { Timer::after(std::time::Duration::from_secs(1)).await });
         }
     }
