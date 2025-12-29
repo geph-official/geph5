@@ -109,7 +109,7 @@ pub enum Item {
     Basic,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct GiftcardInfo {
     pub recipient_email: String,
     pub sender: String,
