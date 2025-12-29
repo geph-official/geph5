@@ -70,6 +70,7 @@ impl RpcService for WrappedBrokerService {
         method: &str,
         params: Vec<serde_json::Value>,
     ) -> Option<Result<serde_json::Value, ServerError>> {
+        tracing::debug!(method, "calling respond()");
         let start = Instant::now();
         let resp = self.0.respond(method, params).await?;
         let method = method.to_string();
