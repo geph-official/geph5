@@ -102,7 +102,7 @@ pub struct StartCryptoArgs {
     pub token: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Item {
     Plus,
     Giftcard(GiftcardInfo),

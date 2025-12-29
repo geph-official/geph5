@@ -102,51 +102,67 @@ impl BrokerImpl {
         method: String,
         item: crate::payments::Item,
     ) -> Result<String, GenericError> {
-        let (method, promo) = method.split_once("+++").unwrap_or_else(|| (&method, ""));
-        let user_id = validate_credential(Credential::Secret(secret.clone())).await?;
-        let rpc = PaymentClient(PaymentTransport);
-        let sessid = payment_sessid(user_id).await?;
-        match method {
-            "credit-card" => Ok(rpc
-                .start_stripe_url(
-                    sessid,
-                    StartStripeArgs {
-                        promo: promo.to_string(),
-                        days: days as _,
-                        item,
-                        is_recurring: true,
-                    },
-                )
-                .await?
-                .map_err(GenericError)?),
-            "wechat" => Ok(rpc
-                .start_aliwechat(
-                    sessid,
-                    StartAliwechatArgs {
-                        promo: promo.to_string(),
-                        days: days as _,
-                        item,
-                        method: method.to_string(),
-                        mobile: false,
-                    },
-                )
-                .await?
-                .map_err(GenericError)?),
-            "alipay" => Ok(rpc
-                .start_aliwechat(
-                    sessid,
-                    StartAliwechatArgs {
-                        promo: promo.to_string(),
-                        days: days as _,
-                        item,
-                        method: method.to_string(),
-                        mobile: false,
-                    },
-                )
-                .await?
-                .map_err(GenericError)?),
-            _ => Err(GenericError("no support for this method here".to_string())),
-        }
+        static CACHE: LazyLock<Cache<(String, u32, String, crate::payments::Item), String>> =
+            LazyLock::new(|| {
+                Cache::builder()
+                    .time_to_live(Duration::from_secs(10))
+                    .build()
+            });
+
+        let cache_key = (secret.clone(), days, method.clone(), item.clone());
+        let url = CACHE
+            .try_get_with(cache_key, async move {
+                let (method, promo) = method.split_once("+++").unwrap_or_else(|| (&method, ""));
+                let method = method.to_string();
+                let promo = promo.to_string();
+                let user_id = validate_credential(Credential::Secret(secret)).await?;
+                let rpc = PaymentClient(PaymentTransport);
+                let sessid = payment_sessid(user_id).await?;
+                match method.as_str() {
+                    "credit-card" => Ok(rpc
+                        .start_stripe_url(
+                            sessid,
+                            StartStripeArgs {
+                                promo,
+                                days: days as _,
+                                item,
+                                is_recurring: true,
+                            },
+                        )
+                        .await?
+                        .map_err(GenericError)?),
+                    "wechat" => Ok(rpc
+                        .start_aliwechat(
+                            sessid,
+                            StartAliwechatArgs {
+                                promo,
+                                days: days as _,
+                                item,
+                                method: method.to_string(),
+                                mobile: false,
+                            },
+                        )
+                        .await?
+                        .map_err(GenericError)?),
+                    "alipay" => Ok(rpc
+                        .start_aliwechat(
+                            sessid,
+                            StartAliwechatArgs {
+                                promo,
+                                days: days as _,
+                                item,
+                                method: method.to_string(),
+                                mobile: false,
+                            },
+                        )
+                        .await?
+                        .map_err(GenericError)?),
+                    _ => Err(GenericError("no support for this method here".to_string())),
+                }
+            })
+            .await
+            .map_err(|e: Arc<GenericError>| e.deref().clone())?;
+        Ok(url)
     }
 
     async fn net_status_inner(&self) -> Result<NetStatus, GenericError> {
