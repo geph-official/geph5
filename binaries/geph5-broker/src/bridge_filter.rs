@@ -25,7 +25,7 @@ pub(crate) fn filter_raw_bridge_descriptors(
             {
                 return false;
             }
-            for only in ["CN", "TM"] {
+            for only in ["CN", "TM", "IR"] {
                 if meta.descriptor.pool.contains(only) {
                     return country == only;
                 }
