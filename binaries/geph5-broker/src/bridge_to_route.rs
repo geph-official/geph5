@@ -84,13 +84,9 @@ pub async fn bridge_to_leaf_route(
 
                 if let Ok(version) = semver::Version::parse(version) &&
                 VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
-                bridge.pool.contains("ovh_de") && // only have one group do this
-                (
-                    asn == 197207 || // hamrah-e avval
-                    asn == 44244 || // irancell
-                    asn == 58244 // TCI
-                )
-                  {
+                country.eq_ignore_ascii_case("IR") &&
+                bridge.pool.contains("IR")
+                {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()}, tls_route!().await?, sosistab3_route!().await?]).into(),
