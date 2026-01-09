@@ -84,8 +84,7 @@ pub async fn bridge_to_leaf_route(
 
                 if let Ok(version) = semver::Version::parse(version) &&
                 VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
-                country.eq_ignore_ascii_case("IR") &&
-                bridge.pool.contains("IR")
+                bridge.pool.contains("meeklike")
                 {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
