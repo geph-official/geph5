@@ -11,7 +11,7 @@ use sqlx::{
 use crate::CONFIG_FILE;
 
 static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
-    smolscale::block_on(
+    smol::future::block_on(
         PoolOptions::new()
             .max_connections(150)
             .acquire_timeout(Duration::from_secs(1))
