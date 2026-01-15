@@ -50,7 +50,6 @@ pub async fn bridge_to_leaf_route(
                             ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
                         )
                     )
-
                 });
                 defmac!(sosistab3_route => {
                     bridge_to_leaf_route_inner(
@@ -88,7 +87,7 @@ pub async fn bridge_to_leaf_route(
                 {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()}, tls_route!().await?, sosistab3_route!().await?]).into(),
+                        lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()},  sosistab3_route!().await?]).into(),
                     })
                 }
 
@@ -99,14 +98,14 @@ pub async fn bridge_to_leaf_route(
                 //     })
                 // } else
                 if !country.is_empty(){
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
-                    })
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
-                    //     lower: sosistab3_route!().await?.into(),
+                    //     lower: tls_route!().await?.into(),
                     // })
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: sosistab3_route!().await?.into(),
+                    })
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
