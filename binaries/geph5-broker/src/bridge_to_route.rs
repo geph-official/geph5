@@ -25,12 +25,18 @@ pub async fn bridge_to_leaf_route(
     asn: u32,
     version: &str,
 ) -> anyhow::Result<RouteDescriptor> {
+    let country_key: Arc<str> = country.to_ascii_uppercase().into();
+    let is_iran = &*country_key == "IR";
+
     // for cache coherence
     let mut bridge = bridge;
     bridge.expiry = 0;
 
     static CACHE: LazyLock<
-        Cache<(BridgeDescriptor, SocketAddr, u32), Result<RouteDescriptor, Arc<anyhow::Error>>>,
+        Cache<
+            (BridgeDescriptor, SocketAddr, u32, Arc<str>),
+            Result<RouteDescriptor, Arc<anyhow::Error>>,
+        >,
     > = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(600))
@@ -39,16 +45,18 @@ pub async fn bridge_to_leaf_route(
 
     CACHE
         .get_with(
-            (bridge.clone(), exit.b2e_listen, asn),
+            (bridge.clone(), exit.b2e_listen, asn, country_key.clone()),
             async {
                 defmac!(tls_route => {
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::Sosistab3New(
-                            gencookie(),
-                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-                        )
+                        ObfsProtocol::ConnTest(
+                            ObfsProtocol::Sosistab3New(
+                                gencookie(),
+                                ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                            ).into()
+                        ).into()
                     )
                 });
                 defmac!(sosistab3_route => {
@@ -85,9 +93,21 @@ pub async fn bridge_to_leaf_route(
                 VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
                 bridge.pool.contains("meeklike")
                 {
+                    let fallback_route = if is_iran {
+                        tls_route!().await?
+                    } else {
+                        sosistab3_route!().await?
+                    };
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Race(vec![RouteDescriptor::Delay{milliseconds: 10000, lower: meeklike_route!().await?.into()},  sosistab3_route!().await?]).into(),
+                        lower: RouteDescriptor::Race(vec![
+                            RouteDescriptor::Delay {
+                                milliseconds: 10000,
+                                lower: meeklike_route!().await?.into(),
+                            },
+                            fallback_route,
+                        ])
+                        .into(),
                     })
                 }
 
@@ -97,6 +117,12 @@ pub async fn bridge_to_leaf_route(
                 //         lower: tls_route!().await?.into(),
                 //     })
                 // } else
+                if is_iran {
+                    return anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: tls_route!().await?.into(),
+                    });
+                }
                 if !country.is_empty(){
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
