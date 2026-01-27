@@ -42,7 +42,7 @@ stdcode = "0.1.14"
 bytes = { version = "1.10.1", features = ["serde"] }
 argon2 = "0.5.3"
 rusty_pool = "0.7.0"
-oneshot = "0.1.11"
+oneshot = "0.1.12"
 cadence = "1.6.0"
 clap = { version = "4.5.41", features = ["derive"] }
 reqwest = { version = "0.12.22", default-features = false, features=["json", "rustls-tls-webpki-roots"] }

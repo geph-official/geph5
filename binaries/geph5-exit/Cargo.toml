@@ -60,7 +60,7 @@ async-io-bufpool = "0.2"
 
 tikv-jemallocator = "0.6"
 threadpool = "1.8.1"
-oneshot = "0.1.11"
+oneshot = "0.1.12"
 bytes = "1.10.1"
 simple-dns = "0.9.3"
 dashmap = "6.1.0"
