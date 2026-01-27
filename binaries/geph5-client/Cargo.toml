@@ -74,7 +74,7 @@ nanorpc = "0.1.13"
 nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }
 nursery_macro = "0.1.0"
 once_cell = "1.21.3"
-oneshot = "0.1.11"
+oneshot = "0.1.12"
 ordered-float = "5.0.0"
 parking_lot = "0.12.4"
 picomux = { version = "0.1.14", path = "../../libraries/picomux" }
