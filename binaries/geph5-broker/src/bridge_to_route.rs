@@ -26,7 +26,7 @@ pub async fn bridge_to_leaf_route(
     version: &str,
 ) -> anyhow::Result<RouteDescriptor> {
     let country_key: Arc<str> = country.to_ascii_uppercase().into();
-    let is_iran = &*country_key == "IR";
+    let is_iran = &*country_key == "IR" || bridge.pool.contains("IR");
 
     // for cache coherence
     let mut bridge = bridge;
@@ -207,7 +207,7 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
-            sni_domain: Some("labooyah-squish.be".into()),
+            sni_domain: Some("cdn77.com".into()),
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
