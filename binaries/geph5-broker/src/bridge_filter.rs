@@ -10,6 +10,8 @@ pub(crate) fn filter_raw_bridge_descriptors(
         .into_iter()
         .filter(|meta| account_level != AccountLevel::Free || !meta.is_plus)
         .filter(|meta| {
+            let pool = meta.descriptor.pool.as_str();
+
             // For China Plus users, filter out ovh.
             if country == "CN" && meta.china_fail_count > meta.china_success_count {
                 tracing::trace!(
@@ -26,7 +28,14 @@ pub(crate) fn filter_raw_bridge_descriptors(
                 return false;
             }
             for only in ["CN", "TM", "IR"] {
-                if meta.descriptor.pool.contains(only) {
+                let no_tag = format!("NO{only}");
+                if pool.contains(no_tag.as_str()) {
+                    if country == only {
+                        return false;
+                    }
+                    continue;
+                }
+                if pool.contains(only) {
                     return country == only;
                 }
             }
