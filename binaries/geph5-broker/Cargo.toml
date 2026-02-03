@@ -39,7 +39,7 @@ mizaru2 = { path = "../../libraries/mizaru2" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 smol-timeout2 = "0.6.1"
 stdcode = "0.1.14"
-bytes = { version = "1.10.1", features = ["serde"] }
+bytes = { version = "1.11.1", features = ["serde"] }
 argon2 = "0.5.3"
 rusty_pool = "0.7.0"
 oneshot = "0.1.11"

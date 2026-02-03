@@ -16,7 +16,7 @@ async-trait = "0.1.88"
 base64 = "0.22.1"
 bipe = "0.2.8"
 blake3 = "1.8.2"
-bytes = "1.10.1"
+bytes = "1.11.1"
 chacha20poly1305 = {version="0.10.1", features=["reduced-round"]}
 dashmap = "5.5.3"
 event-listener = "5.4.0"

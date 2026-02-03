@@ -14,7 +14,7 @@ async-native-tls = "0.5.0"
 async-trait = "0.1.88"
 atomic_float = "1.1.0"
 blake3 = "1.8.2"
-bytes = "1.10.1"
+bytes = "1.11.1"
 clap = { version = "4.5.41", features = ["derive"] }
 crossbeam-queue = "0.3.12"
 dashmap = "6.1.0"
