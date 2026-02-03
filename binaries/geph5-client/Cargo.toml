@@ -37,7 +37,7 @@ base64 = "0.22.1"
 blake3 = "1.8.2"
 blind-rsa-signatures = "0.15.2"
 derive_more = "=2.0.1"
-bytes = "1.10.1"
+bytes = "1.11.1"
 chrono = "0.4.41"
 clap = { version = "4.5.41", features = ["derive"] }
 clone-macro = "0.1.0"
