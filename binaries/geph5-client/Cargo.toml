@@ -11,7 +11,7 @@ windivert = []
 aws_lambda = ["aws-config", "aws-sdk-lambda", "aws-smithy-runtime"]
 
 [lib]
-crate-type = ["lib", "staticlib"]
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [target.aarch64-apple-ios]
 linker = "clang"

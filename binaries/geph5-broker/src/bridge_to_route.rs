@@ -26,7 +26,8 @@ pub async fn bridge_to_leaf_route(
     version: &str,
 ) -> anyhow::Result<RouteDescriptor> {
     let country_key: Arc<str> = country.to_ascii_uppercase().into();
-    let is_iran = &*country_key == "IR" || bridge.pool.contains("IR");
+    let blocked_iran = bridge.pool.contains("NOIR");
+    let is_iran = &*country_key == "IR" || (!blocked_iran && bridge.pool.contains("IR"));
 
     // for cache coherence
     let mut bridge = bridge;
