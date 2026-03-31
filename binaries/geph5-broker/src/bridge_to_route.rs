@@ -64,7 +64,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()
+                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()
                     )
 
                 });
@@ -120,7 +120,7 @@ pub async fn bridge_to_leaf_route(
                 } else if is_china_mobile_asn(asn) {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: meeklike_route!().await?.into(),
+                        lower: sosistab3_route!().await?.into(),
                     })
                 } else
                 // if is_iran {
@@ -243,7 +243,7 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         },
         ObfsProtocol::None => RouteDescriptor::Tcp(addr),
         ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
-            ping_count: 1,
+            ping_count: 3,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
