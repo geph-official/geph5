@@ -117,11 +117,6 @@ pub async fn bridge_to_leaf_route(
                         milliseconds: delay_ms,
                         lower: tls_route!().await?.into(),
                     })
-                } else if is_china_mobile_asn(asn) {
-                    return anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: plain_route!().await?.into(),
-                    })
                 } else
                 // if is_iran {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
@@ -161,41 +156,6 @@ pub async fn bridge_to_leaf_route(
         )
         .await
         .map_err(|e| anyhow::anyhow!(e))
-}
-
-fn is_china_mobile_asn(asn: u32) -> bool {
-    matches!(
-        asn,
-        // APNIC AS-SET AS9808:AS-CMNET members, plus active China Mobile province
-        // and China Mobile International origin ASNs observed in public BGP data.
-        9231
-            | 9808
-            | 9812
-            | 24059
-            | 24137
-            | 24311
-            | 24400
-            | 24409
-            | 24422
-            | 24444
-            | 24445
-            | 24547
-            | 38019
-            | 45108
-            | 45112
-            | 56040
-            | 56041
-            | 56042
-            | 56043
-            | 56044
-            | 56045
-            | 56046
-            | 56047
-            | 56048
-            | 58453
-            | 58807
-            | 209141
-    )
 }
 
 fn gencookie() -> String {
