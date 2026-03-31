@@ -66,7 +66,13 @@ pub async fn bridge_to_leaf_route(
                         exit.b2e_listen,
                         ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()
                     )
-
+                });
+                defmac!(weird_route => {
+                    bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()).into()
+                    )
                 });
                 defmac!(legacy_route => {
                     bridge_to_leaf_route_inner(
@@ -120,7 +126,7 @@ pub async fn bridge_to_leaf_route(
                 } else if is_china_mobile_asn(asn) {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: sosistab3_route!().await?.into(),
+                        lower: weird_route!().await?.into(),
                     })
                 } else
                 // if is_iran {
