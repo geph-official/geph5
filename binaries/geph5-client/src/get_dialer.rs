@@ -53,9 +53,10 @@ pub async fn get_dialer(
     let mut cached_value = ctx.get(SEMAPH).lock().await;
 
     if let Some(inner) = cached_value.clone()
-        && inner.3.elapsed()? < Duration::from_secs(120) {
-            return Ok((inner.0, inner.1, inner.2));
-        }
+        && inner.3.elapsed()? < Duration::from_secs(120)
+    {
+        return Ok((inner.0, inner.1, inner.2));
+    }
 
     let res = get_dialer_inner(ctx).await;
     match res {
@@ -163,6 +164,8 @@ async fn get_dialer_inner(
     smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
 
     tracing::debug!(token = %conn_token, "CONN TOKEN");
+
+    smol::Timer::after(Duration::from_secs(5)).await;
 
     // Also get potential “bridge routes”:
     let broker = broker_client(ctx)?;

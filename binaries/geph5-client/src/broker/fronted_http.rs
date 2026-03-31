@@ -1,12 +1,14 @@
 use std::{
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 
 use anyhow::Context;
 use async_trait::async_trait;
+use base64::{Engine as _, prelude::BASE64_STANDARD_NO_PAD};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
+use rand::Rng as _;
 use reqwest::dns::Resolve;
 
 pub struct FrontedHttpTransport {
@@ -19,7 +21,15 @@ pub struct FrontedHttpTransport {
 impl RpcTransport for FrontedHttpTransport {
     type Error = anyhow::Error;
     async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::trace!(
+        static POOL: LazyLock<reqwest::Client> = LazyLock::new(|| {
+            reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(60))
+                .build()
+                .unwrap()
+        });
+
+        tracing::debug!(
             method = req.method,
             url = self.url,
             host = debug(&self.host),
@@ -29,21 +39,21 @@ impl RpcTransport for FrontedHttpTransport {
         let mut request_builder = if let Some(dns) = &self.dns {
             reqwest::Client::builder()
                 .no_proxy()
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(60))
                 .dns_resolver(Arc::new(OverrideDnsResolve(dns.clone())))
                 .build()
+                .unwrap()
+                .post(&self.url)
+                .header("content-type", "application/json")
         } else {
-            reqwest::Client::builder()
-                .no_proxy()
-                .timeout(Duration::from_secs(10))
-                .build()
-        }
-        .unwrap()
-        .post(&self.url)
-        .header("content-type", "application/json");
+            POOL.post(&self.url)
+                .header("content-type", "application/json")
+        };
 
         if let Some(host) = &self.host {
-            request_builder = request_builder.header("Host", host);
+            request_builder = request_builder
+                .header("Host", host)
+                .header("X-Padding", random_padding_header());
         }
 
         let request_body = serde_json::to_vec(&req)?;
@@ -64,6 +74,13 @@ impl RpcTransport for FrontedHttpTransport {
         );
         Ok(serde_json::from_slice(&resp_bytes)?)
     }
+}
+
+fn random_padding_header() -> String {
+    let mut rng = rand::thread_rng();
+    let mut bytes = vec![0u8; rng.gen_range(7..=375)];
+    rng.fill(bytes.as_mut_slice());
+    BASE64_STANDARD_NO_PAD.encode(bytes)
 }
 
 struct OverrideDnsResolve(Vec<SocketAddr>);

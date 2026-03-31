@@ -2473,6 +2473,7 @@ dependencies = [
  "async-io 2.6.0",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "blake3",
  "blocking",
  "bytes",

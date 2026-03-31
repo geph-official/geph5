@@ -1,5 +1,10 @@
 use anyhow::Context;
-use axum::{Json, Router, routing::post};
+use axum::{
+    Json, Router,
+    response::{IntoResponse, Response},
+    routing::post,
+};
+use base64::{Engine as _, prelude::BASE64_STANDARD_NO_PAD};
 use clap::Parser;
 use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
@@ -11,6 +16,7 @@ use once_cell::sync::{Lazy, OnceCell};
 
 use database::self_stat::self_stat_loop;
 use rpc_impl::WrappedBrokerService;
+use rand::Rng as _;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::Duration};
@@ -209,7 +215,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
+async fn rpc(Json(payload): Json<JrpcRequest>) -> Response {
     // we assume the JrpcRequest IDs are reasonably unique, so we use this technique to deduplicate duplicate requests. Duplicate requests often happen when multiple different broker sources race against each other on censored networks.
     static DEDUP_CACHE: LazyLock<Cache<(JrpcId, String), JrpcResponse>> = LazyLock::new(|| {
         Cache::builder()
@@ -229,7 +235,19 @@ async fn rpc(Json(payload): Json<JrpcRequest>) -> Json<JrpcResponse> {
         .await;
 
     // let resp = WrappedBrokerService::new().respond_raw(payload).await;
-    Json(resp)
+    let mut response = Json(resp).into_response();
+    response.headers_mut().insert(
+        "X-Padding",
+        random_padding_header().parse().unwrap(),
+    );
+    response
+}
+
+fn random_padding_header() -> String {
+    let mut rng = rand::thread_rng();
+    let mut bytes = vec![0u8; rng.gen_range(7..=375)];
+    rng.fill(bytes.as_mut_slice());
+    BASE64_STANDARD_NO_PAD.encode(bytes)
 }
 
 fn log_error(e: &impl Debug) {

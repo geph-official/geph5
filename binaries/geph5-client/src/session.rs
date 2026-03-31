@@ -148,7 +148,7 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
                     (rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0),
                 );
                 let timeout_time = Duration::from_secs_f64(
-                    (rand::thread_rng().gen_range(8.0..15.0) * failures.exp2()).min(120.0),
+                    (rand::thread_rng().gen_range(30.0..60.0) * failures.exp2()).min(120.0),
                 );
                 let once = async {
                     let (authed_pipe, exit) = async {
