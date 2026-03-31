@@ -126,7 +126,7 @@ static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiv
         (a, b)
     };
 
-const MAX_CONCURRENCY: usize = 16;
+const MAX_CONCURRENCY: usize = 4;
 
 #[tracing::instrument(skip_all)]
 pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {

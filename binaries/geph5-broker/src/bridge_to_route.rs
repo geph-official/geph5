@@ -64,7 +64,7 @@ pub async fn bridge_to_leaf_route(
                     bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into())
+                        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()
                     )
 
                 });
@@ -112,27 +112,27 @@ pub async fn bridge_to_leaf_route(
                     })
                 }
 
-                // if asn == 9808 || asn == 56044 || asn == 56047 || asn == 58807 || asn == 56048 || asn == 56040 || asn == 56047 {
-                //      anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: tls_route!().await?.into(),
-                //     })
-                // } else
-                if is_iran {
+                if asn == 4837 || asn == 4808 {
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: tls_route!().await?.into(),
-                    });
-                }
-                if !country.is_empty(){
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
                     })
+                } else
+                // if is_iran {
+                //     return anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: tls_route!().await?.into(),
+                //     });
+                // }
+                if !country.is_empty(){
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
-                    //     lower: sosistab3_route!().await?.into(),
+                    //     lower: tls_route!().await?.into(),
                     // })
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: sosistab3_route!().await?.into(),
+                    })
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
