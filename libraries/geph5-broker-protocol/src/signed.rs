@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_with::serde_as;
 use stdcode::StdcodeSerializeExt;
 use thiserror::Error;

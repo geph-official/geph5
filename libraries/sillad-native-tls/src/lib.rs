@@ -4,7 +4,7 @@ use async_native_tls::{TlsAcceptor, TlsConnector, TlsStream};
 use async_trait::async_trait;
 use futures_lite::{AsyncRead, AsyncWrite};
 
-use sillad::{dialer::Dialer, listener::Listener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener};
 
 /// TlsPipe wraps a TLS stream to implement the Pipe trait.
 pub struct TlsPipe<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> {

@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::mem::MaybeUninit;
 
-use super::{bindings, Handle, InternalError, Layer};
+use super::{Handle, InternalError, Layer, bindings};
 use std::collections::VecDeque;
 
 pub struct PacketHandle {

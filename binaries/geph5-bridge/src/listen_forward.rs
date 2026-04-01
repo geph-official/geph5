@@ -2,8 +2,8 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, LazyLock,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -19,7 +19,7 @@ use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{PicoMux, Stream};
 use rand::Rng;
-use sillad::{dialer::Dialer, listener::Listener, tcp::TcpListener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener, tcp::TcpListener};
 use smol::future::FutureExt as _;
 use smol::io::AsyncWriteExt;
 use smol_timeout2::TimeoutExt;

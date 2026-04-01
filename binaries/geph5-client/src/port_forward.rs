@@ -5,7 +5,7 @@ use nursery_macro::nursery;
 use sillad::listener::Listener;
 use smol::future::FutureExt;
 
-use crate::{litecopy::litecopy, session::open_conn, Config};
+use crate::{Config, litecopy::litecopy, session::open_conn};
 
 pub async fn port_forward(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let tasks = ctx

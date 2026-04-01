@@ -1,8 +1,8 @@
 use std::{
     num::NonZeroU32,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -18,9 +18,9 @@ use smol_timeout2::TimeoutExt;
 use sysinfo::System;
 
 use crate::{
-    bw_accounting::BwAccount,
-    session::{SessionKey, RATE_LIMITER_CACHE},
     CONFIG_FILE,
+    bw_accounting::BwAccount,
+    session::{RATE_LIMITER_CACHE, SessionKey},
 };
 
 static CPU_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));

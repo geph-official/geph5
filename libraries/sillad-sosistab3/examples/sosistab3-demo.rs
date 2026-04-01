@@ -9,7 +9,7 @@ use sillad::{
     listener::Listener,
     tcp::{TcpDialer, TcpListener, TcpPipe},
 };
-use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie, SosistabPipe};
+use sillad_sosistab3::{Cookie, SosistabPipe, dialer::SosistabDialer, listener::SosistabListener};
 
 /// A simple CLI demo that tunnels TCP traffic through sosistab3.
 #[derive(Parser, Debug)]

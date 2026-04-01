@@ -13,7 +13,7 @@ use listen::listen_main;
 use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,

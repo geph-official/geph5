@@ -18,11 +18,11 @@ use sillad::{
     dialer::DialerExt,
     tcp::{TcpDialer, TcpListener},
 };
-use sillad_sosistab3::{listener::SosistabListener, Cookie};
+use sillad_sosistab3::{Cookie, listener::SosistabListener};
 use smol::future::FutureExt as _;
 
 use smol_timeout2::TimeoutExt;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

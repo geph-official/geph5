@@ -1,7 +1,7 @@
 use anyctx::AnyCtx;
 use event_listener::Event;
-use sqlx::{pool::PoolOptions, Row};
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{Row, pool::PoolOptions};
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::str::FromStr;
 use stdcode::StdcodeSerializeExt;
 

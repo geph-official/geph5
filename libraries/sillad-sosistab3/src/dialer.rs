@@ -9,7 +9,7 @@ use rand::{Rng, RngCore};
 use sillad::dialer::Dialer;
 use tap::Tap;
 
-use crate::{handshake::Handshake, state::State, Cookie, SosistabPipe};
+use crate::{Cookie, SosistabPipe, handshake::Handshake, state::State};
 
 pub struct SosistabDialer<D: Dialer> {
     pub inner: D,

@@ -8,7 +8,7 @@ use ahash::AHasher;
 use dashmap::DashMap;
 use futures_intrusive::sync::SharedSemaphore;
 
-use crate::{frame::Frame, INIT_WINDOW, MAX_WINDOW};
+use crate::{INIT_WINDOW, MAX_WINDOW, frame::Frame};
 
 #[allow(clippy::type_complexity)]
 type Inner = DashMap<

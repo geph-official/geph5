@@ -4,7 +4,7 @@ use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt};
 use picomux::{PicoMux, Stream};
 use rand::RngCore;
 
-use sillad::{listener::Listener, Pipe};
+use sillad::{Pipe, listener::Listener};
 
 use crate::command::Command;
 use crate::stack::{dummy_tls_acceptor, listener_from_stack, parse_stack};

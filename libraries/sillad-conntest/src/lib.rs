@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures_lite::FutureExt as _;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use rand::{Rng, RngCore};
-use sillad::{dialer::Dialer, listener::Listener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener};
 
 /// Wraps an underlying dialer with a connection quality test.
 pub struct ConnTestDialer<D: Dialer> {

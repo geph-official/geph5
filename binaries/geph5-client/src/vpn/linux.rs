@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{session::open_conn, spoof_dns::fake_dns_respond, Config};
+use crate::{Config, session::open_conn, spoof_dns::fake_dns_respond};
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
@@ -201,7 +201,6 @@ pub(super) async fn packet_shuffle(
 
 #[cfg(target_os = "linux")]
 fn configure_tun_device() -> tun::platform::Device {
-    
     tun::platform::Device::new(
         tun::Configuration::default()
             .name("tun-geph")

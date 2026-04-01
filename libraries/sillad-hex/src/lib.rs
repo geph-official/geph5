@@ -4,7 +4,7 @@ use async_task::Task;
 use async_trait::async_trait;
 use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use pin_project::pin_project;
-use sillad::{dialer::Dialer, listener::Listener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener};
 
 use bipe::{BipeReader, BipeWriter};
 

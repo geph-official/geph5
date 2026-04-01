@@ -1,5 +1,5 @@
 use std::{
-    io::{self, stdin, stdout, Read, Write},
+    io::{self, Read, Write, stdin, stdout},
     path::PathBuf,
     sync::Arc,
 };

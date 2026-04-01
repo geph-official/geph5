@@ -11,7 +11,7 @@ use anyhow::Context;
 #[cfg(feature = "aws_lambda")]
 use aws_lambda::AwsLambdaTransport;
 use fronted_http::FrontedHttpTransport;
-use geph5_broker_protocol::{BrokerClient, NetStatus, DOMAIN_NET_STATUS};
+use geph5_broker_protocol::{BrokerClient, DOMAIN_NET_STATUS, NetStatus};
 use itertools::Itertools;
 use nanorpc::DynRpcTransport;
 use priority_race::PriorityRaceTransport;

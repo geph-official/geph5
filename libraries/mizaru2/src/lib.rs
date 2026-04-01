@@ -4,8 +4,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::SystemTime,
 };

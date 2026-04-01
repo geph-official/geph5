@@ -5,13 +5,13 @@ use std::{
 
 use anyhow::Context;
 
-use futures_util::{io::BufReader, AsyncReadExt, AsyncWriteExt};
+use futures_util::{AsyncReadExt, AsyncWriteExt, io::BufReader};
 
 use smol::{future::FutureExt as _, net::UdpSocket};
 
 use crate::{
     allow::proxy_allowed,
-    dns::{dns_resolve, raw_dns_respond, FilterOptions},
+    dns::{FilterOptions, dns_resolve, raw_dns_respond},
     ipv6::EyeballDialer,
     ratelimit::RateLimiter,
 };

@@ -1,18 +1,18 @@
 use std::{
     fmt::Debug,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{Arc, atomic::AtomicU64},
     time::Duration,
     u64,
 };
 
 use async_event::Event;
-use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD_NO_PAD};
 use futures_concurrency::future::Race;
-use futures_util::{io::BufReader, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use futures_util::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, io::BufReader};
 use geph5_broker_protocol::BrokerClient;
 use mizaru2::{ClientToken, SingleUnblindedSignature};
 
-use crate::{broker::BrokerRpcTransport, CONFIG_FILE};
+use crate::{CONFIG_FILE, broker::BrokerRpcTransport};
 
 /// Process the client-to-exit bandwidth accounting protocol.
 #[tracing::instrument]

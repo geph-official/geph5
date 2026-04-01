@@ -5,7 +5,7 @@ use anyhow::Context;
 use async_task::Task;
 use bipe::{BipeReader, BipeWriter};
 use bytes::Bytes;
-use chacha20poly1305::{aead::Aead, ChaCha20Poly1305, KeyInit};
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit, aead::Aead};
 use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use pin_project::pin_project;
 use serde::{Deserialize, Serialize};

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bipe::{BipeReader, BipeWriter};
 use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use pin_project::pin_project;
-use sillad::{dialer::Dialer, listener::Listener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener};
 use smolscale::spawn;
 use std::{io, pin::Pin};
 

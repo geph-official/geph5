@@ -12,7 +12,7 @@ use bytes::Bytes;
 use globset::{Glob, GlobSet};
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
-use simple_dns::{rdata::RData, Name, Packet, PacketFlag, Question, CLASS, QCLASS, QTYPE, TYPE};
+use simple_dns::{CLASS, Name, Packet, PacketFlag, QCLASS, QTYPE, Question, TYPE, rdata::RData};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Copy, Default)]
 pub struct FilterOptions {

@@ -1,4 +1,4 @@
-use super::{bindings, Handle, InternalError, Layer};
+use super::{Handle, InternalError, Layer, bindings};
 use std::convert::TryInto;
 use std::{
     mem::MaybeUninit,

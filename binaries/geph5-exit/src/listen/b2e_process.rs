@@ -7,7 +7,7 @@ use sillad::listener::{DynListener, ListenerExt};
 use sillad_conntest::ConnTestListener;
 use sillad_hex::HexListener;
 use sillad_meeklike::MeeklikeListener;
-use sillad_sosistab3::{listener::SosistabListener, Cookie};
+use sillad_sosistab3::{Cookie, listener::SosistabListener};
 use tachyonix::Receiver;
 
 use super::{handle_client, tls::dummy_tls_config};

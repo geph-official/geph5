@@ -11,7 +11,7 @@ use event_listener::Event;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use stdcode::StdcodeSerializeExt;
-use virta::{stream_state::StreamState, StreamMessage};
+use virta::{StreamMessage, stream_state::StreamState};
 
 use crate::{
     crypto::PresharedSecret,
@@ -21,7 +21,7 @@ use futures_lite::FutureExt;
 use futures_util::io::{AsyncRead, AsyncWrite};
 
 use pin_project::pin_project;
-use sillad::{dialer::Dialer, listener::Listener, Pipe};
+use sillad::{Pipe, dialer::Dialer, listener::Listener};
 
 /// Configuration for Meeklike
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, Hash, PartialEq)]

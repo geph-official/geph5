@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use rand::Rng;
 use simple_dns::{Packet, QTYPE};
 
-use crate::{client::CtxField, Config};
+use crate::{Config, client::CtxField};
 
 static FAKE_DNS_FORWARD: CtxField<DashMap<String, Ipv4Addr>> = |_| DashMap::new();
 

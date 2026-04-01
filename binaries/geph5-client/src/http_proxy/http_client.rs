@@ -1,7 +1,7 @@
 use anyctx::AnyCtx;
 use async_compat::{Compat, CompatExt};
 use bytes::Bytes;
-use futures_util::{future::BoxFuture, FutureExt};
+use futures_util::{FutureExt, future::BoxFuture};
 use http_body_util::combinators::BoxBody;
 use hyper::Uri;
 use hyper_util::client::legacy::connect::Connection;
@@ -12,7 +12,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{self, Poll};
 
-use crate::{session::open_conn, Config};
+use crate::{Config, session::open_conn};
 
 use super::address::host_addr;
 use super::rt_compat::HyperRtCompat;

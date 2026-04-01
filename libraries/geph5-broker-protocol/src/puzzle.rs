@@ -1,5 +1,5 @@
 use anyhow::Context;
-use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 
 /// Generates the solution to a particular puzzle, calling a callback for progress.
 pub fn solve_puzzle(puzzle: &str, difficulty: u16, on_progress: impl Fn(f64)) -> String {

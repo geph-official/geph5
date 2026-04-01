@@ -7,7 +7,7 @@ use dashmap::DashMap;
 
 use smol_str::SmolStr;
 
-use crate::{client::CtxField, Config};
+use crate::{Config, client::CtxField};
 
 static NUM_STATS: CtxField<DashMap<SmolStr, AtomicF64>> = |_| DashMap::new();
 

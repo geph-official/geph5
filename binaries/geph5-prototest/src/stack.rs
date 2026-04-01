@@ -44,7 +44,7 @@ use sillad_conntest::{ConnTestDialer, ConnTestListener};
 use sillad_hex::{HexDialer, HexListener};
 use sillad_meeklike::{MeeklikeConfig, MeeklikeDialer, MeeklikeListener};
 use sillad_native_tls::{TlsDialer, TlsListener};
-use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer, listener::SosistabListener};
 use time::Duration as TimeDuration;
 use time::OffsetDateTime;
 

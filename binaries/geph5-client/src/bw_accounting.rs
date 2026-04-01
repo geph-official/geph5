@@ -1,10 +1,10 @@
-use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD_NO_PAD};
 use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 
 use stdcode::StdcodeSerializeExt;
 
-use crate::{auth::IS_PLUS, bw_token::bw_token_consume, client::CtxField, Config};
+use crate::{Config, auth::IS_PLUS, bw_token::bw_token_consume, client::CtxField};
 use anyctx::AnyCtx;
 use std::sync::atomic::Ordering;
 

@@ -33,8 +33,8 @@ mod macos;
 pub use macos::*;
 
 use crate::{
-    client::CtxField, litecopy::litecopy, session::open_conn, spoof_dns::fake_dns_respond,
-    taskpool::add_task, Config,
+    Config, client::CtxField, litecopy::litecopy, session::open_conn, spoof_dns::fake_dns_respond,
+    taskpool::add_task,
 };
 
 /// Whitelist a vpn address if needed

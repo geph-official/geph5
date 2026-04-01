@@ -13,7 +13,7 @@ use once_cell::sync::Lazy;
 use pnet_packet::{ipv4::Ipv4Packet, ipv6::Ipv6Packet};
 use smol::channel::{Receiver, Sender};
 
-use crate::{session::open_conn, Config};
+use crate::{Config, session::open_conn};
 
 pub(super) async fn packet_shuffle(
     ctx: AnyCtx<Config>,

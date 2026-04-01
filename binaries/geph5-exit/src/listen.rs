@@ -12,7 +12,7 @@ use mizaru2::{ClientToken, UnblindedSignature};
 use moka::future::Cache;
 use picomux::{LivenessConfig, PicoMux};
 
-use sillad::{listener::Listener, tcp::TcpListener, EitherPipe, Pipe};
+use sillad::{EitherPipe, Pipe, listener::Listener, tcp::TcpListener};
 use smol::future::FutureExt as _;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use stdcode::StdcodeSerializeExt;
@@ -23,15 +23,15 @@ mod b2e_process;
 mod tls;
 
 use crate::{
+    CONFIG_FILE, SIGNING_SECRET,
     auth::verify_user,
-    broker::{broker_loop, ACCEPT_FREE},
-    bw_accounting::{bw_accounting_loop, BwAccount},
-    ipv6::{configure_ipv6_routing, eyeball_addr_for_session, EyeballDialer},
+    broker::{ACCEPT_FREE, broker_loop},
+    bw_accounting::{BwAccount, bw_accounting_loop},
+    ipv6::{EyeballDialer, configure_ipv6_routing, eyeball_addr_for_session},
     proxy::proxy_stream,
-    ratelimit::{get_ratelimiter, RateLimiter},
+    ratelimit::{RateLimiter, get_ratelimiter},
     session::SessionKey,
     tasklimit::new_task_until_death,
-    CONFIG_FILE, SIGNING_SECRET,
 };
 
 pub async fn listen_main() -> anyhow::Result<()> {

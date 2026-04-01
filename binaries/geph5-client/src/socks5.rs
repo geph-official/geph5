@@ -9,8 +9,8 @@ use sillad::listener::Listener as _;
 use smol::future::FutureExt as _;
 use smol::{channel, net::UdpSocket};
 use socksv5::v5::{
-    read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
-    SocksV5Command, SocksV5Host, SocksV5RequestStatus,
+    SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, read_handshake,
+    read_request, write_auth_method, write_request_status,
 };
 use std::{
     collections::HashMap,

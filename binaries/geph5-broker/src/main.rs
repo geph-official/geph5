@@ -15,8 +15,8 @@ use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
 use database::self_stat::self_stat_loop;
-use rpc_impl::WrappedBrokerService;
 use rand::Rng as _;
+use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::Duration};
@@ -236,10 +236,9 @@ async fn rpc(Json(payload): Json<JrpcRequest>) -> Response {
 
     // let resp = WrappedBrokerService::new().respond_raw(payload).await;
     let mut response = Json(resp).into_response();
-    response.headers_mut().insert(
-        "X-Padding",
-        random_padding_header().parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("X-Padding", random_padding_header().parse().unwrap());
     response
 }
 

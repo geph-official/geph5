@@ -11,9 +11,9 @@ use pin_project::pin_project;
 use rand::Rng as _;
 
 use crate::{
+    Pipe,
     dialer::{Dialer, DialerExt},
     listener::Listener,
-    Pipe,
 };
 
 /// A TcpListener is a listener for TCP endpoints.

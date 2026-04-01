@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    sync::{atomic::AtomicUsize, LazyLock},
+    sync::{LazyLock, atomic::AtomicUsize},
     time::{Duration, SystemTime},
 };
 
@@ -8,7 +8,7 @@ use anyctx::AnyCtx;
 use arrayref::array_ref;
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
-use geph5_broker_protocol::{puzzle::solve_puzzle, NetStatus};
+use geph5_broker_protocol::{NetStatus, puzzle::solve_puzzle};
 
 use geph5_misc_rpc::client_control::{
     ConnInfo, ConnectedInfo, ControlProtocol, ControlService, NewsItem, RegistrationProgress,
@@ -16,12 +16,12 @@ use geph5_misc_rpc::client_control::{
 use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService, RpcTransport};
 use parking_lot::Mutex;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use slab::Slab;
 
 use crate::{
-    broker::get_net_status, broker_client, client::CtxField, logging::get_json_logs,
-    stats::stat_get_num, traffcount::TRAFF_COUNT, updates::get_update_manifest, Config,
+    Config, broker::get_net_status, broker_client, client::CtxField, logging::get_json_logs,
+    stats::stat_get_num, traffcount::TRAFF_COUNT, updates::get_update_manifest,
 };
 
 pub struct ControlProtocolImpl {

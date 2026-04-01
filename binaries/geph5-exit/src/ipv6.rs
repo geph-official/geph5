@@ -10,10 +10,10 @@ use futures_concurrency::future::RaceOk;
 use ipnet::Ipv6Net;
 use once_cell::sync::OnceCell;
 use rand::Rng;
-use smol::{net::TcpStream, process::Command, Async};
+use smol::{Async, net::TcpStream, process::Command};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use crate::{session::SessionKey, CONFIG_FILE};
+use crate::{CONFIG_FILE, session::SessionKey};
 
 static IPV6_POOL: OnceCell<Vec<Ipv6Addr>> = OnceCell::new();
 
@@ -44,9 +44,10 @@ impl EyeballDialer {
                         tracing::debug!(idx, addr = display(addr), "eyeballed to non-ideal");
                     }
                     if addr.is_ipv6()
-                        && let Some(my_addr) = my_addr {
-                            return connect_from(my_addr, addr).await;
-                        }
+                        && let Some(my_addr) = my_addr
+                    {
+                        return connect_from(my_addr, addr).await;
+                    }
                     Ok(TcpStream::connect(addr).await?)
                 })
                 .collect();
@@ -195,10 +196,12 @@ async fn existing_ipv6_addresses(range: Ipv6Net, iface: &str) -> anyhow::Result<
         parts.next();
         if let Some(addr_part) = parts.next()
             && let Some(addr_str) = addr_part.split('/').next()
-                && let Ok(addr) = addr_str.parse::<Ipv6Addr>()
-                    && range.contains(&addr) && !addrs.contains(&addr) {
-                        addrs.push(addr);
-                    }
+            && let Ok(addr) = addr_str.parse::<Ipv6Addr>()
+            && range.contains(&addr)
+            && !addrs.contains(&addr)
+        {
+            addrs.push(addr);
+        }
     }
     Ok(addrs)
 }

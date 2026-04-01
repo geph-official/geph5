@@ -13,11 +13,11 @@ use futures_concurrency::future::Race;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 
 use rand::{Rng, RngCore};
-use sillad::{listener::Listener, Pipe};
+use sillad::{Pipe, listener::Listener};
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
 
-use crate::{dedup::Dedup, handshake::Handshake, state::State, Cookie, SosistabPipe};
+use crate::{Cookie, SosistabPipe, dedup::Dedup, handshake::Handshake, state::State};
 
 const WAIT_INTERVAL: Duration = Duration::from_secs(300);
 

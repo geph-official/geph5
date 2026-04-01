@@ -2,8 +2,8 @@ use std::{
     net::IpAddr,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         LazyLock,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -11,18 +11,17 @@ use std::{
 use async_trait::async_trait;
 use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
-    BrokerClient, ExitDescriptor, JsonSigned, Mac, DOMAIN_EXIT_DESCRIPTOR,
+    BrokerClient, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, JsonSigned, Mac,
 };
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
 use tap::Tap;
 
 use crate::{
-    exit_metadata,
+    CONFIG_FILE, SIGNING_SECRET, exit_metadata,
     ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
     tasklimit::get_task_count,
-    CONFIG_FILE, SIGNING_SECRET,
 };
 
 pub static ACCEPT_FREE: AtomicBool = AtomicBool::new(false);

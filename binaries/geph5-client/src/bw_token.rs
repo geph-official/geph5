@@ -1,8 +1,4 @@
-use std::{
-    sync::LazyLock,
-    time::Duration,
-    usize,
-};
+use std::{sync::LazyLock, time::Duration, usize};
 
 use anyctx::AnyCtx;
 use anyhow::Context as _;
@@ -13,7 +9,7 @@ use mizaru2::{ClientToken, SingleUnblindedSignature};
 use rand::Rng;
 use stdcode::StdcodeSerializeExt;
 
-use crate::{auth::get_auth_token, broker_client, database::DATABASE, Config};
+use crate::{Config, auth::get_auth_token, broker_client, database::DATABASE};
 
 #[tracing::instrument(skip_all)]
 pub async fn bw_token_refresh_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {

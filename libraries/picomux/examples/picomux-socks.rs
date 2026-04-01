@@ -8,16 +8,16 @@ use sillad::{
     listener::Listener,
     tcp::{TcpDialer, TcpListener},
 };
-use sillad_sosistab3::{dialer::SosistabDialer, listener::SosistabListener, Cookie};
+use sillad_sosistab3::{Cookie, dialer::SosistabDialer, listener::SosistabListener};
 use socksv5::v5::{
-    read_handshake, read_request, write_auth_method, write_request_status, SocksV5AuthMethod,
-    SocksV5Host, SocksV5RequestStatus,
+    SocksV5AuthMethod, SocksV5Host, SocksV5RequestStatus, read_handshake, read_request,
+    write_auth_method, write_request_status,
 };
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 

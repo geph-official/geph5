@@ -41,6 +41,8 @@ use crate::{
 
 use super::Config;
 
+const MAX_CONCURRENCY: usize = 4;
+
 pub async fn open_conn(
     ctx: &AnyCtx<Config>,
     protocol: &str,
@@ -101,6 +103,32 @@ pub async fn open_conn(
     Ok(Box::new(conn))
 }
 
+#[tracing::instrument(skip_all)]
+pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
+    tracing::info!("(re)starting main logic");
+    let start = Instant::now();
+
+    tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
+
+    let _refresh = {
+        let ctx = ctx.clone();
+        smolscale::spawn(async move {
+            loop {
+                let sleep_secs = rand::thread_rng().gen_range(300..3600);
+                smol::Timer::after(Duration::from_secs(sleep_secs)).await;
+                let _ = get_dialer(&ctx).await;
+            }
+        })
+    };
+
+    join_all(
+        (0..MAX_CONCURRENCY)
+            .map(|session_id| smolscale::spawn(run_client_session(ctx.clone(), session_id))),
+    )
+    .await;
+    unreachable!()
+}
+
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if host.is_empty() || host.contains("[") {
         return false;
@@ -126,112 +154,93 @@ static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiv
         (a, b)
     };
 
-const MAX_CONCURRENCY: usize = 4;
+#[tracing::instrument(skip_all, fields(session_id))]
+async fn run_client_session(ctx: AnyCtx<Config>, session_id: usize) -> Infallible {
+    let mut failures = 0.0f64;
+    // Sleep depending on which session this is so they do not all reconnect at once.
+    let sleep_secs = (session_id as f64) + rand::thread_rng().gen_range(0.0..10.0);
+    smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
 
-#[tracing::instrument(skip_all)]
-pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
-    tracing::info!("(re)starting main logic");
-    let start = Instant::now();
-
-    tracing::debug!(elapsed = debug(start.elapsed()), "raw dialer constructed");
-
-    #[allow(unreachable_code)]
-    let instance_thread = |instance| {
-        let ctx = ctx.clone();
-        smolscale::spawn(async move {
-            let mut failures = 0.0f64;
-            // sleep depending on which instance this is
-            let sleep_secs = (instance as f64) + rand::thread_rng().gen_range(0.0..1.0);
-            smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-            loop {
-                let wait_time = Duration::from_secs_f64(
-                    (rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0),
-                );
-                let timeout_time = Duration::from_secs_f64(
-                    (rand::thread_rng().gen_range(30.0..60.0) * failures.exp2()).min(120.0),
-                );
-                let once = async {
-                    let (authed_pipe, exit) = async {
-                        let (pubkey, exit, raw_dialer) = get_dialer(&ctx).await?;
-                        let start = Instant::now();
-                        let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
-                        tracing::debug!(
-                            instance,
-                            elapsed = debug(start.elapsed()),
-                            protocol = raw_pipe.protocol(),
-                            "dial completed"
-                        );
-
-                        let authed_pipe = client_auth(&ctx, raw_pipe, pubkey, instance)
-                            .await
-                            .context("could not client auth")?;
-
-                        tracing::debug!(
-                            instance,
-                            elapsed = debug(start.elapsed()),
-                            "authentication done, starting mux system"
-                        );
-                        anyhow::Ok((authed_pipe, exit))
-                    }
-                    .timeout(timeout_time)
-                    .await
-                    .context("overall dial/mux/auth timeout")??;
-
-                    *ctx.get(CURRENT_CONNECTED_INFO).lock() = Some(ConnectedInfo {
-                        protocol: authed_pipe.protocol().to_string(),
-                        bridge: authed_pipe
-                            .remote_addr()
-                            .map(|s| s.to_string())
-                            .unwrap_or_default(),
-                        exit: exit.clone(),
-                    });
-                    ctx.get(CURRENT_ACTIVE_SESSIONS)
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    scopeguard::defer!({
-                        ctx.get(CURRENT_ACTIVE_SESSIONS)
-                            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                    });
-                    let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
-                    failures = 0.0;
-                    proxy_loop(ctx.clone(), authed_pipe, instance)
-                        .await
-                        .context(format!("inner connection to {addr} failed"))
-                };
-                if let Err(err) = once.await {
-                    failures += 1.0;
-                    tracing::warn!(
-                        instance,
-                        err = debug(&err),
-                        wait_time = debug(wait_time),
-                        "individual client thread failed..."
-                    );
-                    smol::Timer::after(wait_time).await;
-                    tracing::warn!(instance, wait_time = debug(wait_time), "retrying now!");
-                }
-            }
-        })
-    };
-
-    let _refresh = {
-        let ctx = ctx.clone();
-        smolscale::spawn(async move {
-            loop {
-                let sleep_secs = rand::thread_rng().gen_range(300..3600);
-                smol::Timer::after(Duration::from_secs(sleep_secs)).await;
-                let _ = get_dialer(&ctx).await;
-            }
-        })
-    };
-
-    join_all((0..MAX_CONCURRENCY).map(instance_thread)).await;
-    unreachable!()
+    loop {
+        let wait_time = Duration::from_secs_f64(
+            (rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0),
+        );
+        let timeout_time = Duration::from_secs_f64(
+            (rand::thread_rng().gen_range(30.0..60.0) * failures.exp2()).min(120.0),
+        );
+        if let Err(err) =
+            run_client_session_once(&ctx, session_id, timeout_time, &mut failures).await
+        {
+            failures += 1.0;
+            tracing::warn!(
+                err = debug(&err),
+                wait_time = debug(wait_time),
+                "individual client thread failed..."
+            );
+            smol::Timer::after(wait_time).await;
+            tracing::warn!(wait_time = debug(wait_time), "retrying now!");
+        } else {
+            failures = 0.0;
+        }
+    }
 }
 
-#[tracing::instrument(skip_all, fields(instance=instance, server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
+async fn run_client_session_once(
+    ctx: &AnyCtx<Config>,
+    session_id: usize,
+    timeout_time: Duration,
+    failures: &mut f64,
+) -> anyhow::Result<()> {
+    let (authed_pipe, exit) = async {
+        let (pubkey, exit, raw_dialer) = get_dialer(ctx).await?;
+        let start = Instant::now();
+        let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
+        tracing::debug!(
+            elapsed = debug(start.elapsed()),
+            protocol = raw_pipe.protocol(),
+            "dial completed"
+        );
+
+        let authed_pipe = client_auth(ctx, raw_pipe, pubkey, session_id)
+            .await
+            .context("could not client auth")?;
+
+        tracing::debug!(
+            elapsed = debug(start.elapsed()),
+            "authentication done, starting mux system"
+        );
+        anyhow::Ok((authed_pipe, exit))
+    }
+    .timeout(timeout_time)
+    .await
+    .context("overall dial/mux/auth timeout")??;
+
+    *ctx.get(CURRENT_CONNECTED_INFO).lock() = Some(ConnectedInfo {
+        protocol: authed_pipe.protocol().to_string(),
+        bridge: authed_pipe
+            .remote_addr()
+            .map(|s| s.to_string())
+            .unwrap_or_default(),
+        exit: exit.clone(),
+    });
+    ctx.get(CURRENT_ACTIVE_SESSIONS)
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    scopeguard::defer!({
+        ctx.get(CURRENT_ACTIVE_SESSIONS)
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
+    *failures = 0.0;
+    proxy_loop(ctx.clone(), authed_pipe, session_id)
+        .await
+        .context(format!("inner connection to {addr} failed"))
+}
+
+#[tracing::instrument(skip_all, fields(session_id=session_id, server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
 async fn proxy_loop(
     ctx: AnyCtx<Config>,
     authed_pipe: impl Pipe,
-    instance: usize,
+    session_id: usize,
 ) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
@@ -277,7 +286,7 @@ async fn proxy_loop(
     }
     .or(mux.wait_until_dead())
     .or(async {
-        if instance == 0 && ctx.get(IS_PLUS).load(Ordering::SeqCst) {
+        if session_id == 0 && ctx.get(IS_PLUS).load(Ordering::SeqCst) {
             bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting-2").await?).await
         } else {
             smol::future::pending().await
@@ -286,12 +295,12 @@ async fn proxy_loop(
     .await
 }
 
-#[tracing::instrument(skip_all, fields(instance=instance, pubkey = hex::encode(pubkey.as_bytes())))]
+#[tracing::instrument(skip_all, fields(session_id=session_id, pubkey = hex::encode(pubkey.as_bytes())))]
 async fn client_auth(
     ctx: &AnyCtx<Config>,
     mut pipe: impl Pipe,
     pubkey: VerifyingKey,
-    instance: usize,
+    session_id: usize,
 ) -> anyhow::Result<impl Pipe> {
     let server = pipe.remote_addr().unwrap_or("").to_string();
 

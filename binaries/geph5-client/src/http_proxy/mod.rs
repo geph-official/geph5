@@ -215,16 +215,16 @@ use anyctx::AnyCtx;
 use async_compat::CompatExt;
 use bytes::Bytes;
 use futures_util::{
-    future::{self, Either},
     FutureExt,
+    future::{self, Either},
 };
 use http::{
-    uri::{Authority, Scheme},
     HeaderMap, HeaderValue, Method, Uri, Version,
+    uri::{Authority, Scheme},
 };
-use http_body_util::{combinators::BoxBody, BodyExt, Either as HttpEither, Empty, Full};
+use http_body_util::{BodyExt, Either as HttpEither, Empty, Full, combinators::BoxBody};
 use hyper::{
-    body::Incoming, service::service_fn, upgrade::Upgraded, Request, Response, StatusCode,
+    Request, Response, StatusCode, body::Incoming, service::service_fn, upgrade::Upgraded,
 };
 use tokio::task::JoinSet;
 
@@ -287,9 +287,9 @@ fn make_bad_request() -> Response<HttpEither<BoxBody<Bytes, hyper::Error>, Empty
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::{session::open_conn, Config};
+use crate::{Config, session::open_conn};
 
-use self::address::{host_addr, Address};
+use self::address::{Address, host_addr};
 fn authority_addr(scheme_str: Option<&str>, authority: &Authority) -> Option<Address> {
     // RFC7230 indicates that we should ignore userinfo
     // https://tools.ietf.org/html/rfc7230#section-5.3.3
@@ -390,28 +390,30 @@ fn clear_hop_headers(headers: &mut HeaderMap<HeaderValue>) {
 
     for connection in headers.get_all("Connection") {
         if let Ok(conn) = connection.to_str()
-            && !conn.eq_ignore_ascii_case("close") {
-                for header in conn.split(',') {
-                    let header = header.trim();
+            && !conn.eq_ignore_ascii_case("close")
+        {
+            for header in conn.split(',') {
+                let header = header.trim();
 
-                    if !header.eq_ignore_ascii_case("keep-alive") {
-                        extra_headers.push(header.to_owned());
-                    }
+                if !header.eq_ignore_ascii_case("keep-alive") {
+                    extra_headers.push(header.to_owned());
                 }
             }
+        }
     }
 
     for connection in headers.get_all("Proxy-Connection") {
         if let Ok(conn) = connection.to_str()
-            && !conn.eq_ignore_ascii_case("close") {
-                for header in conn.split(',') {
-                    let header = header.trim();
+            && !conn.eq_ignore_ascii_case("close")
+        {
+            for header in conn.split(',') {
+                let header = header.trim();
 
-                    if !header.eq_ignore_ascii_case("keep-alive") {
-                        extra_headers.push(header.to_owned());
-                    }
+                if !header.eq_ignore_ascii_case("keep-alive") {
+                    extra_headers.push(header.to_owned());
                 }
             }
+        }
     }
 
     for header in extra_headers {

@@ -1,17 +1,17 @@
 use std::{
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use async_channel::{Receiver, Sender};
 use async_compat::CompatExt;
 use async_task::Task;
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures_lite::FutureExt;
 use http_body_util::BodyExt;
-use hyper::{body::Incoming, service::service_fn, Method, Request, Response, StatusCode};
+use hyper::{Method, Request, Response, StatusCode, body::Incoming, service::service_fn};
 use hyper_util::rt::TokioIo;
 use rand::Rng;
 use sillad::{dialer::Dialer, listener::Listener};
@@ -19,8 +19,8 @@ use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
-    crypto::{Datagram, PresharedSecret},
     MeeklikeConfig,
+    crypto::{Datagram, PresharedSecret},
 };
 
 /// An unreliable datagram connection.

@@ -1,7 +1,7 @@
 use arrayref::array_ref;
 use chacha20poly1305::{
-    aead::{AeadInPlace, OsRng},
     AeadCore,
+    aead::{AeadInPlace, OsRng},
 };
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 

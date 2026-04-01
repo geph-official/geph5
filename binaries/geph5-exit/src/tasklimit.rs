@@ -1,5 +1,5 @@
 use std::{
-    sync::{atomic::AtomicUsize, LazyLock},
+    sync::{LazyLock, atomic::AtomicUsize},
     time::Duration,
 };
 
