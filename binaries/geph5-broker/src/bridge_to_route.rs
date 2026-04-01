@@ -118,23 +118,29 @@ pub async fn bridge_to_leaf_route(
                     })
                 }
 
-                if asn == 4837 || asn == 4808 {
-                    return anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
-                    })
-                } else if is_china_mobile_asn(asn) {
-                    return anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: weird_route!().await?.into(),
-                    })
-                } else
+                // if asn == 4837 || asn == 4808 {
+                //     return anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: tls_route!().await?.into(),
+                //     })
+                // } else if is_china_mobile_asn(asn) {
+                //     return anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: weird_route!().await?.into(),
+                //     })
+                // } else
                 // if is_iran {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
                 //         lower: tls_route!().await?.into(),
                 //     });
                 // }
+                if country == "CN"{
+                    anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: weird_route!().await?.into(),
+                    })
+                } else 
                 if !country.is_empty(){
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
