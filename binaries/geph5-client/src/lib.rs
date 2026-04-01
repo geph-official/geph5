@@ -1,15 +1,14 @@
+use std::ffi::CStr;
 use std::ffi::c_char;
 use std::ffi::c_int;
-use std::ffi::CStr;
 use std::io::Write;
 
-pub use broker::broker_client;
 pub use broker::BrokerSource;
+pub use broker::broker_client;
 use bytes::Bytes;
 pub use client::Client;
 pub use client::{BrokerKeys, Config};
-
-pub use get_dialer::ExitConstraint;
+pub use geph5_broker_protocol::ExitConstraint;
 use nanorpc::JrpcRequest;
 use nanorpc::RpcTransport;
 use once_cell::sync::OnceCell;
@@ -84,18 +83,19 @@ pub unsafe extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
         unsafe { std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize) };
     if let Some(client) = CLIENT.get()
         && let Ok(_) = smol::future::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
-        {
-            return 0;
-        }
+    {
+        return 0;
+    }
     -1
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv_pkt(out_buf: *mut c_char, out_buflen: c_int) -> c_int {
     if let Some(client) = CLIENT.get()
-        && let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet()) {
-            return unsafe { fill_buffer(out_buf, out_buflen, &pkt) };
-        }
+        && let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet())
+    {
+        return unsafe { fill_buffer(out_buf, out_buflen, &pkt) };
+    }
     -1
 }
 

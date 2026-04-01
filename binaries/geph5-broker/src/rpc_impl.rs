@@ -7,9 +7,10 @@ use ed25519_dalek::VerifyingKey;
 use futures_util::{TryFutureExt, future::join_all};
 use geph5_broker_protocol::{
     AccountLevel, AuthError, AvailabilityData, BridgeDescriptor, BrokerProtocol, BrokerService,
-    Credential, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_NET_STATUS, ExitCategory, ExitDescriptor, ExitList,
-    ExitMetadata, GenericError, GetRoutesArgs, JsonSigned, LegacyNewsItem, Mac, NetStatus,
-    RouteDescriptor, StdcodeSigned, UserInfo, VoucherInfo,
+    Credential, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_EXIT_ROUTE, DOMAIN_NET_STATUS, ExitCategory,
+    ExitConstraint, ExitDescriptor, ExitList, ExitMetadata, ExitRouteDescriptor, GenericError,
+    GetExitRouteArgs, GetRoutesArgs, JsonSigned, LegacyNewsItem, Mac, NetStatus, RouteDescriptor,
+    StdcodeSigned, UserInfo, VoucherInfo,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
 use influxdb_line_protocol::LineProtocolBuilder;
@@ -224,6 +225,178 @@ fn default_exit_metadata(country: &CountryCode) -> ExitMetadata {
     }
 }
 
+fn authenticate_account_level(
+    token: ClientToken,
+    sig: &UnblindedSignature,
+) -> Result<AccountLevel, GenericError> {
+    if PLUS_MIZARU_SK
+        .to_public_key()
+        .blind_verify(token, sig)
+        .is_ok()
+    {
+        Ok(AccountLevel::Plus)
+    } else {
+        FREE_MIZARU_SK.to_public_key().blind_verify(token, sig)?;
+        Ok(AccountLevel::Free)
+    }
+}
+
+async fn parse_client_location(
+    client_metadata: &serde_json::Value,
+) -> Result<(u32, String), GenericError> {
+    if let Some(ip_addr) = client_metadata["ip_addr"]
+        .as_str()
+        .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
+    {
+        ip_to_asn_country(ip_addr).await.map_err(Into::into)
+    } else {
+        Ok((0, "".to_string()))
+    }
+}
+
+fn select_exit_with_constraint(
+    rendezvous_key: blake3::Hash,
+    constraint: &ExitConstraint,
+    level: AccountLevel,
+    net_status: &NetStatus,
+) -> Result<(VerifyingKey, ExitDescriptor), GenericError> {
+    if matches!(constraint, ExitConstraint::Direct(_)) {
+        return Err(GenericError(
+            "direct constraints must not be sent to the broker".into(),
+        ));
+    }
+
+    let mut country_constraint = None;
+    let mut city_constraint = None;
+    let mut hostname_constraint = None;
+
+    match constraint {
+        ExitConstraint::Hostname(host) => hostname_constraint = Some(host.as_str()),
+        ExitConstraint::Country(country) => country_constraint = Some(*country),
+        ExitConstraint::CountryCity(country, city) => {
+            country_constraint = Some(*country);
+            city_constraint = Some(city.as_str());
+        }
+        ExitConstraint::Auto => {}
+        ExitConstraint::Direct(_) => unreachable!(),
+    }
+
+    let filtered: Vec<_> = net_status
+        .exits
+        .values()
+        .filter(|(_, exit, meta)| {
+            let mut pass = country_constraint.is_none_or(|country| exit.country == country);
+            pass &= city_constraint.is_none_or(|city| exit.city == city);
+            pass &= hostname_constraint
+                .is_none_or(|hostname| exit.b2e_listen.ip().to_string() == hostname);
+            if matches!(constraint, ExitConstraint::Auto) {
+                pass &= meta.category == ExitCategory::Core;
+            }
+            pass &= meta.allowed_levels.contains(&level);
+            pass
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        return Err(GenericError("no exits match the constraints".into()));
+    }
+
+    let (pubkey, exit, _) = filtered
+        .into_iter()
+        .min_by(|(_, left, _), (_, right, _)| {
+            exit_rendezvous_score(rendezvous_key, left)
+                .total_cmp(&exit_rendezvous_score(rendezvous_key, right))
+        })
+        .unwrap();
+    Ok((*pubkey, exit.clone()))
+}
+
+fn exit_rendezvous_score(rendezvous_key: blake3::Hash, exit: &ExitDescriptor) -> f64 {
+    let hash = blake3::keyed_hash(
+        rendezvous_key.as_bytes(),
+        exit.b2e_listen.ip().to_string().as_bytes(),
+    );
+    let hash =
+        u64::from_be_bytes(hash.as_bytes()[..8].try_into().unwrap()) as f64 / u64::MAX as f64;
+    let weight = (1.0 - (exit.load as f64)).powi(2);
+    -hash.ln() / weight
+}
+
+async fn find_exit_by_b2e(exit_b2e: SocketAddr) -> Result<ExitDescriptor, GenericError> {
+    BrokerImpl {}
+        .net_status_inner()
+        .await?
+        .exits
+        .into_values()
+        .map(|(_, descriptor, _)| descriptor)
+        .find(|descriptor| descriptor.b2e_listen == exit_b2e)
+        .context("cannot find this exit")
+        .map_err(Into::into)
+}
+
+async fn build_route_for_exit(
+    token: ClientToken,
+    account_level: AccountLevel,
+    exit: &ExitDescriptor,
+    client_metadata: &serde_json::Value,
+) -> Result<RouteDescriptor, GenericError> {
+    let (asn, country) = parse_client_location(client_metadata).await?;
+
+    for attempt in 0u64.. {
+        let raw_descriptors = query_bridges(&format!("{:?}-{attempt}", token)).await?;
+        let raw_descriptors =
+            filter_raw_bridge_descriptors(raw_descriptors, account_level, &country);
+        if raw_descriptors.is_empty() {
+            if attempt < 10 {
+                tracing::warn!(
+                    attempt,
+                    asn,
+                    country,
+                    "EMPTY descriptor list, retrying with a new key..."
+                );
+                continue;
+            } else {
+                return Err(GenericError("no bridges available".into()));
+            }
+        }
+
+        let version = client_metadata["version"]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let mut routes = vec![];
+        for route in (join_all(raw_descriptors.into_iter().map(|meta| {
+            let bridge = meta.descriptor.control_listen;
+            let exit_b2e = exit.b2e_listen;
+            bridge_to_leaf_route(
+                meta.descriptor,
+                meta.delay_ms,
+                exit,
+                &country,
+                asn,
+                &version,
+            )
+            .inspect_err(move |err| {
+                tracing::warn!(
+                    err = debug(err),
+                    bridge = debug(bridge),
+                    exit = debug(exit_b2e),
+                    "failed to call bridge_to_leaf_route"
+                )
+            })
+        }))
+        .await)
+            .into_iter()
+            .flatten()
+        {
+            routes.push(route);
+        }
+        return Ok(RouteDescriptor::Race(routes));
+    }
+
+    unreachable!()
+}
+
 #[async_trait]
 impl BrokerProtocol for BrokerImpl {
     async fn opaque_abtest(&self, test: String, id: u64) -> bool {
@@ -392,104 +565,36 @@ impl BrokerProtocol for BrokerImpl {
         get_user_info(user_id?).await
     }
 
+    async fn get_exit_route(
+        &self,
+        args: GetExitRouteArgs,
+    ) -> Result<JsonSigned<ExitRouteDescriptor>, GenericError> {
+        let account_level = authenticate_account_level(args.token, &args.sig)?;
+        let net_status = self.net_status_inner().await?;
+        let rendezvous_key = blake3::hash(format!("{:?}", args.token).as_bytes());
+        let (exit_pubkey, exit) = select_exit_with_constraint(
+            rendezvous_key,
+            &args.exit_constraint,
+            account_level,
+            &net_status,
+        )?;
+        let route =
+            build_route_for_exit(args.token, account_level, &exit, &args.client_metadata).await?;
+        Ok(JsonSigned::new(
+            ExitRouteDescriptor {
+                exit_pubkey,
+                exit,
+                route,
+            },
+            DOMAIN_EXIT_ROUTE,
+            MASTER_SECRET.deref(),
+        ))
+    }
+
     async fn get_routes_v2(&self, args: GetRoutesArgs) -> Result<RouteDescriptor, GenericError> {
-        // authenticate the token
-        let account_level = if PLUS_MIZARU_SK
-            .to_public_key()
-            .blind_verify(args.token, &args.sig)
-            .is_ok()
-        {
-            AccountLevel::Plus
-        } else {
-            FREE_MIZARU_SK
-                .to_public_key()
-                .blind_verify(args.token, &args.sig)?;
-
-            AccountLevel::Free
-        };
-
-        // get the exit
-        let exit = self
-            .net_status_inner()
-            .await?
-            .exits
-            .into_values()
-            .map(|(_, d, _)| d)
-            .find(|exit| exit.b2e_listen == args.exit_b2e)
-            .context("cannot find this exit")?;
-
-        let direct_route = None;
-        let (asn, country) = if let Some(ip_addr) = args.client_metadata["ip_addr"]
-            .as_str()
-            .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
-        {
-            ip_to_asn_country(ip_addr).await?
-        } else {
-            (0, "".to_string())
-        };
-
-        for attempt in 0u64.. {
-            let raw_descriptors = query_bridges(&format!("{:?}-{attempt}", args.token)).await?;
-            let raw_descriptors =
-                filter_raw_bridge_descriptors(raw_descriptors, account_level, &country);
-            if raw_descriptors.is_empty() {
-                if attempt < 10 {
-                    tracing::warn!(
-                        attempt,
-                        asn,
-                        country,
-                        "EMPTY descriptor list, retrying with a new key..."
-                    );
-                    continue;
-                } else {
-                    return Err(GenericError("no bridges available".into()));
-                }
-            }
-
-            let mut routes = vec![];
-            let version = args.client_metadata["version"]
-                .as_str()
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            for route in (join_all(raw_descriptors.into_iter().map(|meta| {
-                let bridge = meta.descriptor.control_listen;
-                bridge_to_leaf_route(
-                    meta.descriptor,
-                    meta.delay_ms,
-                    &exit,
-                    &country,
-                    asn,
-                    &version,
-                )
-                .inspect_err(move |err| {
-                    tracing::warn!(
-                        err = debug(err),
-                        bridge = debug(bridge),
-                        exit = debug(args.exit_b2e),
-                        "failed to call bridge_to_leaf_route"
-                    )
-                })
-            }))
-            .await)
-                .into_iter()
-                .flatten()
-            {
-                routes.push(route)
-            }
-
-            return Ok(if let Some(route) = direct_route {
-                RouteDescriptor::Race(vec![
-                    route,
-                    RouteDescriptor::Delay {
-                        milliseconds: 2000,
-                        lower: RouteDescriptor::Race(routes).into(),
-                    },
-                ])
-            } else {
-                RouteDescriptor::Race(routes)
-            });
-        }
-        unreachable!()
+        let account_level = authenticate_account_level(args.token, &args.sig)?;
+        let exit = find_exit_by_b2e(args.exit_b2e).await?;
+        build_route_for_exit(args.token, account_level, &exit, &args.client_metadata).await
     }
 
     async fn get_routes(
@@ -782,6 +887,138 @@ impl BrokerProtocol for BrokerImpl {
         // 3. Generate a reference ID for the debug pack
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::SigningKey;
+    use isocountry::CountryCode;
+
+    use super::*;
+
+    fn sample_net_status() -> NetStatus {
+        let exits = [
+            (
+                "a".to_string(),
+                (
+                    SigningKey::from_bytes(&[1; 32]).verifying_key(),
+                    ExitDescriptor {
+                        c2e_listen: "10.0.0.1:443".parse().unwrap(),
+                        b2e_listen: "10.0.0.1:8443".parse().unwrap(),
+                        country: CountryCode::CAN,
+                        city: "Toronto".into(),
+                        load: 0.2,
+                        expiry: 1,
+                    },
+                    ExitMetadata {
+                        allowed_levels: vec![AccountLevel::Free, AccountLevel::Plus],
+                        category: ExitCategory::Core,
+                    },
+                ),
+            ),
+            (
+                "b".to_string(),
+                (
+                    SigningKey::from_bytes(&[2; 32]).verifying_key(),
+                    ExitDescriptor {
+                        c2e_listen: "10.0.0.2:443".parse().unwrap(),
+                        b2e_listen: "10.0.0.2:8443".parse().unwrap(),
+                        country: CountryCode::CAN,
+                        city: "Toronto".into(),
+                        load: 0.4,
+                        expiry: 1,
+                    },
+                    ExitMetadata {
+                        allowed_levels: vec![AccountLevel::Free, AccountLevel::Plus],
+                        category: ExitCategory::Streaming,
+                    },
+                ),
+            ),
+            (
+                "c".to_string(),
+                (
+                    SigningKey::from_bytes(&[3; 32]).verifying_key(),
+                    ExitDescriptor {
+                        c2e_listen: "10.0.0.3:443".parse().unwrap(),
+                        b2e_listen: "10.0.0.3:8443".parse().unwrap(),
+                        country: CountryCode::NLD,
+                        city: "Amsterdam".into(),
+                        load: 0.1,
+                        expiry: 1,
+                    },
+                    ExitMetadata {
+                        allowed_levels: vec![AccountLevel::Plus],
+                        category: ExitCategory::Core,
+                    },
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        NetStatus { exits }
+    }
+
+    #[test]
+    fn auto_constraint_only_picks_core_exits() {
+        let net_status = sample_net_status();
+        let (_, exit) = select_exit_with_constraint(
+            blake3::hash(b"seed"),
+            &ExitConstraint::Auto,
+            AccountLevel::Free,
+            &net_status,
+        )
+        .unwrap();
+        assert_eq!(exit.b2e_listen, "10.0.0.1:8443".parse().unwrap());
+    }
+
+    #[test]
+    fn hostname_constraint_matches_ip_string() {
+        let net_status = sample_net_status();
+        let (_, exit) = select_exit_with_constraint(
+            blake3::hash(b"seed"),
+            &ExitConstraint::Hostname("10.0.0.3".into()),
+            AccountLevel::Plus,
+            &net_status,
+        )
+        .unwrap();
+        assert_eq!(exit.city, "Amsterdam");
+    }
+
+    #[test]
+    fn direct_constraint_is_rejected() {
+        let net_status = sample_net_status();
+        assert!(
+            select_exit_with_constraint(
+                blake3::hash(b"seed"),
+                &ExitConstraint::Direct("10.0.0.3:443/abc".into()),
+                AccountLevel::Plus,
+                &net_status,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn token_seed_is_deterministic() {
+        let net_status = sample_net_status();
+        let first = select_exit_with_constraint(
+            blake3::hash(b"token-a"),
+            &ExitConstraint::Country(CountryCode::CAN),
+            AccountLevel::Free,
+            &net_status,
+        )
+        .unwrap()
+        .1;
+        let second = select_exit_with_constraint(
+            blake3::hash(b"token-a"),
+            &ExitConstraint::Country(CountryCode::CAN),
+            AccountLevel::Free,
+            &net_status,
+        )
+        .unwrap()
+        .1;
+        assert_eq!(first.b2e_listen, second.b2e_listen);
     }
 }
 

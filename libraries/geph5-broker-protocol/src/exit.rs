@@ -9,7 +9,7 @@ use isocountry::CountryCode;
 use language_tags::LanguageTag;
 use serde::{Deserialize, Serialize};
 
-use crate::AccountLevel;
+use crate::{AccountLevel, RouteDescriptor};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 /// This fully describes a particular exit.
@@ -75,6 +75,23 @@ impl NetStatus {
 pub struct ExitMetadata {
     pub allowed_levels: Vec<AccountLevel>,
     pub category: ExitCategory,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ExitConstraint {
+    Auto,
+    Direct(String),
+    Hostname(String),
+    Country(CountryCode),
+    CountryCity(CountryCode, String),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExitRouteDescriptor {
+    pub exit_pubkey: VerifyingKey,
+    pub exit: ExitDescriptor,
+    pub route: RouteDescriptor,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,20 +2,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
-
-use arrayref::array_ref;
 use async_native_tls::TlsConnector;
 use ed25519_dalek::VerifyingKey;
-
 use geph5_broker_protocol::{
-    AccountLevel, ExitCategory, ExitDescriptor, GetRoutesArgs, NetStatus, RouteDescriptor,
+    DOMAIN_EXIT_ROUTE, ExitConstraint, ExitDescriptor, ExitRouteDescriptor, GetExitRouteArgs,
+    JsonSigned, RouteDescriptor,
 };
-
 use isocountry::CountryCode;
-use itertools::Itertools;
-use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
-use serde::{Deserialize, Serialize};
 use sillad::{
     dialer::{DialerExt, DynDialer, FailingDialer},
     tcp::TcpDialer,
@@ -27,21 +21,11 @@ use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 
 use crate::{
     auth::get_connect_token,
-    broker::{broker_client, get_net_status},
+    broker::broker_client,
     client::{Config, CtxField},
     device_metadata::get_device_metadata,
     vpn::smart_vpn_whitelist,
 };
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum ExitConstraint {
-    Auto,
-    Direct(String),
-    Hostname(String),
-    Country(CountryCode),
-    CountryCity(CountryCode, String),
-}
 
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
 pub async fn get_dialer(
@@ -79,7 +63,6 @@ pub async fn get_dialer(
 async fn get_dialer_inner(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
-    // If the user specified a direct constraint, handle that path immediately:
     if let ExitConstraint::Direct(dir) = &ctx.init().exit_constraint {
         let (dir, pubkey_hex) = dir
             .split_once('/')
@@ -114,23 +97,9 @@ async fn get_dialer_inner(
         ));
     }
 
-    // Otherwise, we need to pick an exit from the broker based on user constraints.
-    let (level, conn_token, sig) = get_connect_token(ctx)
+    let (_level, conn_token, sig) = get_connect_token(ctx)
         .await
         .context("could not get connect token")?;
-
-    let net_status_verified = get_net_status(ctx).await?;
-
-    tracing::debug!(
-        "verified netstatus: {}",
-        serde_json::to_string(
-            &net_status_verified
-                .exits
-                .iter()
-                .map(|s| &s.1.1)
-                .collect_vec()
-        )?
-    );
 
     let start = Instant::now();
     let metadata = match get_device_metadata(ctx).await {
@@ -151,40 +120,55 @@ async fn get_dialer_inner(
         }
     };
 
-    // Use our new helper function to pick the best exit:
-    let rendezvous_key = blake3::hash(serde_json::to_string(&ctx.init().credentials)?.as_bytes());
-    let (pubkey, exit) = pick_exit_with_constraint(
-        rendezvous_key,
-        &ctx.init().exit_constraint,
-        level,
-        &net_status_verified,
-    )?;
-
-    tracing::debug!(exit = ?exit, "narrowed down choice of exit");
-    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
-
     tracing::debug!(token = %conn_token, "CONN TOKEN");
-
-    smol::Timer::after(Duration::from_secs(5)).await;
-
-    // Also get potential “bridge routes”:
     let broker = broker_client(ctx)?;
-    let bridge_routes = broker
-        .get_routes_v2(GetRoutesArgs {
+    let exit_route = broker
+        .get_exit_route(GetExitRouteArgs {
             token: conn_token,
             sig,
-            exit_b2e: exit.b2e_listen,
+            exit_constraint: ctx.init().exit_constraint.clone(),
             client_metadata: metadata,
         })
         .await?
-        .map_err(|e| anyhow::anyhow!("broker refused to serve bridge routes: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("broker refused to serve exit routes: {e}"))?;
+    let ExitRouteDescriptor {
+        exit_pubkey,
+        exit,
+        route,
+    } = verify_exit_route(ctx, exit_route)?;
 
-    tracing::debug!(
-        "bridge routes obtained: {}",
-        serde_json::to_string(&bridge_routes)?
-    );
+    tracing::debug!(exit = ?exit, "broker selected exit");
+    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
+    tracing::debug!("exit route obtained: {}", serde_json::to_string(&route)?);
 
-    let combined_routes = if ctx.init().allow_direct {
+    let combined_routes = combine_exit_route(exit.clone(), route, ctx.init().allow_direct);
+    let bridge_dialer = route_to_dialer(ctx, &combined_routes);
+
+    Ok((exit_pubkey, exit, bridge_dialer))
+}
+
+fn verify_exit_route(
+    ctx: &AnyCtx<Config>,
+    signed: JsonSigned<ExitRouteDescriptor>,
+) -> anyhow::Result<ExitRouteDescriptor> {
+    signed
+        .verify(DOMAIN_EXIT_ROUTE, |their_pk| {
+            if let Some(broker_pk) = &ctx.init().broker_keys {
+                hex::encode(their_pk.as_bytes()) == broker_pk.master
+            } else {
+                tracing::warn!("trusting exit route blindly since broker_keys was not provided");
+                true
+            }
+        })
+        .context("could not verify exit route")
+}
+
+fn combine_exit_route(
+    exit: ExitDescriptor,
+    route: RouteDescriptor,
+    allow_direct: bool,
+) -> RouteDescriptor {
+    if allow_direct {
         RouteDescriptor::Race(vec![
             RouteDescriptor::ConnTest {
                 ping_count: 1,
@@ -192,87 +176,12 @@ async fn get_dialer_inner(
             },
             RouteDescriptor::Delay {
                 milliseconds: 1000,
-                lower: Box::new(bridge_routes),
+                lower: Box::new(route),
             },
         ])
     } else {
-        bridge_routes
-    };
-    let bridge_dialer = route_to_dialer(ctx, &combined_routes);
-
-    Ok((*pubkey, exit.clone(), bridge_dialer))
-}
-
-/// A helper that filters the verified exits by the user’s `ExitConstraint`,
-/// then picks the exit with the lowest load.
-fn pick_exit_with_constraint<'a>(
-    rendezvous_key: blake3::Hash,
-    constraint: &ExitConstraint,
-    level: AccountLevel,
-    net_status: &'a NetStatus,
-) -> anyhow::Result<(&'a VerifyingKey, &'a ExitDescriptor)> {
-    let all_exits = net_status.exits.values();
-
-    // Figure out which fields we need to match
-    let mut country_constraint = None;
-    let mut city_constraint = None;
-    let mut hostname_constraint = None;
-
-    match constraint {
-        ExitConstraint::Hostname(host) => hostname_constraint = Some(host.clone()),
-        ExitConstraint::Country(country) => country_constraint = Some(*country),
-        ExitConstraint::CountryCity(country, city) => {
-            country_constraint = Some(*country);
-            city_constraint = Some(city.clone());
-        }
-        ExitConstraint::Auto => {}
-        ExitConstraint::Direct(_) => panic!("should not reach here"),
+        route
     }
-
-    let filtered: Vec<_> = all_exits
-        .filter(|(_, exit, meta)| {
-            let mut pass = if let Some(c) = country_constraint {
-                exit.country == c
-            } else {
-                true
-            };
-            pass &= match &city_constraint {
-                Some(city) => exit.city == *city,
-                None => true,
-            };
-            pass &= match &hostname_constraint {
-                Some(hn) => exit.b2e_listen.ip().to_string() == *hn,
-                None => true,
-            };
-            if matches!(constraint, ExitConstraint::Auto) {
-                pass &= meta.category == ExitCategory::Core;
-            }
-            pass &= meta.allowed_levels.contains(&level);
-            pass
-        })
-        .collect();
-
-    if filtered.is_empty() {
-        anyhow::bail!("no exits match the constraints")
-    }
-
-    // If any matched, we use load-sensitive rendezvous hashing
-    let first = filtered
-        .iter()
-        .min_by_key(|rh| {
-            let (_, exit, _) = **rh;
-            let hash = blake3::keyed_hash(
-                rendezvous_key.as_bytes(),
-                exit.b2e_listen.ip().to_string().as_bytes(),
-            );
-            let hash = &hash.as_bytes()[..];
-            let hash = u64::from_be_bytes(*array_ref![hash, 0, 8]) as f64 / u64::MAX as f64;
-            let weight = (1.0 - (exit.load as f64)).powi(2);
-            let picker = -hash.ln() / weight;
-            OrderedFloat(picker)
-        })
-        .unwrap();
-    Ok((&first.0, &first.1))
 }
 
 fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
@@ -282,13 +191,7 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Tcp(addr) => {
             smart_vpn_whitelist(ctx, addr.ip());
             let addr = *addr;
-            // if addr.ip() != IpAddr::V4(Ipv4Addr::new(175, 29, 23, 236))
-            // && addr.ip() != IpAddr::V4(Ipv4Addr::new(175, 29, 23, 240))
-            // if addr.ip() != IpAddr::V4(Ipv4Addr::new(207, 148, 98, 13)) {
-            //     FailingDialer.dynamic()
-            // } else {
             TcpDialer { dest_addr: addr }.dynamic()
-            // }
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
             let inner = route_to_dialer(ctx, lower);
@@ -357,6 +260,95 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
                 key: *blake3::hash(key.as_bytes()).as_bytes(),
             }
             .dynamic()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::SigningKey;
+
+    use super::*;
+    use crate::client::{BrokerKeys, Config};
+
+    fn test_config() -> Config {
+        Config {
+            socks5_listen: None,
+            http_proxy_listen: None,
+            pac_listen: None,
+            control_listen: None,
+            exit_constraint: ExitConstraint::Auto,
+            allow_direct: false,
+            cache: None,
+            broker: None,
+            broker_keys: None,
+            port_forward: vec![],
+            vpn: false,
+            vpn_fd: None,
+            spoof_dns: false,
+            passthrough_china: false,
+            dry_run: true,
+            credentials: Default::default(),
+            sess_metadata: serde_json::Value::Null,
+            task_limit: None,
+        }
+    }
+
+    fn sample_exit() -> ExitDescriptor {
+        ExitDescriptor {
+            c2e_listen: "127.0.0.1:9000".parse().unwrap(),
+            b2e_listen: "127.0.0.1:9001".parse().unwrap(),
+            country: CountryCode::CAN,
+            city: "Toronto".into(),
+            load: 0.1,
+            expiry: 1,
+        }
+    }
+
+    #[test]
+    fn verify_exit_route_rejects_bad_signature() {
+        let trusted = SigningKey::from_bytes(&[4; 32]);
+        let attacker = SigningKey::from_bytes(&[5; 32]);
+        let mut cfg = test_config();
+        cfg.broker_keys = Some(BrokerKeys {
+            master: hex::encode(trusted.verifying_key().as_bytes()),
+            mizaru_free: String::new(),
+            mizaru_plus: String::new(),
+            mizaru_bw: String::new(),
+        });
+        let ctx = AnyCtx::new(cfg);
+        let signed = JsonSigned::new(
+            ExitRouteDescriptor {
+                exit_pubkey: attacker.verifying_key(),
+                exit: sample_exit(),
+                route: RouteDescriptor::Tcp("127.0.0.1:9002".parse().unwrap()),
+            },
+            DOMAIN_EXIT_ROUTE,
+            &attacker,
+        );
+        assert!(verify_exit_route(&ctx, signed).is_err());
+    }
+
+    #[test]
+    fn combine_exit_route_wraps_direct_path() {
+        let exit = sample_exit();
+        let combined = combine_exit_route(
+            exit.clone(),
+            RouteDescriptor::Tcp("127.0.0.1:9002".parse().unwrap()),
+            true,
+        );
+        match combined {
+            RouteDescriptor::Race(routes) => {
+                assert_eq!(routes.len(), 2);
+                match &routes[0] {
+                    RouteDescriptor::ConnTest { lower, .. } => match lower.as_ref() {
+                        RouteDescriptor::Tcp(addr) => assert_eq!(*addr, exit.c2e_listen),
+                        _ => panic!("expected direct tcp route"),
+                    },
+                    _ => panic!("expected direct route"),
+                }
+            }
+            _ => panic!("expected race route"),
         }
     }
 }

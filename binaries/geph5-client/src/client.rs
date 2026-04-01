@@ -3,9 +3,9 @@ use anyctx::AnyCtx;
 use anyhow::Context;
 use bytes::Bytes;
 use futures_util::{
-    future::Shared, task::noop_waker, AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt,
+    AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt, future::Shared, task::noop_waker,
 };
-use geph5_broker_protocol::{Credential, UserInfo};
+use geph5_broker_protocol::{Credential, ExitConstraint, UserInfo};
 use geph5_misc_rpc::client_control::{ControlClient, ControlService};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
@@ -17,10 +17,9 @@ use smolscale::immortal::Immortal;
 
 use crate::{
     auth::{auth_loop, get_auth_token},
-    broker::{broker_client, BrokerSource},
+    broker::{BrokerSource, broker_client},
     bw_token::bw_token_refresh_loop,
     control_prot::{ControlProtocolImpl, DummyControlProtocolTransport},
-    get_dialer::ExitConstraint,
     http_proxy::http_proxy_serve,
     logging,
     pac::pac_serve,
