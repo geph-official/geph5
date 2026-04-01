@@ -78,16 +78,7 @@ pub async fn open_conn(
 
     let (send, recv) = oneshot::channel();
     let elem = (format!("{protocol}${dest_addr}"), send);
-    if ctx
-        .get(CONN_REQ_CHAN)
-        .0
-        .send(elem)
-        .timeout(Duration::from_millis(100))
-        .await
-        .is_none()
-    {
-        anyhow::bail!("no session picked up our request")
-    }
+    ctx.get(CONN_REQ_CHAN).0.send(elem).await?;
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
@@ -150,15 +141,15 @@ type ChanElem = (String, oneshot::Sender<picomux::Stream>);
 
 static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiver<ChanElem>)> =
     |_| {
-        let (a, b) = kanal::bounded_async(0);
+        let (a, b) = kanal::unbounded_async();
         (a, b)
     };
 
-#[tracing::instrument(skip_all, fields(session_id))]
+#[tracing::instrument(skip_all, fields(session_id = session_id))]
 async fn run_client_session(ctx: AnyCtx<Config>, session_id: usize) -> Infallible {
     let mut failures = 0.0f64;
     // Sleep depending on which session this is so they do not all reconnect at once.
-    let sleep_secs = (session_id as f64) + rand::thread_rng().gen_range(0.0..10.0);
+    let sleep_secs = (session_id as f64) * rand::thread_rng().gen_range(0.0..60.0);
     smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
 
     loop {
