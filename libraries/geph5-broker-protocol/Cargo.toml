@@ -22,7 +22,7 @@ blake3 = { version = "1.5.1", features = ["serde"] }
 isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
 serde_with = { version = "3.14.0", features = ["hex"] }
-mizaru2 = { version = "0.2.15", path = "../mizaru2" }
+mizaru2 = { version = "0.2.16", path = "../mizaru2" }
 sillad-meeklike = { version = "0.1", path = "../sillad-meeklike" }
 tracing = "0.1.41"
 melpow = "0.1.2"
