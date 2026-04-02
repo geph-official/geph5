@@ -118,11 +118,12 @@ pub async fn bridge_to_leaf_route(
                     })
                 }
 
-                // if asn == 4837 || asn == 4808 {
-                //     return anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: tls_route!().await?.into(),
-                //     })
+                if asn == 4837 || asn == 4808 {
+                    return anyhow::Ok(RouteDescriptor::Delay {
+                        milliseconds: delay_ms,
+                        lower: tls_route!().await?.into(),
+                    })
+                } else
                 // } else if is_china_mobile_asn(asn) {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
