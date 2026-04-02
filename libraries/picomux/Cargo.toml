@@ -14,7 +14,7 @@ async-task = "4.7.1"
 async_io_stream = "0.3.3"
 bipe = "0.2"
 bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics"] }
-bytes = "1.10.1"
+bytes = "1.11.1"
 dashmap = "6.1.0"
 futures-lite = "2.6.0"
 futures-util = { version = "0.3.31", features = ["io"] }
