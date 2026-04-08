@@ -256,11 +256,11 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         },
         ObfsProtocol::None => RouteDescriptor::Tcp(addr),
         ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
-            ping_count: 3,
+            ping_count: 1,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
-            sni_domain: Some("cdn77.com".into()),
+            sni_domain: Some("linode.com".into()),
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
