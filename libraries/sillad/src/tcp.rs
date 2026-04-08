@@ -126,13 +126,36 @@ pub struct TcpDialer {
 impl Dialer for TcpDialer {
     type P = TcpPipe;
     async fn dial(&self) -> std::io::Result<Self::P> {
-        let inner = Async::<TcpStream>::connect(self.dest_addr)
-            .await
-            .inspect_err(|e| tracing::warn!("inner dial failed: {:?}", e))?;
+        let inner = loop {
+            match Async::<TcpStream>::connect(self.dest_addr).await {
+                Ok(inner) => break inner,
+                Err(err) if should_retry_connect(&err) => {
+                    tracing::warn!(
+                        err = debug(&err),
+                        addr = display(self.dest_addr),
+                        "retrying TCP connect after OS-level timeout"
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!("inner dial failed: {:?}", err);
+                    return Err(err);
+                }
+            }
+        };
         let _ =
             set_tcp_options(&inner).inspect_err(|e| tracing::warn!("tcp option set fail: {:?}", e));
         Ok(TcpPipe(inner, self.dest_addr.to_string()))
     }
+}
+
+#[cfg(windows)]
+fn should_retry_connect(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::TimedOut || err.raw_os_error() == Some(10060)
+}
+
+#[cfg(not(windows))]
+fn should_retry_connect(_: &std::io::Error) -> bool {
+    false
 }
 
 #[pin_project]
