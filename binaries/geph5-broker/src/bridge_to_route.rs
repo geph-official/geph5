@@ -139,7 +139,12 @@ pub async fn bridge_to_leaf_route(
                 if country == "CN"{
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
+                        lower: if rand::random::<bool>() {
+                            tls_route!().await?
+                        } else {
+                            weird_route!().await?
+                        }
+                        .into(),
                     })
                 } else 
                 if !country.is_empty(){

@@ -10,6 +10,7 @@ use futures_intrusive::sync::ManualResetEvent;
 use geph5_broker_protocol::{AccountLevel, AuthError};
 use mizaru2::{ClientToken, UnblindedSignature};
 use rand::Rng;
+use smol::lock::Mutex;
 use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 
@@ -21,6 +22,7 @@ use crate::{
 
 static ACCOUNT_STATUS_CHECKED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
+static AUTH_TOKEN_FETCH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 pub static IS_PLUS: CtxField<AtomicBool> = |_| AtomicBool::new(false);
 
 pub async fn get_connect_token(
@@ -55,6 +57,7 @@ async fn get_conn_token_inner(
 }
 
 pub async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
+    let _guard = AUTH_TOKEN_FETCH_LOCK.lock().await;
     if let Some(token) = db_read(ctx, "auth_token").await? {
         Ok(String::from_utf8_lossy(&token).to_string())
     } else {
