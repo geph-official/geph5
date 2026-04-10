@@ -154,7 +154,7 @@ pub async fn bridge_to_leaf_route(
                     // })
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: sosistab3_route!().await?.into(),
+                        lower: legacy_route!().await?.into(),
                     })
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
