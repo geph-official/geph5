@@ -15,7 +15,7 @@ use std::{
 use crate::influxdb::INFLUXDB_ENDPOINT;
 
 // Global mapping of ASN to byte counts
-static ASN_BYTE_COUNTS: LazyLock<DashMap<u32, u64>> = LazyLock::new(DashMap::new);
+static ASN_BYTE_COUNTS: LazyLock<DashMap<(String, u32), u64>> = LazyLock::new(DashMap::new);
 // Global mapping of ASN to country code
 static ASN_COUNTRY_MAP: LazyLock<DashMap<u32, String>> = LazyLock::new(DashMap::new);
 
@@ -38,30 +38,32 @@ pub async fn ip_to_asn(ip: IpAddr) -> anyhow::Result<u32> {
     Ok(*asn)
 }
 
-// Increment the byte count for a given ASN and flush if threshold is reached
-pub fn incr_bytes_asn(asn: u32, bytes: u64) {
+// Increment the byte count for a given pool+ASN and flush if threshold is reached.
+pub fn incr_bytes_asn(pool: &str, asn: u32, bytes: u64) {
     if INFLUXDB_ENDPOINT.is_none() {
         return;
     }
 
+    let key = (pool.to_string(), asn);
+
     // Update the counter in the DashMap
     let should_flush = {
-        let mut entry = ASN_BYTE_COUNTS.entry(asn).or_insert(0);
+        let mut entry = ASN_BYTE_COUNTS.entry(key.clone()).or_insert(0);
         *entry += bytes;
         *entry >= FLUSH_THRESHOLD
     };
 
-    // If we've reached the threshold, flush this ASN's data
+    // If we've reached the threshold, flush this pool+ASN's data.
     if should_flush {
-        flush_asn_data(asn);
+        flush_asn_data(key);
     }
 }
 
-// Flush the byte count for a specific ASN
-fn flush_asn_data(asn: u32) {
+// Flush the byte count for a specific pool+ASN.
+fn flush_asn_data((pool, asn): (String, u32)) {
     if let Some(val) = &*INFLUXDB_ENDPOINT {
         // Only proceed if we can remove the entry (preventing concurrent flushes)
-        if let Some((_, bytes)) = ASN_BYTE_COUNTS.remove(&asn) {
+        if let Some((_, bytes)) = ASN_BYTE_COUNTS.remove(&(pool.clone(), asn)) {
             // Clone the endpoint for the async block
             let endpoint = val.clone();
 
@@ -72,11 +74,6 @@ fn flush_asn_data(asn: u32) {
                 .unwrap_or_else(|| "XX".to_string());
 
             smolscale::spawn(async move {
-                let pool = match std::env::var("GEPH5_BRIDGE_POOL") {
-                    Ok(p) => p,
-                    Err(_) => return, // Skip sending if pool is not set
-                };
-
                 let _ = endpoint
                     .send_line(
                         LineProtocolBuilder::new()

@@ -28,8 +28,12 @@ use tap::Tap;
 
 use crate::asn_count::{self, incr_bytes_asn};
 
-pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) -> anyhow::Result<()> {
-    let state = State { my_ip };
+pub async fn listen_forward_loop(
+    my_ip: IpAddr,
+    pool: String,
+    listener: impl Listener,
+) -> anyhow::Result<()> {
+    let state = State { my_ip, pool };
     nanorpc_sillad::rpc_serve(listener, BridgeControlService(state)).await?;
     Ok(())
 }
@@ -38,6 +42,7 @@ pub async fn listen_forward_loop(my_ip: IpAddr, listener: impl Listener) -> anyh
 struct State {
     // b2e_dest => (metadata, task)
     my_ip: IpAddr,
+    pool: String,
 }
 
 #[async_trait]
@@ -61,7 +66,12 @@ impl BridgeControlProtocol for State {
                     .local_addr()
                     .await
                     .tap_mut(|s| s.set_ip(self.my_ip));
-                let task = smolscale::spawn(handle_one_listener(listener, b2e_dest, metadata));
+                let task = smolscale::spawn(handle_one_listener(
+                    listener,
+                    b2e_dest,
+                    metadata,
+                    self.pool.clone(),
+                ));
                 (addr, Arc::new(task))
             })
             .await
@@ -98,6 +108,7 @@ async fn handle_one_listener(
     mut listener: impl Listener,
     b2e_dest: SocketAddr,
     metadata: B2eMetadata,
+    pool: String,
 ) -> anyhow::Result<()> {
     static COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -109,6 +120,7 @@ async fn handle_one_listener(
             .unwrap()
             .ip();
         let metadata = metadata.clone();
+        let pool = pool.clone();
         smolscale::spawn(async move {
             let remote_asn = asn_count::ip_to_asn(remote_ip).await.unwrap_or(0);
             tracing::trace!(
@@ -134,12 +146,14 @@ async fn handle_one_listener(
             io_copy_with_timeout(
                 exit_read,
                 client_write,
+                &pool,
                 remote_asn,
                 Duration::from_secs(1800),
             )
             .race(io_copy_with_timeout(
                 client_read,
                 exit_write,
+                &pool,
                 remote_asn,
                 Duration::from_secs(1800),
             ))
@@ -154,6 +168,7 @@ async fn handle_one_listener(
 pub async fn io_copy_with_timeout<R, W>(
     mut reader: R,
     mut writer: W,
+    pool: &str,
     asn: u32,
     timeout: Duration,
 ) -> std::io::Result<()>
@@ -169,7 +184,7 @@ where
                 }
                 writer.write_all(&buf).await?;
 
-                incr_bytes_asn(asn, buf.len() as u64);
+                incr_bytes_asn(pool, asn, buf.len() as u64);
             }
             Some(Err(err)) => return Err(err),
             None => return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout")),

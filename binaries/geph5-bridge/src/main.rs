@@ -151,7 +151,13 @@ async fn run_bridge_instance(
 
             let control_listener =
                 SosistabListener::new(listener, Cookie::new(&instance.control_cookie));
-            if let Err(err) = listen_forward_loop(instance.advertised_ip, control_listener).await {
+            if let Err(err) = listen_forward_loop(
+                instance.advertised_ip,
+                instance.pool.clone(),
+                control_listener,
+            )
+            .await
+            {
                 tracing::error!(
                     err = %err,
                     pool = %instance.pool,
