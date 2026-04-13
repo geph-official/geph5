@@ -5,6 +5,7 @@ use std::{
 
 use async_io::Async;
 use async_trait::async_trait;
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 use futures_lite::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
@@ -24,8 +25,26 @@ pub struct TcpListener {
 impl TcpListener {
     /// Creates a new TcpListener by listening to a particular address.
     pub async fn bind(addr: SocketAddr) -> std::io::Result<Self> {
-        let new = Async::<std::net::TcpListener>::bind(addr)?;
-        Ok(Self { inner: new })
+        Self::bind_with_v6_only(addr, false).await
+    }
+
+    /// Creates a new TcpListener and optionally forces IPv6 sockets to be IPv6-only.
+    pub async fn bind_with_v6_only(addr: SocketAddr, v6_only: bool) -> std::io::Result<Self> {
+        let domain = match addr {
+            SocketAddr::V4(_) => Domain::IPV4,
+            SocketAddr::V6(_) => Domain::IPV6,
+        };
+        let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+        socket.set_reuse_address(true)?;
+        if matches!(addr, SocketAddr::V6(_)) {
+            socket.set_only_v6(v6_only)?;
+        }
+        socket.bind(&SockAddr::from(addr))?;
+        socket.listen(1024)?;
+        let listener: std::net::TcpListener = socket.into();
+        listener.set_nonblocking(true)?;
+        let inner = Async::new(listener)?;
+        Ok(Self { inner })
     }
 
     /// Get the local listening address.

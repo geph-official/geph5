@@ -44,7 +44,10 @@ struct State {
 impl BridgeControlProtocol for State {
     async fn tcp_forward(&self, b2e_dest: SocketAddr, metadata: B2eMetadata) -> SocketAddr {
         static MAPPING: LazyLock<
-            Cache<(SocketAddr, B2eMetadata), (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>)>,
+            Cache<
+                (IpAddr, SocketAddr, B2eMetadata),
+                (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>),
+            >,
         > = LazyLock::new(|| {
             Cache::builder()
                 .time_to_idle(Duration::from_secs(3600))
@@ -52,8 +55,8 @@ impl BridgeControlProtocol for State {
         });
 
         MAPPING
-            .get_with((b2e_dest, metadata.clone()), async {
-                let listener = random_tcp_listener().await;
+            .get_with((self.my_ip, b2e_dest, metadata.clone()), async {
+                let listener = random_tcp_listener(self.my_ip).await;
                 let addr = listener
                     .local_addr()
                     .await
@@ -66,14 +69,26 @@ impl BridgeControlProtocol for State {
     }
 }
 
-async fn random_tcp_listener() -> TcpListener {
+async fn random_tcp_listener(my_ip: IpAddr) -> TcpListener {
     loop {
         let rando = rand::thread_rng().gen_range(2048u16..65535);
-        match TcpListener::bind(format!("0.0.0.0:{rando}").parse().unwrap()).await {
+        let bind_addr = SocketAddr::new(
+            match my_ip {
+                IpAddr::V4(_) => "0.0.0.0".parse().unwrap(),
+                IpAddr::V6(_) => "::".parse().unwrap(),
+            },
+            rando,
+        );
+        match TcpListener::bind_with_v6_only(bind_addr, my_ip.is_ipv6()).await {
             Ok(listener) => return listener,
             Err(err) => {
                 smol::Timer::after(Duration::from_millis(100)).await;
-                tracing::warn!(rando, err = debug(err), "retrying a bind...")
+                tracing::warn!(
+                    rando,
+                    bind_addr = display(bind_addr),
+                    err = debug(err),
+                    "retrying a bind..."
+                )
             }
         }
     }

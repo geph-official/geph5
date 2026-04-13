@@ -146,7 +146,7 @@ pub async fn bridge_to_leaf_route(
                         }
                         .into(),
                     })
-                } else 
+                } else
                 if !country.is_empty(){
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,

@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     collections::hash_map::Entry,
+    net::SocketAddr,
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -70,7 +71,7 @@ async fn cached_bridges() -> anyhow::Result<Vec<BridgeMetadata>> {
     CACHE
         .try_get_with((), async {
             let start = Instant::now();
-            let raw: Vec<(String, String, String, i64, i32, bool, i64, i64)> = sqlx::query_as(
+            let probes: Vec<(String, i64, i64)> = sqlx::query_as(
                 r#"WITH recent_probes AS (
     SELECT
         ip_addr,
@@ -81,36 +82,50 @@ async fn cached_bridges() -> anyhow::Result<Vec<BridgeMetadata>> {
       AND time > NOW() - INTERVAL '5 minutes'
     GROUP BY ip_addr
 )
-SELECT
+SELECT ip_addr, success_count, fail_count
+FROM recent_probes"#,
+            )
+            .fetch_all(&*POSTGRES)
+            .await?;
+            let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
+                r#"SELECT
     bn.listen,
     bn.cookie,
     bn.pool,
     bn.expiry,
     COALESCE(bgd.delay_ms, 0)     AS delay,
-    COALESCE(bgd.is_plus, false)  AS is_plus,
-    COALESCE(rp.success_count, 0),
-    COALESCE(rp.fail_count, 0)
+    COALESCE(bgd.is_plus, false)  AS is_plus
 FROM bridges_new bn
 LEFT JOIN bridge_group_delays bgd
-       ON bn.pool = bgd.pool
-LEFT JOIN recent_probes rp ON rp.ip_addr = split_part(bn.listen, ':', 1)"#,
+       ON bn.pool = bgd.pool"#,
             )
             .fetch_all(&*POSTGRES)
             .await?;
             tracing::debug!(elapsed = debug(start.elapsed()), "fetched bridges from DB");
+            let probe_map: HashMap<_, _> = probes
+                .into_iter()
+                .map(|(ip, success, fail)| (ip, (success, fail)))
+                .collect();
             anyhow::Ok(
                 raw.into_iter()
-                    .map(|row| BridgeMetadata {
-                        descriptor: geph5_broker_protocol::BridgeDescriptor {
-                            control_listen: row.0.parse().unwrap(),
-                            control_cookie: row.1,
-                            pool: row.2,
-                            expiry: row.3 as _,
-                        },
-                        delay_ms: row.4 as _,
-                        is_plus: row.5,
-                        china_success_count: row.6 as _,
-                        china_fail_count: row.7 as _,
+                    .map(|row| {
+                        let control_listen: SocketAddr = row.0.parse().unwrap();
+                        let (china_success_count, china_fail_count) = probe_map
+                            .get(&listen_host(&control_listen))
+                            .copied()
+                            .unwrap_or((0, 0));
+                        BridgeMetadata {
+                            descriptor: geph5_broker_protocol::BridgeDescriptor {
+                                control_listen,
+                                control_cookie: row.1,
+                                pool: row.2,
+                                expiry: row.3 as _,
+                            },
+                            delay_ms: row.4 as _,
+                            is_plus: row.5,
+                            china_success_count: china_success_count as _,
+                            china_fail_count: china_fail_count as _,
+                        }
                     })
                     .collect(),
             )
@@ -193,4 +208,21 @@ pub async fn record_availability(data: AvailabilityData) -> anyhow::Result<()> {
     }
     txn.commit().await?;
     Ok(())
+}
+
+fn listen_host(listen: &SocketAddr) -> String {
+    listen.ip().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listen_host_handles_ipv4_and_ipv6() {
+        let ipv4: SocketAddr = "1.2.3.4:9000".parse().unwrap();
+        let ipv6: SocketAddr = "[2001:db8::1]:9000".parse().unwrap();
+        assert_eq!(listen_host(&ipv4), "1.2.3.4");
+        assert_eq!(listen_host(&ipv6), "2001:db8::1");
+    }
 }
