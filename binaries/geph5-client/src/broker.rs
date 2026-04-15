@@ -184,9 +184,9 @@ impl BrokerSource {
                 let inner = inner.iter().map(|(k, v)| (*k, v.rpc_transport())).collect();
                 DynRpcTransport::new(PriorityRaceTransport::new(inner))
             }
-            BrokerSource::Other(kind) => DynRpcTransport::new(UnsupportedBrokerTransport {
-                kind: kind.clone(),
-            }),
+            BrokerSource::Other(kind) => {
+                DynRpcTransport::new(UnsupportedBrokerTransport { kind: kind.clone() })
+            }
         }
     }
 }
