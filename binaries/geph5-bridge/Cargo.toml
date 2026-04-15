@@ -6,6 +6,7 @@ license = "MPL-2.0"
 
 [dependencies]
 geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
+geph5-ip-to-asn = { path = "../../libraries/geph5-ip-to-asn" }
 picomux = { path = "../../libraries/picomux" }
 rand = "0.8.5"
 sillad = { path = "../../libraries/sillad" }
@@ -40,7 +41,6 @@ async-channel = "2.5.0"
 oneshot = "0.1.11"
 async-io-bufpool = "0.1.2"
 tikv-jemallocator = { version = "0.6.0", features = ["unprefixed_malloc_on_supported_platforms"] }
-flate2 = "1.1.2"
 clap = "4.5.41"
 influxdb-line-protocol = "2.0.0"
 nano-influxdb = { path = "../../libraries/nano-influxdb" }

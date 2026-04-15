@@ -20,6 +20,13 @@ pub struct BridgeMetadata {
     pub china_fail_count: u32,
 }
 
+#[derive(Clone, Debug)]
+struct BridgeGroupDelay {
+    pool_prefix: String,
+    delay_ms: u32,
+    is_plus: bool,
+}
+
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
     let key = u64::from_le_bytes(
         blake3::hash(key.as_bytes()).as_bytes()[..8]
@@ -87,17 +94,19 @@ FROM recent_probes"#,
             )
             .fetch_all(&*POSTGRES)
             .await?;
-            let raw: Vec<(String, String, String, i64, i32, bool)> = sqlx::query_as(
+            let raw: Vec<(String, String, String, i64)> = sqlx::query_as(
                 r#"SELECT
     bn.listen,
     bn.cookie,
     bn.pool,
-    bn.expiry,
-    COALESCE(bgd.delay_ms, 0)     AS delay,
-    COALESCE(bgd.is_plus, false)  AS is_plus
-FROM bridges_new bn
-LEFT JOIN bridge_group_delays bgd
-       ON bn.pool = bgd.pool"#,
+    bn.expiry
+FROM bridges_new bn"#,
+            )
+            .fetch_all(&*POSTGRES)
+            .await?;
+            let group_delays: Vec<(String, i32, bool)> = sqlx::query_as(
+                r#"SELECT pool, delay_ms, is_plus
+FROM bridge_group_delays"#,
             )
             .fetch_all(&*POSTGRES)
             .await?;
@@ -105,6 +114,14 @@ LEFT JOIN bridge_group_delays bgd
             let probe_map: HashMap<_, _> = probes
                 .into_iter()
                 .map(|(ip, success, fail)| (ip, (success, fail)))
+                .collect();
+            let group_delays: Vec<_> = group_delays
+                .into_iter()
+                .map(|(pool_prefix, delay_ms, is_plus)| BridgeGroupDelay {
+                    pool_prefix,
+                    delay_ms: delay_ms as _,
+                    is_plus,
+                })
                 .collect();
             anyhow::Ok(
                 raw.into_iter()
@@ -114,6 +131,7 @@ LEFT JOIN bridge_group_delays bgd
                             .get(&listen_host(&control_listen))
                             .copied()
                             .unwrap_or((0, 0));
+                        let matched_delay = longest_matching_group_delay(&group_delays, &row.2);
                         BridgeMetadata {
                             descriptor: geph5_broker_protocol::BridgeDescriptor {
                                 control_listen,
@@ -121,8 +139,8 @@ LEFT JOIN bridge_group_delays bgd
                                 pool: row.2,
                                 expiry: row.3 as _,
                             },
-                            delay_ms: row.4 as _,
-                            is_plus: row.5,
+                            delay_ms: matched_delay.map(|m| m.delay_ms).unwrap_or(0),
+                            is_plus: matched_delay.map(|m| m.is_plus).unwrap_or(false),
                             china_success_count: china_success_count as _,
                             china_fail_count: china_fail_count as _,
                         }
@@ -214,6 +232,16 @@ fn listen_host(listen: &SocketAddr) -> String {
     listen.ip().to_string()
 }
 
+fn longest_matching_group_delay<'a>(
+    group_delays: &'a [BridgeGroupDelay],
+    pool: &str,
+) -> Option<&'a BridgeGroupDelay> {
+    group_delays
+        .iter()
+        .filter(|delay| pool.starts_with(&delay.pool_prefix))
+        .max_by_key(|delay| delay.pool_prefix.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +252,36 @@ mod tests {
         let ipv6: SocketAddr = "[2001:db8::1]:9000".parse().unwrap();
         assert_eq!(listen_host(&ipv4), "1.2.3.4");
         assert_eq!(listen_host(&ipv6), "2001:db8::1");
+    }
+
+    #[test]
+    fn longest_matching_group_delay_uses_prefix() {
+        let delays = vec![BridgeGroupDelay {
+            pool_prefix: "ls_ap_northeast_2".into(),
+            delay_ms: 123,
+            is_plus: true,
+        }];
+        let matched = longest_matching_group_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
+        assert_eq!(matched.delay_ms, 123);
+        assert!(matched.is_plus);
+    }
+
+    #[test]
+    fn longest_matching_group_delay_prefers_more_specific_prefix() {
+        let delays = vec![
+            BridgeGroupDelay {
+                pool_prefix: "ls_ap_northeast_2".into(),
+                delay_ms: 100,
+                is_plus: false,
+            },
+            BridgeGroupDelay {
+                pool_prefix: "ls_ap_northeast_2_ipv6".into(),
+                delay_ms: 200,
+                is_plus: true,
+            },
+        ];
+        let matched = longest_matching_group_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
+        assert_eq!(matched.delay_ms, 200);
+        assert!(matched.is_plus);
     }
 }

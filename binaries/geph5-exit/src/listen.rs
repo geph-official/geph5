@@ -56,14 +56,12 @@ async fn c2e_loop() -> anyhow::Result<()> {
 
         let test_addr = async {
             let remote_addr: SocketAddr = c2e_raw.remote_addr().unwrap().parse()?;
-            if let SocketAddr::V4(remote_addr) = remote_addr {
-                let (asn, country) = ip_to_asn_country(*remote_addr.ip()).await?;
-                tracing::trace!(asn, country, remote_addr = display(remote_addr), "got ASN");
-                if CONFIG_FILE.wait().country_blacklist.contains(&country) {
-                    anyhow::bail!(
-                        "rejected connection from {remote_addr}/AS{asn} in blacklisted country {country}"
-                    )
-                }
+            let (asn, country) = ip_to_asn_country(remote_addr.ip()).await?;
+            tracing::trace!(asn, country, remote_addr = display(remote_addr), "got ASN");
+            if CONFIG_FILE.wait().country_blacklist.contains(&country) {
+                anyhow::bail!(
+                    "rejected connection from {remote_addr}/AS{asn} in blacklisted country {country}"
+                )
             }
             anyhow::Ok(())
         };

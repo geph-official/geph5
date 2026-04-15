@@ -23,12 +23,10 @@ use moka::future::Cache;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport, ServerError};
 use once_cell::sync::Lazy;
 
-use std::net::Ipv4Addr;
-use std::str::FromStr as _;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     ops::Deref,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -244,14 +242,17 @@ fn authenticate_account_level(
 async fn parse_client_location(
     client_metadata: &serde_json::Value,
 ) -> Result<(u32, String), GenericError> {
-    if let Some(ip_addr) = client_metadata["ip_addr"]
-        .as_str()
-        .and_then(|ip_addr| Ipv4Addr::from_str(ip_addr).ok())
-    {
+    if let Some(ip_addr) = parse_client_ip(client_metadata) {
         ip_to_asn_country(ip_addr).await.map_err(Into::into)
     } else {
         Ok((0, "".to_string()))
     }
+}
+
+fn parse_client_ip(client_metadata: &serde_json::Value) -> Option<IpAddr> {
+    client_metadata["ip_addr"]
+        .as_str()
+        .and_then(|ip_addr| ip_addr.parse().ok())
 }
 
 fn select_exit_with_constraint(
@@ -894,8 +895,30 @@ impl BrokerProtocol for BrokerImpl {
 mod tests {
     use ed25519_dalek::SigningKey;
     use isocountry::CountryCode;
+    use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn parse_client_ip_accepts_ipv4() {
+        let metadata = json!({"ip_addr": "1.2.3.4"});
+        assert_eq!(parse_client_ip(&metadata), Some("1.2.3.4".parse().unwrap()));
+    }
+
+    #[test]
+    fn parse_client_ip_accepts_ipv6() {
+        let metadata = json!({"ip_addr": "2001:db8::1"});
+        assert_eq!(
+            parse_client_ip(&metadata),
+            Some("2001:db8::1".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn parse_client_ip_rejects_invalid() {
+        let metadata = json!({"ip_addr": "not-an-ip"});
+        assert_eq!(parse_client_ip(&metadata), None);
+    }
 
     fn sample_net_status() -> NetStatus {
         let exits = [
