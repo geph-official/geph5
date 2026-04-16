@@ -17,9 +17,8 @@ use itertools::Itertools;
 use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use priority_race::PriorityRaceTransport;
 use race::RaceTransport;
-use smol_timeout2::TimeoutExt;
 use std::sync::atomic::Ordering;
-use tunneled_http::{TUNNELED_BROKER_TIMEOUT, TunneledHttpTransport};
+use tunneled_http::TunneledHttpTransport;
 
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
@@ -28,6 +27,7 @@ use std::{collections::BTreeMap, net::SocketAddr};
 use crate::{
     client::{Config, CtxField},
     control_prot::CURRENT_ACTIVE_SESSIONS,
+    timeout::{BROKER_RPC_TIMEOUT, RpcTransportExt},
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -60,39 +60,49 @@ impl BrokerSource {
     /// Converts to a RpcTransport.
     pub fn rpc_transport(&self) -> DynRpcTransport {
         match self {
-            BrokerSource::Direct(s) => DynRpcTransport::new(FrontedHttpTransport {
-                url: s.clone(),
-                host: None,
-                dns: None,
-            }),
-            BrokerSource::DirectTcp(dest_addr) => {
-                DynRpcTransport::new(nanorpc_sillad::DialerTransport(TcpDialer {
+            BrokerSource::Direct(s) => DynRpcTransport::new(
+                FrontedHttpTransport {
+                    url: s.clone(),
+                    host: None,
+                    dns: None,
+                }
+                .timeout(BROKER_RPC_TIMEOUT),
+            ),
+            BrokerSource::DirectTcp(dest_addr) => DynRpcTransport::new(
+                nanorpc_sillad::DialerTransport(TcpDialer {
                     dest_addr: *dest_addr,
-                }))
-            }
+                })
+                .timeout(BROKER_RPC_TIMEOUT),
+            ),
             BrokerSource::Fronted {
                 front,
                 host,
                 override_dns,
-            } => DynRpcTransport::new(FrontedHttpTransport {
-                url: front.clone(),
-                host: Some(host.clone()),
-                dns: override_dns.clone(),
-            }),
+            } => DynRpcTransport::new(
+                FrontedHttpTransport {
+                    url: front.clone(),
+                    host: Some(host.clone()),
+                    dns: override_dns.clone(),
+                }
+                .timeout(BROKER_RPC_TIMEOUT),
+            ),
             #[cfg(feature = "aws_lambda")]
             BrokerSource::AwsLambda {
                 function_name,
                 region,
                 obfs_key,
-            } => DynRpcTransport::new(AwsLambdaTransport {
-                function_name: function_name.clone(),
-                region: region.clone(),
-                obfs_key: obfs_key.clone(),
-            }),
+            } => DynRpcTransport::new(
+                AwsLambdaTransport {
+                    function_name: function_name.clone(),
+                    region: region.clone(),
+                    obfs_key: obfs_key.clone(),
+                }
+                .timeout(BROKER_RPC_TIMEOUT),
+            ),
             #[cfg(not(feature = "aws_lambda"))]
-            BrokerSource::AwsLambda { .. } => {
-                DynRpcTransport::new(UnsupportedBrokerTransport("aws_lambda"))
-            }
+            BrokerSource::AwsLambda { .. } => DynRpcTransport::new(
+                UnsupportedBrokerTransport("aws_lambda").timeout(BROKER_RPC_TIMEOUT),
+            ),
             BrokerSource::Race(race_between) => {
                 let transports = race_between
                     .iter()
@@ -111,9 +121,9 @@ impl BrokerSource {
 impl TunneledBrokerSource {
     fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
         match self {
-            TunneledBrokerSource::Direct(url) => {
-                DynRpcTransport::new(TunneledHttpTransport::new(ctx.clone(), url.clone()))
-            }
+            TunneledBrokerSource::Direct(url) => DynRpcTransport::new(
+                TunneledHttpTransport::new(ctx.clone(), url.clone()).timeout(BROKER_RPC_TIMEOUT),
+            ),
         }
     }
 }
@@ -154,10 +164,7 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
             tunneled,
             is_connected: std::sync::Arc::new({
                 let ctx = ctx.clone();
-                move || ctx
-                    .get(CURRENT_ACTIVE_SESSIONS)
-                    .load(Ordering::SeqCst)
-                    > 0
+                move || ctx.get(CURRENT_ACTIVE_SESSIONS).load(Ordering::SeqCst) > 0
             }),
         }))
     })
@@ -177,17 +184,13 @@ impl RpcTransport for SwitchingBrokerTransport {
         let should_try_tunneled = self.tunneled.is_some() && (self.is_connected)();
         if should_try_tunneled {
             let tunneled = self.tunneled.as_ref().unwrap();
-            match tunneled
-                .call_raw(req.clone())
-                .timeout(TUNNELED_BROKER_TIMEOUT)
-                .await
-            {
-                Some(Ok(response)) => return Ok(response),
-                Some(Err(err)) => {
-                    tracing::warn!(err = debug(&err), "tunneled broker RPC failed, falling back");
-                }
-                None => {
-                    tracing::warn!("tunneled broker RPC timed out, falling back");
+            match tunneled.call_raw(req.clone()).await {
+                Ok(response) => return Ok(response),
+                Err(err) => {
+                    tracing::warn!(
+                        err = debug(&err),
+                        "tunneled broker RPC failed, falling back"
+                    );
                 }
             }
         }

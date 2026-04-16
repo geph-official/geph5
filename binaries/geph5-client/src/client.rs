@@ -24,7 +24,7 @@ use crate::{
     logging,
     pac::pac_serve,
     port_forward::port_forward,
-    session::{open_conn, run_client_sessions},
+    session::{open_conn, run_session},
     socks5::socks5_loop,
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };
@@ -266,7 +266,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     } else {
         let vpn_loop = vpn_loop(&ctx);
 
-        let _client_loop = Immortal::spawn(run_client_sessions(ctx.clone()));
+        let _client_loop = Immortal::spawn(run_session(ctx.clone()));
 
         socks5_loop(&ctx)
             .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))

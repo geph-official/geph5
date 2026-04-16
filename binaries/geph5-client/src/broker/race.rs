@@ -1,10 +1,7 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 use futures_concurrency::future::FutureGroup;
 use futures_util::StreamExt;
 use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
-use smol_timeout2::TimeoutExt as _;
 
 pub struct RaceTransport {
     choices: Vec<DynRpcTransport>,
@@ -43,17 +40,7 @@ impl RpcTransport for RaceTransport {
             let mut future_group = FutureGroup::new();
             for (idx, choice) in self.choices.iter().enumerate() {
                 let req = req.clone();
-                future_group.insert(Box::pin(async move {
-                    (
-                        idx,
-                        choice
-                            .call_raw(req)
-                            .timeout(Duration::from_secs(10))
-                            .await
-                            .ok_or_else(|| anyhow::anyhow!("broker call timed out"))
-                            .and_then(|s| s),
-                    )
-                }));
+                future_group.insert(Box::pin(async move { (idx, choice.call_raw(req).await) }));
             }
             while let Some((idx, res)) = future_group.next().await {
                 match res {

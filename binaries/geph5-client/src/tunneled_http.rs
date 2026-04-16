@@ -38,9 +38,13 @@ impl tower_service::Service<Uri> for Connector {
                 let host = dst.host().ok_or_else(|| {
                     std::io::Error::new(std::io::ErrorKind::InvalidInput, "URI must include host")
                 })?;
-                let port = dst
-                    .port_u16()
-                    .unwrap_or_else(|| if dst.scheme_str() == Some("https") { 443 } else { 80 });
+                let port = dst.port_u16().unwrap_or_else(|| {
+                    if dst.scheme_str() == Some("https") {
+                        443
+                    } else {
+                        80
+                    }
+                });
                 let remote = format!("{host}:{port}");
                 open_conn(&ctx, "tcp", &remote)
                     .await

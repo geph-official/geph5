@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -21,7 +19,9 @@ pub struct TunneledHttpTransport {
 
 impl TunneledHttpTransport {
     pub fn new(ctx: anyctx::AnyCtx<Config>, url: String) -> Self {
-        let uri: Uri = url.parse().expect("tunneled broker URL must be a valid URI");
+        let uri: Uri = url
+            .parse()
+            .expect("tunneled broker URL must be a valid URI");
         let authority = uri
             .authority()
             .expect("tunneled broker URL must include authority")
@@ -54,9 +54,10 @@ impl RpcTransport for TunneledHttpTransport {
             .uri
             .host()
             .context("tunneled broker URI missing host")?;
-        let port = self.uri.port_u16().unwrap_or({
-            if self.tls_host.is_some() { 443 } else { 80 }
-        });
+        let port = self
+            .uri
+            .port_u16()
+            .unwrap_or(if self.tls_host.is_some() { 443 } else { 80 });
         let remote = format!("{host}:{port}");
         let conn = crate::session::open_conn(&self.ctx, "tcp", &remote).await?;
         let io = if let Some(tls_host) = &self.tls_host {
@@ -103,8 +104,6 @@ impl RpcTransport for TunneledHttpTransport {
         Ok(serde_json::from_slice(&body)?)
     }
 }
-
-pub const TUNNELED_BROKER_TIMEOUT: Duration = Duration::from_secs(10);
 
 enum Io {
     Plain(HyperRtCompat<TunneledConnection>),

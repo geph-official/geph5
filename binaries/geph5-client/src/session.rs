@@ -3,7 +3,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
-use futures_util::{AsyncReadExt as _, future::join_all};
+use futures_util::AsyncReadExt as _;
 use geph5_misc_rpc::{
     client_control::ConnectedInfo,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
@@ -40,8 +40,6 @@ use crate::{
 };
 
 use super::Config;
-
-const MAX_CONCURRENCY: usize = 1;
 
 pub async fn open_conn(
     ctx: &AnyCtx<Config>,
@@ -95,7 +93,7 @@ pub async fn open_conn(
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
+pub async fn run_session(ctx: AnyCtx<Config>) -> Infallible {
     tracing::info!("(re)starting main logic");
     let start = Instant::now();
 
@@ -112,12 +110,28 @@ pub async fn run_client_sessions(ctx: AnyCtx<Config>) -> Infallible {
         })
     };
 
-    join_all(
-        (0..MAX_CONCURRENCY)
-            .map(|session_id| smolscale::spawn(run_client_session(ctx.clone(), session_id))),
-    )
-    .await;
-    unreachable!()
+    let mut failures = 0.0f64;
+
+    loop {
+        let wait_time = Duration::from_secs_f64(
+            (rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0),
+        );
+        let timeout_time = Duration::from_secs_f64(
+            (rand::thread_rng().gen_range(30.0..60.0) * failures.exp2()).min(120.0),
+        );
+        if let Err(err) = run_session_once(&ctx, timeout_time, &mut failures).await {
+            failures += 1.0;
+            tracing::warn!(
+                err = debug(&err),
+                wait_time = debug(wait_time),
+                "individual client thread failed..."
+            );
+            smol::Timer::after(wait_time).await;
+            tracing::warn!(wait_time = debug(wait_time), "retrying now!");
+        } else {
+            failures = 0.0;
+        }
+    }
 }
 
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
@@ -145,40 +159,8 @@ static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiv
         (a, b)
     };
 
-#[tracing::instrument(skip_all, fields(session_id = session_id))]
-async fn run_client_session(ctx: AnyCtx<Config>, session_id: usize) -> Infallible {
-    let mut failures = 0.0f64;
-    // Sleep depending on which session this is so they do not all reconnect at once.
-    let sleep_secs = (session_id as f64) * rand::thread_rng().gen_range(0.0..60.0);
-    smol::Timer::after(Duration::from_secs_f64(sleep_secs)).await;
-
-    loop {
-        let wait_time = Duration::from_secs_f64(
-            (rand::thread_rng().gen_range(0.0..0.1) * failures.exp2()).min(120.0),
-        );
-        let timeout_time = Duration::from_secs_f64(
-            (rand::thread_rng().gen_range(30.0..60.0) * failures.exp2()).min(120.0),
-        );
-        if let Err(err) =
-            run_client_session_once(&ctx, session_id, timeout_time, &mut failures).await
-        {
-            failures += 1.0;
-            tracing::warn!(
-                err = debug(&err),
-                wait_time = debug(wait_time),
-                "individual client thread failed..."
-            );
-            smol::Timer::after(wait_time).await;
-            tracing::warn!(wait_time = debug(wait_time), "retrying now!");
-        } else {
-            failures = 0.0;
-        }
-    }
-}
-
-async fn run_client_session_once(
+async fn run_session_once(
     ctx: &AnyCtx<Config>,
-    session_id: usize,
     timeout_time: Duration,
     failures: &mut f64,
 ) -> anyhow::Result<()> {
@@ -192,7 +174,7 @@ async fn run_client_session_once(
             "dial completed"
         );
 
-        let authed_pipe = client_auth(ctx, raw_pipe, pubkey, session_id)
+        let authed_pipe = client_auth(ctx, raw_pipe, pubkey)
             .await
             .context("could not client auth")?;
 
@@ -222,17 +204,13 @@ async fn run_client_session_once(
     });
     let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
     *failures = 0.0;
-    proxy_loop(ctx.clone(), authed_pipe, session_id)
+    proxy_loop(ctx.clone(), authed_pipe)
         .await
         .context(format!("inner connection to {addr} failed"))
 }
 
-#[tracing::instrument(skip_all, fields(session_id=session_id, server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
-async fn proxy_loop(
-    ctx: AnyCtx<Config>,
-    authed_pipe: impl Pipe,
-    session_id: usize,
-) -> anyhow::Result<()> {
+#[tracing::instrument(skip_all, fields(server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
+async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
@@ -277,7 +255,7 @@ async fn proxy_loop(
     }
     .or(mux.wait_until_dead())
     .or(async {
-        if session_id == 0 && ctx.get(IS_PLUS).load(Ordering::SeqCst) {
+        if ctx.get(IS_PLUS).load(Ordering::SeqCst) {
             bw_accounting_client_loop(ctx.clone(), mux.open(b"!bw-accounting-2").await?).await
         } else {
             smol::future::pending().await
@@ -286,12 +264,11 @@ async fn proxy_loop(
     .await
 }
 
-#[tracing::instrument(skip_all, fields(session_id=session_id, pubkey = hex::encode(pubkey.as_bytes())))]
+#[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
 async fn client_auth(
     ctx: &AnyCtx<Config>,
     mut pipe: impl Pipe,
     pubkey: VerifyingKey,
-    session_id: usize,
 ) -> anyhow::Result<impl Pipe> {
     let server = pipe.remote_addr().unwrap_or("").to_string();
 

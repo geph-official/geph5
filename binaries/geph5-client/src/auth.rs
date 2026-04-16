@@ -24,13 +24,27 @@ static ACCOUNT_STATUS_CHECKED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
 static AUTH_TOKEN_FETCH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 pub static IS_PLUS: CtxField<AtomicBool> = |_| AtomicBool::new(false);
+const ACCOUNT_STATUS_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn get_connect_token(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
-    ACCOUNT_STATUS_CHECKED.wait().await;
+    let wait_for_token = if ACCOUNT_STATUS_CHECKED
+        .wait()
+        .timeout(ACCOUNT_STATUS_WAIT_TIMEOUT)
+        .await
+        .is_some()
+    {
+        true
+    } else {
+        tracing::warn!(
+            timeout = debug(ACCOUNT_STATUS_WAIT_TIMEOUT),
+            "ACCOUNT STATUS NOT READY; PROCEEDING WITH CACHED CONNECT TOKEN ANYWAY"
+        );
+        false
+    };
     let epoch = mizaru2::current_epoch();
-    let res = get_conn_token_inner(ctx, epoch, true).await?;
+    let res = get_conn_token_inner(ctx, epoch, wait_for_token).await?;
     ctx.get(IS_PLUS).store(
         res.0 == AccountLevel::Plus,
         std::sync::atomic::Ordering::SeqCst,

@@ -1,7 +1,4 @@
-use std::{
-    sync::RwLock,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -25,8 +22,9 @@ use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
 use crate::{
     auth::get_connect_token,
     broker::broker_client,
-    client::{Config, CtxField},
+    client::Config,
     device_metadata::get_device_metadata,
+    route_cache::{read_cached_exit_route, write_cached_exit_route},
     vpn::smart_vpn_whitelist,
 };
 
@@ -34,44 +32,41 @@ use crate::{
 pub async fn get_dialer(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
-    static STALE_VALUE: CtxField<RwLock<Option<(VerifyingKey, ExitDescriptor, DynDialer)>>> =
-        |_| RwLock::new(None);
+    if let ExitConstraint::Direct(dir) = &ctx.init().exit_constraint {
+        let (dir, pubkey_hex) = dir
+            .split_once('/')
+            .context("did not find / in a direct constraint")?;
+        let pubkey = VerifyingKey::from_bytes(
+            hex::decode(pubkey_hex)
+                .context("cannot decode pubkey as hex")?
+                .as_slice()
+                .try_into()
+                .context("pubkey wrong length")?,
+        )?;
+        let dest_addr = *smol::net::resolve(dir)
+            .await?
+            .choose(&mut rand::thread_rng())
+            .context("could not resolve destination for direct exit connection")?;
+        smart_vpn_whitelist(ctx, dest_addr.ip());
+        return Ok((
+            pubkey,
+            ExitDescriptor {
+                c2e_listen: "0.0.0.0:0".parse()?,
+                b2e_listen: "0.0.0.0:0".parse()?,
+                country: CountryCode::ABW,
+                city: "".to_string(),
+                load: 0.0,
+                expiry: 0,
+            },
+            ConnTestDialer {
+                ping_count: 1,
+                inner: TcpDialer { dest_addr },
+            }
+            .dynamic(),
+        ));
+    }
 
-    let res = async {
-        if let ExitConstraint::Direct(dir) = &ctx.init().exit_constraint {
-            let (dir, pubkey_hex) = dir
-                .split_once('/')
-                .context("did not find / in a direct constraint")?;
-            let pubkey = VerifyingKey::from_bytes(
-                hex::decode(pubkey_hex)
-                    .context("cannot decode pubkey as hex")?
-                    .as_slice()
-                    .try_into()
-                    .context("pubkey wrong length")?,
-            )?;
-            let dest_addr = *smol::net::resolve(dir)
-                .await?
-                .choose(&mut rand::thread_rng())
-                .context("could not resolve destination for direct exit connection")?;
-            smart_vpn_whitelist(ctx, dest_addr.ip());
-            return Ok((
-                pubkey,
-                ExitDescriptor {
-                    c2e_listen: "0.0.0.0:0".parse()?,
-                    b2e_listen: "0.0.0.0:0".parse()?,
-                    country: CountryCode::ABW,
-                    city: "".to_string(),
-                    load: 0.0,
-                    expiry: 0,
-                },
-                ConnTestDialer {
-                    ping_count: 1,
-                    inner: TcpDialer { dest_addr },
-                }
-                .dynamic(),
-            ));
-        }
-
+    let res: anyhow::Result<ExitRouteDescriptor> = async {
         let (_level, conn_token, sig) = get_connect_token(ctx)
             .await
             .context("could not get connect token")?;
@@ -97,7 +92,7 @@ pub async fn get_dialer(
 
         tracing::debug!(token = %conn_token, "CONN TOKEN");
         let broker = broker_client(ctx)?;
-        let exit_route = broker
+        let signed_exit_route = broker
             .get_exit_route(GetExitRouteArgs {
                 token: conn_token,
                 sig,
@@ -106,37 +101,61 @@ pub async fn get_dialer(
             })
             .await?
             .map_err(|e| anyhow::anyhow!("broker refused to serve exit routes: {e}"))?;
-        let ExitRouteDescriptor {
-            exit_pubkey,
-            exit,
-            route,
-        } = verify_exit_route(ctx, exit_route)?;
+        let exit_route = verify_exit_route(ctx, signed_exit_route)?;
 
-        smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
-        tracing::debug!(exit = ?exit, "exit route obtained: {}", serde_json::to_string(&route)?);
+        if let Err(err) =
+            write_cached_exit_route(ctx, &ctx.init().exit_constraint, &exit_route).await
+        {
+            tracing::warn!(err = debug(&err), "could not persist exit route cache");
+        }
 
-        let combined_routes = combine_exit_route(exit.clone(), route, ctx.init().allow_direct);
-        let bridge_dialer = route_to_dialer(ctx, &combined_routes);
-
-        Ok((exit_pubkey, exit, bridge_dialer))
+        Ok(exit_route)
     }
     .await;
 
-    match res {
-        Ok(val) => {
-            *ctx.get(STALE_VALUE).write().unwrap() = Some((val.0, val.1.clone(), val.2.clone()));
-            Ok((val.0, val.1, val.2))
-        }
+    let exit_route = match res {
+        Ok(val) => val,
         Err(err) => {
-            tracing::warn!("failed to get dialer: {:?}", err);
-            if let Some(val) = ctx.get(STALE_VALUE).read().unwrap().clone() {
-                tracing::warn!("returning stale value instead");
-                Ok((val.0, val.1, val.2))
-            } else {
-                Err(err)
+            tracing::warn!(err = %err, "failed to get fresh exit route");
+            match read_cached_exit_route(ctx, &ctx.init().exit_constraint).await {
+                Ok(Some(cached)) => {
+                    tracing::warn!("returning cached exit route instead");
+                    cached
+                }
+                Ok(None) => {
+                    return Err(
+                        err.context("fresh exit route unavailable and no cached route found")
+                    );
+                }
+                Err(cache_err) => {
+                    return Err(err.context(format!(
+                        "fresh exit route unavailable and cached route lookup failed: {cache_err}"
+                    )));
+                }
             }
         }
-    }
+    };
+
+    dialer_from_exit_route(ctx, exit_route)
+}
+
+fn dialer_from_exit_route(
+    ctx: &AnyCtx<Config>,
+    exit_route: ExitRouteDescriptor,
+) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
+    let ExitRouteDescriptor {
+        exit_pubkey,
+        exit,
+        route,
+    } = exit_route;
+
+    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
+    tracing::debug!(exit = ?exit, "exit route obtained: {}", serde_json::to_string(&route)?);
+
+    let combined_routes = combine_exit_route(exit.clone(), route, ctx.init().allow_direct);
+    let bridge_dialer = route_to_dialer(ctx, &combined_routes);
+
+    Ok((exit_pubkey, exit, bridge_dialer))
 }
 
 fn verify_exit_route(
