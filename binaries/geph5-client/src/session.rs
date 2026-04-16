@@ -41,7 +41,7 @@ use crate::{
 
 use super::Config;
 
-const MAX_CONCURRENCY: usize = 4;
+const MAX_CONCURRENCY: usize = 1;
 
 pub async fn open_conn(
     ctx: &AnyCtx<Config>,

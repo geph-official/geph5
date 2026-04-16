@@ -1,6 +1,7 @@
 mod fronted_http;
 mod priority_race;
 mod race;
+mod tunneled_http;
 
 #[cfg(feature = "aws_lambda")]
 mod aws_lambda;
@@ -13,15 +14,21 @@ use aws_lambda::AwsLambdaTransport;
 use fronted_http::FrontedHttpTransport;
 use geph5_broker_protocol::{BrokerClient, DOMAIN_NET_STATUS, NetStatus};
 use itertools::Itertools;
-use nanorpc::DynRpcTransport;
+use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use priority_race::PriorityRaceTransport;
 use race::RaceTransport;
+use smol_timeout2::TimeoutExt;
+use std::sync::atomic::Ordering;
+use tunneled_http::{TUNNELED_BROKER_TIMEOUT, TunneledHttpTransport};
 
 use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
 use std::{collections::BTreeMap, net::SocketAddr};
 
-use crate::client::{Config, CtxField};
+use crate::{
+    client::{Config, CtxField},
+    control_prot::CURRENT_ACTIVE_SESSIONS,
+};
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +48,12 @@ pub enum BrokerSource {
     },
     Race(Vec<BrokerSource>),
     PriorityRace(BTreeMap<u64, BrokerSource>),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum TunneledBrokerSource {
+    Direct(String),
 }
 
 impl BrokerSource {
@@ -95,6 +108,16 @@ impl BrokerSource {
     }
 }
 
+impl TunneledBrokerSource {
+    fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
+        match self {
+            TunneledBrokerSource::Direct(url) => {
+                DynRpcTransport::new(TunneledHttpTransport::new(ctx.clone(), url.clone()))
+            }
+        }
+    }
+}
+
 struct UnsupportedBrokerTransport(&'static str);
 
 #[async_trait::async_trait]
@@ -119,11 +142,58 @@ pub fn broker_client(ctx: &AnyCtx<Config>) -> anyhow::Result<&BrokerClient> {
 }
 
 static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
-    ctx.init()
-        .broker
-        .as_ref()
-        .map(|src| BrokerClient::from(src.rpc_transport()))
+    ctx.init().broker.as_ref().map(|src| {
+        let normal = src.rpc_transport();
+        let tunneled = ctx
+            .init()
+            .tunneled_broker
+            .as_ref()
+            .map(|src| src.rpc_transport(ctx));
+        BrokerClient::from(DynRpcTransport::new(SwitchingBrokerTransport {
+            normal,
+            tunneled,
+            is_connected: std::sync::Arc::new({
+                let ctx = ctx.clone();
+                move || ctx
+                    .get(CURRENT_ACTIVE_SESSIONS)
+                    .load(Ordering::SeqCst)
+                    > 0
+            }),
+        }))
+    })
 };
+
+struct SwitchingBrokerTransport {
+    normal: DynRpcTransport,
+    tunneled: Option<DynRpcTransport>,
+    is_connected: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl RpcTransport for SwitchingBrokerTransport {
+    type Error = anyhow::Error;
+
+    async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        let should_try_tunneled = self.tunneled.is_some() && (self.is_connected)();
+        if should_try_tunneled {
+            let tunneled = self.tunneled.as_ref().unwrap();
+            match tunneled
+                .call_raw(req.clone())
+                .timeout(TUNNELED_BROKER_TIMEOUT)
+                .await
+            {
+                Some(Ok(response)) => return Ok(response),
+                Some(Err(err)) => {
+                    tracing::warn!(err = debug(&err), "tunneled broker RPC failed, falling back");
+                }
+                None => {
+                    tracing::warn!("tunneled broker RPC timed out, falling back");
+                }
+            }
+        }
+        self.normal.call_raw(req).await
+    }
+}
 
 pub async fn get_net_status(ctx: &AnyCtx<Config>) -> anyhow::Result<NetStatus> {
     let broker = broker_client(ctx).context("could not get broker client")?;

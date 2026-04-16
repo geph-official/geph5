@@ -1,6 +1,5 @@
 mod address;
 mod http_client;
-mod rt_compat;
 
 use std::{net::SocketAddr, str::FromStr as _};
 
@@ -235,7 +234,7 @@ async fn establish_connect_tunnel(
 ) {
     use tokio::io::{copy, split};
 
-    let (mut r, mut w) = split(rt_compat::HyperRtCompat::new(upgraded));
+    let (mut r, mut w) = split(crate::tunneled_http::HyperRtCompat::new(upgraded));
     let (mut svr_r, mut svr_w) = split(stream.compat());
 
     let rhalf = copy(&mut r, &mut svr_w);

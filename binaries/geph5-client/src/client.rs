@@ -17,7 +17,7 @@ use smolscale::immortal::Immortal;
 
 use crate::{
     auth::{auth_loop, get_auth_token},
-    broker::{BrokerSource, broker_client},
+    broker::{BrokerSource, TunneledBrokerSource, broker_client},
     bw_token::bw_token_refresh_loop,
     control_prot::{ControlProtocolImpl, DummyControlProtocolTransport},
     http_proxy::http_proxy_serve,
@@ -43,6 +43,8 @@ pub struct Config {
     pub cache: Option<PathBuf>,
 
     pub broker: Option<BrokerSource>,
+    #[serde(alias = "tunneled_broker_source")]
+    pub tunneled_broker: Option<TunneledBrokerSource>,
     pub broker_keys: Option<BrokerKeys>,
 
     #[serde(default)]

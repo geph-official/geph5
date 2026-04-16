@@ -3,7 +3,7 @@ use std::ffi::c_char;
 use std::ffi::c_int;
 use std::io::Write;
 
-pub use broker::BrokerSource;
+pub use broker::{BrokerSource, TunneledBrokerSource};
 pub use broker::broker_client;
 use bytes::Bytes;
 pub use client::Client;
@@ -34,6 +34,7 @@ mod socks5;
 mod spoof_dns;
 mod stats;
 mod taskpool;
+mod tunneled_http;
 mod traffcount;
 mod updates;
 mod vpn;
@@ -161,6 +162,7 @@ mod tests {
                     override_dns: None,
                 },
             ])),
+            tunneled_broker: None,
             broker_keys: Some(BrokerKeys {
                 master: "88c1d2d4197bed815b01a22cadfc6c35aa246dddb553682037a118aebfaa3954".into(),
                 mizaru_free: "0558216cbab7a9c46f298f4c26e171add9af87d0694988b8a8fe52ee932aa754"

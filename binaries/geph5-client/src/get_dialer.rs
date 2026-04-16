@@ -273,6 +273,7 @@ mod tests {
             allow_direct: false,
             cache: None,
             broker: None,
+            tunneled_broker: None,
             broker_keys: None,
             port_forward: vec![],
             vpn: false,
