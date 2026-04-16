@@ -23,7 +23,7 @@ use std::{collections::BTreeMap, net::SocketAddr};
 
 use crate::client::{Config, CtxField};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum BrokerSource {
     Direct(String),
@@ -34,7 +34,6 @@ pub enum BrokerSource {
         override_dns: Option<Vec<SocketAddr>>,
     },
     DirectTcp(SocketAddr),
-    #[cfg(feature = "aws_lambda")]
     AwsLambda {
         function_name: String,
         region: String,
@@ -42,102 +41,6 @@ pub enum BrokerSource {
     },
     Race(Vec<BrokerSource>),
     PriorityRace(BTreeMap<u64, BrokerSource>),
-    Other(String),
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum RawBrokerSource {
-    Direct {
-        direct: String,
-    },
-    Fronted {
-        fronted: FrontedFields,
-    },
-    DirectTcp {
-        direct_tcp: SocketAddr,
-    },
-    #[cfg(feature = "aws_lambda")]
-    AwsLambda {
-        aws_lambda: AwsLambdaFields,
-    },
-    #[cfg(not(feature = "aws_lambda"))]
-    AwsLambdaUnsupported {
-        #[serde(rename = "aws_lambda")]
-        _aws_lambda: serde::de::IgnoredAny,
-    },
-    Race {
-        race: Vec<BrokerSource>,
-    },
-    PriorityRace {
-        priority_race: BTreeMap<u64, BrokerSource>,
-    },
-    Other(BTreeMap<String, serde_json::Value>),
-}
-
-#[derive(Deserialize)]
-struct FrontedFields {
-    front: String,
-    host: String,
-    #[serde(default)]
-    override_dns: Option<Vec<SocketAddr>>,
-}
-
-#[cfg(feature = "aws_lambda")]
-#[derive(Deserialize)]
-struct AwsLambdaFields {
-    function_name: String,
-    region: String,
-    obfs_key: String,
-}
-
-impl<'de> Deserialize<'de> for BrokerSource {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = RawBrokerSource::deserialize(deserializer)?;
-        Ok(match raw {
-            RawBrokerSource::Direct { direct } => BrokerSource::Direct(direct),
-            RawBrokerSource::Fronted { fronted } => BrokerSource::Fronted {
-                front: fronted.front,
-                host: fronted.host,
-                override_dns: fronted.override_dns,
-            },
-            RawBrokerSource::DirectTcp { direct_tcp } => BrokerSource::DirectTcp(direct_tcp),
-            #[cfg(feature = "aws_lambda")]
-            RawBrokerSource::AwsLambda { aws_lambda } => BrokerSource::AwsLambda {
-                function_name: aws_lambda.function_name,
-                region: aws_lambda.region,
-                obfs_key: aws_lambda.obfs_key,
-            },
-            #[cfg(not(feature = "aws_lambda"))]
-            RawBrokerSource::AwsLambdaUnsupported { .. } => {
-                warn_unknown_broker_source("aws_lambda");
-                BrokerSource::Other("aws_lambda".to_string())
-            }
-            RawBrokerSource::Race { race } => BrokerSource::Race(race),
-            RawBrokerSource::PriorityRace { priority_race } => {
-                BrokerSource::PriorityRace(priority_race)
-            }
-            RawBrokerSource::Other(other) => {
-                let kind = other
-                    .into_iter()
-                    .next()
-                    .map(|(key, _)| key)
-                    .unwrap_or_else(|| "unknown".to_string());
-                warn_unknown_broker_source(&kind);
-                BrokerSource::Other(kind)
-            }
-        })
-    }
-}
-
-fn warn_unknown_broker_source(kind: &str) {
-    tracing::warn!(
-        broker_source = kind,
-        "unknown or unsupported broker source in config; ignoring it until used"
-    );
 }
 
 impl BrokerSource {
@@ -173,6 +76,10 @@ impl BrokerSource {
                 region: region.clone(),
                 obfs_key: obfs_key.clone(),
             }),
+            #[cfg(not(feature = "aws_lambda"))]
+            BrokerSource::AwsLambda { .. } => {
+                DynRpcTransport::new(UnsupportedBrokerTransport("aws_lambda"))
+            }
             BrokerSource::Race(race_between) => {
                 let transports = race_between
                     .iter()
@@ -184,16 +91,11 @@ impl BrokerSource {
                 let inner = inner.iter().map(|(k, v)| (*k, v.rpc_transport())).collect();
                 DynRpcTransport::new(PriorityRaceTransport::new(inner))
             }
-            BrokerSource::Other(kind) => {
-                DynRpcTransport::new(UnsupportedBrokerTransport { kind: kind.clone() })
-            }
         }
     }
 }
 
-struct UnsupportedBrokerTransport {
-    kind: String,
-}
+struct UnsupportedBrokerTransport(&'static str);
 
 #[async_trait::async_trait]
 impl nanorpc::RpcTransport for UnsupportedBrokerTransport {
@@ -205,7 +107,7 @@ impl nanorpc::RpcTransport for UnsupportedBrokerTransport {
     ) -> Result<nanorpc::JrpcResponse, Self::Error> {
         Err(anyhow::anyhow!(
             "broker source '{}' is unsupported in this build",
-            self.kind
+            self.0
         ))
     }
 }
@@ -250,26 +152,22 @@ mod tests {
     use super::BrokerSource;
 
     #[test]
-    fn deserializes_unknown_broker_source_as_other() {
-        let parsed: BrokerSource =
-            serde_json::from_str(r#"{"future_transport":{"foo":"bar"}}"#).unwrap();
-
-        match parsed {
-            BrokerSource::Other(kind) => assert_eq!(kind, "future_transport"),
-            other => panic!("expected other broker source, got {:?}", kind_of(&other)),
-        }
-    }
-
-    #[cfg(not(feature = "aws_lambda"))]
-    #[test]
-    fn deserializes_aws_lambda_as_other_when_feature_disabled() {
+    fn deserializes_aws_lambda_when_feature_disabled() {
         let parsed: BrokerSource = serde_json::from_str(
             r#"{"aws_lambda":{"function_name":"f","region":"us-east-1","obfs_key":"k"}}"#,
         )
         .unwrap();
 
         match parsed {
-            BrokerSource::Other(kind) => assert_eq!(kind, "aws_lambda"),
+            BrokerSource::AwsLambda {
+                function_name,
+                region,
+                obfs_key,
+            } => {
+                assert_eq!(function_name, "f");
+                assert_eq!(region, "us-east-1");
+                assert_eq!(obfs_key, "k");
+            }
             other => panic!("expected other broker source, got {:?}", kind_of(&other)),
         }
     }
@@ -279,11 +177,9 @@ mod tests {
             BrokerSource::Direct(_) => "direct",
             BrokerSource::Fronted { .. } => "fronted",
             BrokerSource::DirectTcp(_) => "direct_tcp",
-            #[cfg(feature = "aws_lambda")]
             BrokerSource::AwsLambda { .. } => "aws_lambda",
             BrokerSource::Race(_) => "race",
             BrokerSource::PriorityRace(_) => "priority_race",
-            BrokerSource::Other(_) => "other",
         }
     }
 }
