@@ -24,9 +24,14 @@ use crate::{
     broker::broker_client,
     client::Config,
     device_metadata::get_device_metadata,
+    dial_logging::logged,
     route_cache::{read_cached_exit_route, write_cached_exit_route},
     vpn::smart_vpn_whitelist,
 };
+
+fn route_subtree_json(route: &RouteDescriptor) -> String {
+    serde_json::to_string(route).expect("route subtree must serialize")
+}
 
 /// Gets a sillad Dialer that produces a single, pre-authentication pipe, as well as the public key.
 pub async fn get_dialer(
@@ -47,6 +52,10 @@ pub async fn get_dialer(
             .await?
             .choose(&mut rand::thread_rng())
             .context("could not resolve destination for direct exit connection")?;
+        let direct_route = RouteDescriptor::ConnTest {
+            ping_count: 1,
+            lower: Box::new(RouteDescriptor::Tcp(dest_addr)),
+        };
         smart_vpn_whitelist(ctx, dest_addr.ip());
         return Ok((
             pubkey,
@@ -58,10 +67,23 @@ pub async fn get_dialer(
                 load: 0.0,
                 expiry: 0,
             },
-            ConnTestDialer {
-                ping_count: 1,
-                inner: TcpDialer { dest_addr },
-            }
+            logged(
+                "overall",
+                route_subtree_json(&direct_route),
+                logged(
+                    "conntest",
+                    route_subtree_json(&direct_route),
+                    ConnTestDialer {
+                        ping_count: 1,
+                        inner: logged(
+                            "tcp",
+                            route_subtree_json(&RouteDescriptor::Tcp(dest_addr)),
+                            TcpDialer { dest_addr },
+                        )
+                        .dynamic(),
+                    },
+                ),
+            )
             .dynamic(),
         ));
     }
@@ -153,7 +175,12 @@ fn dialer_from_exit_route(
     tracing::debug!(exit = ?exit, "exit route obtained: {}", serde_json::to_string(&route)?);
 
     let combined_routes = combine_exit_route(exit.clone(), route, ctx.init().allow_direct);
-    let bridge_dialer = route_to_dialer(ctx, &combined_routes);
+    let bridge_dialer = logged(
+        "overall",
+        route_subtree_json(&combined_routes),
+        route_to_dialer(ctx, &combined_routes),
+    )
+    .dynamic();
 
     Ok((exit_pubkey, exit, bridge_dialer))
 }
@@ -202,14 +229,23 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Tcp(addr) => {
             smart_vpn_whitelist(ctx, addr.ip());
             let addr = *addr;
-            TcpDialer { dest_addr: addr }.dynamic()
+            logged(
+                "tcp",
+                route_subtree_json(route),
+                TcpDialer { dest_addr: addr },
+            )
+            .dynamic()
         }
         RouteDescriptor::Sosistab3 { cookie, lower } => {
             let inner = route_to_dialer(ctx, lower);
-            SosistabDialer {
-                inner,
-                cookie: Cookie::new(cookie),
-            }
+            logged(
+                "sosistab3",
+                route_subtree_json(route),
+                SosistabDialer {
+                    inner,
+                    cookie: Cookie::new(cookie),
+                },
+            )
             .dynamic()
         }
         RouteDescriptor::Race(inside) => inside
@@ -236,40 +272,52 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
             .dynamic(),
         RouteDescriptor::ConnTest { ping_count, lower } => {
             let lower = route_to_dialer(ctx, lower);
-            ConnTestDialer {
-                inner: lower,
-                ping_count: *ping_count as _,
-            }
+            logged(
+                "conntest",
+                route_subtree_json(route),
+                ConnTestDialer {
+                    inner: lower,
+                    ping_count: *ping_count as _,
+                },
+            )
             .dynamic()
         }
         RouteDescriptor::Hex { lower } => {
             let lower = route_to_dialer(ctx, lower);
-            HexDialer { inner: lower }.dynamic()
+            logged("hex", route_subtree_json(route), HexDialer { inner: lower }).dynamic()
         }
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {
             let lower = route_to_dialer(ctx, lower);
-            TlsDialer::new(
-                lower,
-                TlsConnector::new()
-                    .use_sni(sni_domain.is_some())
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true)
-                    .min_protocol_version(None)
-                    .max_protocol_version(None),
-                sni_domain
-                    .clone()
-                    .unwrap_or_else(|| "example.com".to_string()),
+            logged(
+                "tls",
+                route_subtree_json(route),
+                TlsDialer::new(
+                    lower,
+                    TlsConnector::new()
+                        .use_sni(sni_domain.is_some())
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true)
+                        .min_protocol_version(None)
+                        .max_protocol_version(None),
+                    sni_domain
+                        .clone()
+                        .unwrap_or_else(|| "example.com".to_string()),
+                ),
             )
             .dynamic()
         }
         RouteDescriptor::Meeklike { key, cfg, lower } => {
             let lower = route_to_dialer(ctx, lower);
-            MeeklikeDialer {
-                inner: lower.into(),
-                cfg: *cfg,
-                key: *blake3::hash(key.as_bytes()).as_bytes(),
-            }
+            logged(
+                "meeklike",
+                route_subtree_json(route),
+                MeeklikeDialer {
+                    inner: lower.into(),
+                    cfg: *cfg,
+                    key: *blake3::hash(key.as_bytes()).as_bytes(),
+                },
+            )
             .dynamic()
         }
     }

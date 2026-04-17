@@ -22,6 +22,7 @@ mod client;
 mod control_prot;
 mod database;
 mod device_metadata;
+mod dial_logging;
 mod http_proxy;
 mod litecopy;
 pub mod logging;
