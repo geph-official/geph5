@@ -1,4 +1,5 @@
 use std::{
+    io::ErrorKind,
     net::{SocketAddr, TcpStream},
     time::Duration,
 };
@@ -21,6 +22,9 @@ use crate::{
 pub struct TcpListener {
     inner: Async<std::net::TcpListener>,
 }
+
+const INITIAL_ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(5);
+const MAX_ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 impl TcpListener {
     /// Creates a new TcpListener by listening to a particular address.
@@ -57,38 +61,48 @@ impl TcpListener {
 impl Listener for TcpListener {
     type P = TcpPipe;
     async fn accept(&mut self) -> std::io::Result<Self::P> {
-        let mut delay_secs = 1.0f64;
-        let mut err = None;
-        for _ in 0..4 {
-            let fallible = async {
-                let (conn, _) = self
-                    .inner
-                    .accept()
-                    .await
-                    .inspect_err(|e| tracing::error!(err = debug(e), "failed to accept"))?;
-                set_tcp_options(&conn).inspect_err(|e| {
-                    tracing::error!(err = debug(e), "failed to set TCP options")
-                })?;
-                let addr = conn.as_ref().peer_addr()?.to_string();
-                Ok(TcpPipe(conn, addr))
-            };
-            match fallible.await {
-                Ok(pipe) => {
-                    return Ok(pipe);
+        let mut retry_delay = INITIAL_ACCEPT_RETRY_DELAY;
+        loop {
+            match self.inner.accept().await {
+                Ok((conn, _)) => {
+                    retry_delay = INITIAL_ACCEPT_RETRY_DELAY;
+
+                    if let Err(err) = set_tcp_options(&conn) {
+                        tracing::warn!(
+                            err = debug(&err),
+                            "dropping accepted connection after failing to set TCP options"
+                        );
+                        continue;
+                    }
+
+                    let addr = match conn.as_ref().peer_addr() {
+                        Ok(addr) => addr.to_string(),
+                        Err(err) => {
+                            tracing::warn!(
+                                err = debug(&err),
+                                "dropping accepted connection after failing to read peer address"
+                            );
+                            continue;
+                        }
+                    };
+
+                    return Ok(TcpPipe(conn, addr));
                 }
-                Err(e) => {
-                    tracing::error!(
-                        err = debug(&e),
-                        delay_secs,
-                        "backing off and retrying accept"
+                Err(err) if should_retry_accept(&err) => {
+                    tracing::warn!(
+                        err = debug(&err),
+                        raw_os_error = err.raw_os_error(),
+                        retry_delay_ms = retry_delay.as_millis(),
+                        "transient TCP accept failure; retrying"
                     );
-                    delay_secs = rand::thread_rng().gen_range(delay_secs..delay_secs * 2.0);
-                    err = Some(e);
-                    async_io::Timer::after(Duration::from_secs_f64(delay_secs)).await;
+                    async_io::Timer::after(jitter_accept_retry_delay(retry_delay)).await;
+                    retry_delay = next_accept_retry_delay(retry_delay);
+                }
+                Err(err) => {
+                    return Err(err);
                 }
             }
         }
-        Err(err.unwrap())
     }
 }
 
@@ -111,6 +125,69 @@ fn set_tcp_options(conn: &Async<TcpStream>) -> std::io::Result<()> {
     //     }
     // }
     Ok(())
+}
+
+fn should_retry_accept(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        ErrorKind::WouldBlock
+            | ErrorKind::Interrupted
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::TimedOut
+            | ErrorKind::OutOfMemory
+    ) || err
+        .raw_os_error()
+        .is_some_and(should_retry_accept_raw_os_error)
+}
+
+#[cfg(unix)]
+fn should_retry_accept_raw_os_error(err: i32) -> bool {
+    matches!(
+        err,
+        libc::EAGAIN
+            | libc::ECONNABORTED
+            | libc::EINTR
+            | libc::ENETDOWN
+            | libc::EPROTO
+            | libc::ENOPROTOOPT
+            | libc::EHOSTDOWN
+            | libc::ENONET
+            | libc::EHOSTUNREACH
+            | libc::EOPNOTSUPP
+            | libc::ENETUNREACH
+            | libc::ETIMEDOUT
+            | libc::ENOBUFS
+            | libc::ENOMEM
+            | libc::EMFILE
+            | libc::ENFILE
+    )
+}
+
+#[cfg(windows)]
+fn should_retry_accept_raw_os_error(err: i32) -> bool {
+    matches!(
+        err,
+        10004
+            | 10035
+            | 10053
+            | 10060
+            | 10050
+            | 10051
+            | 10064
+            | 10065
+            | 10055
+            | 10024
+    )
+}
+
+fn next_accept_retry_delay(delay: Duration) -> Duration {
+    std::cmp::min(delay.saturating_mul(2), MAX_ACCEPT_RETRY_DELAY)
+}
+
+fn jitter_accept_retry_delay(delay: Duration) -> Duration {
+    let lower_ms = delay.as_millis() as u64;
+    let upper_ms = next_accept_retry_delay(delay).as_millis() as u64;
+    Duration::from_millis(rand::thread_rng().gen_range(lower_ms..=upper_ms))
 }
 
 /// A HappyEyeballsTcpDialer is a dialer for TCP endpoints which tries the given addresses in sequence intelligently.
@@ -221,5 +298,27 @@ impl Pipe for TcpPipe {
 
     fn remote_addr(&self) -> Option<&str> {
         Some(&self.1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retry_common_transient_accept_kinds() {
+        assert!(should_retry_accept(&std::io::Error::from(ErrorKind::Interrupted)));
+        assert!(should_retry_accept(&std::io::Error::from(
+            ErrorKind::ConnectionAborted
+        )));
+        assert!(should_retry_accept(&std::io::Error::from(ErrorKind::TimedOut)));
+    }
+
+    #[test]
+    fn reject_common_hard_accept_kinds() {
+        assert!(!should_retry_accept(&std::io::Error::from(
+            ErrorKind::PermissionDenied
+        )));
+        assert!(!should_retry_accept(&std::io::Error::from(ErrorKind::InvalidInput)));
     }
 }
