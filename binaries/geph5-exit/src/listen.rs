@@ -184,7 +184,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     let mux = PicoMux::new(client_read, client_write);
     mux.set_debloat(true);
 
-    let mut sess_metadata = Arc::new(serde_json::Value::Null);
+    let mut sess_metadata = None;
     let eyeball_addr = eyeball_addr_for_session(session_key);
     let dialer = EyeballDialer::new(eyeball_addr);
     loop {
@@ -193,9 +193,12 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
         // special metadata forms
 
-        // JSON metadata sets the session metadata
-        if let Ok(new_sess_metadata) = serde_json::from_str::<serde_json::Value>(&metadata) {
-            sess_metadata = Arc::new(new_sess_metadata);
+        // The first JSON stream sets session metadata. Later JSON streams can be rich tunnel
+        // commands and must be forwarded to proxy_stream.
+        if sess_metadata.is_none()
+            && let Ok(new_sess_metadata) = serde_json::from_str::<serde_json::Value>(&metadata)
+        {
+            sess_metadata = Some(Arc::new(new_sess_metadata));
             continue;
         }
 
@@ -218,7 +221,9 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             continue;
         }
 
-        let sess_metadata = sess_metadata.clone();
+        let sess_metadata = sess_metadata
+            .clone()
+            .unwrap_or_else(|| Arc::new(serde_json::Value::Null));
         let dialer = dialer.clone();
         smolscale::spawn(
             proxy_stream(
