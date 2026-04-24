@@ -141,7 +141,7 @@ pub async fn bridge_to_leaf_route(
                 } else if country == "RU" {
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: meeklike_route!().await?.into(),
+                        lower: weird_route!().await?.into(),
                     })
                 } else if !country.is_empty(){
                     // anyhow::Ok(RouteDescriptor::Delay {
