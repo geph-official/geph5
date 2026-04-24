@@ -146,7 +146,7 @@ pub async fn bridge_to_leaf_route(
                     // })
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
+                        lower: weird_route!().await?.into(),
                     })
                 } else {
                     anyhow::Ok(RouteDescriptor::Delay {
