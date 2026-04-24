@@ -108,7 +108,7 @@ pub async fn bridge_to_leaf_route(
                     //     milliseconds: delay_ms,
                     //     lower: route.into(),
                     // })
-                    meeklike_protocol()
+                    sosistab3_protocol()
                 } else {
                     let sosistab3_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
