@@ -102,7 +102,7 @@ pub async fn bridge_to_leaf_route(
                 let protocol = if country == "CN" {
                     tls_protocol()
                 } else if country == "RU" {
-                    naked_protocol()
+                    meeklike_protocol()
                 } else if !country.is_empty() {
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
