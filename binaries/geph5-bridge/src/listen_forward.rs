@@ -278,7 +278,16 @@ async fn remote_once(
     mux: &PicoMux,
 ) -> anyhow::Result<()> {
     loop {
-        let (metadata, back) = req.recv().await?;
+        let (metadata, back) = async {
+            req.recv()
+                .await
+                .map_err(|_| anyhow::anyhow!("request channel closed"))
+        }
+        .or(async {
+            mux.wait_until_dead().await?;
+            anyhow::bail!("b2e mux died")
+        })
+        .await?;
         let stream = mux.open(&metadata).await?;
         back.send(stream).ok();
     }
