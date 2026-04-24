@@ -17,7 +17,7 @@ use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
-use picomux::{PicoMux, Stream};
+use picomux::{LivenessConfig, PicoMux, Stream};
 use rand::Rng;
 use sillad::{Pipe, dialer::Dialer, listener::Listener, tcp::TcpListener};
 use smol::future::FutureExt as _;
@@ -237,7 +237,11 @@ impl SinglePool {
                     let conn = sillad::tcp::TcpDialer { dest_addr: dest }.dial().await;
                     if let Ok(conn) = conn {
                         let (read, write) = conn.split();
-                        let mux = PicoMux::new(read, write);
+                        let mut mux = PicoMux::new(read, write);
+                        mux.set_liveness(LivenessConfig {
+                            ping_interval: Duration::from_secs(10),
+                            timeout: Duration::from_secs(10),
+                        });
                         let recv = recv.clone();
                         live_count.fetch_add(1, Ordering::Relaxed);
                         scopeguard::defer!({
