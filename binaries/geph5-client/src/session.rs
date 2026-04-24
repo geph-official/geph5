@@ -3,12 +3,13 @@ use anyhow::Context;
 use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
-use futures_util::AsyncReadExt as _;
+use futures_intrusive::sync::ManualResetEvent;
+use futures_util::{AsyncReadExt as _, TryFutureExt};
 use geph5_misc_rpc::{
     client_control::ConnectedInfo,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length,
-    tunnel_command::TunnelCommand,
+    tunnel_command::{RichTunnelCommand, RichTunnelResponse, TunnelCommand},
     write_prepend_length,
 };
 use nursery_macro::nursery;
@@ -77,7 +78,7 @@ pub async fn open_conn(
     }
 
     let (send, recv) = oneshot::channel();
-    let cmd = TunnelCommand::Legacy {
+    let cmd = RichTunnelCommand {
         protocol: protocol.to_string(),
         host: dest_addr.to_string(),
     };
@@ -156,7 +157,7 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     }
 }
 
-type ChanElem = (TunnelCommand, oneshot::Sender<picomux::Stream>);
+type ChanElem = (RichTunnelCommand, oneshot::Sender<picomux::Stream>);
 
 static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiver<ChanElem>)> =
     |_| {
@@ -219,8 +220,8 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
-        ping_interval: Duration::from_secs(180),
-        timeout: Duration::from_secs(7),
+        ping_interval: Duration::from_secs(1200),
+        timeout: Duration::from_secs(120),
     });
     mux.set_debloat(true);
     let mux = Arc::new(mux);
@@ -228,10 +229,9 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
     // we first register the session metadata
     mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?)
         .await?;
-
+    let early_dead = ManualResetEvent::new(false);
     async {
         nursery!({
-
             loop {
                 let mux = mux.clone();
                 let ctx = ctx.clone();
@@ -239,23 +239,36 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
                 if let Some(latency) = mux.last_latency() {
                     stat_set_num(&ctx, "ping", latency.as_secs_f64());
                 }
-                spawn!(async move {
-                    let cmd_str = cmd.to_string();
-                    tracing::debug!(cmd_str = display(&cmd_str), "opening tunnel");
-                    let stream = mux.open(cmd_str.as_bytes()).await;
-                    match stream {
-                        Ok(stream) => {
-                            let _ = send_back.send(stream);
-                        }
-                        Err(err) => {
-                            tracing::warn!(cmd_str = display(&cmd_str), err = debug(&err), "session is dead, hot-potatoing the connection request to somebody else");
-                            let _ = ctx.get(CONN_REQ_CHAN).0.try_send((cmd, send_back));
-                        }
+                let cmd_str = TunnelCommand::Rich(cmd).to_string();
+                let cmd_str2 = cmd_str.clone();
+                spawn!(
+                    async move {
+                        tracing::debug!(cmd_str = display(&cmd_str), "opening tunnel...");
+                        let start = Instant::now();
+                        let mut stream = mux.open(cmd_str.as_bytes()).await?;
+                        // wait for the response to come back!
+                        let resp: RichTunnelResponse = serde_json::from_slice(
+                            &geph5_misc_rpc::read_prepend_length(&mut stream).await?,
+                        )?;
+                        tracing::debug!(
+                            cmd_str = display(&cmd_str),
+                            total_latency = start.elapsed().as_millis(),
+                            remote_latency = resp.open_ms,
+                            "tunnel open"
+                        );
+                        stat_set_num(&ctx, "ping", start.elapsed().as_secs_f64());
+                        let _ = send_back.send(stream);
+                        anyhow::Ok(())
                     }
-                    anyhow::Ok(())
-                })
+                    .inspect_err(move |err| {
+                        tracing::warn!(
+                            cmd_str = display(&cmd_str2),
+                            err = debug(err),
+                            "failed while opening tunnel"
+                        );
+                    })
+                )
                 .detach();
-
             }
         })
     }
@@ -266,6 +279,11 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
         } else {
             smol::future::pending().await
         }
+    })
+    .or(async {
+        early_dead.wait().await;
+        tracing::warn!("dying due to an early-dead signal");
+        anyhow::bail!("early dead")
     })
     .await
 }

@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, net::SocketAddr, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
@@ -59,4 +59,10 @@ impl FromStr for TunnelCommand {
             })
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RichTunnelResponse {
+    pub resolved_addr: SocketAddr,
+    pub open_ms: Option<u32>,
 }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
-use geph5_misc_rpc::tunnel_command::TunnelCommand;
+use geph5_misc_rpc::tunnel_command::{RichTunnelResponse, TunnelCommand};
 
 use futures_util::{AsyncReadExt, AsyncWriteExt, io::BufReader};
 
@@ -25,7 +25,7 @@ pub async fn proxy_stream(
     dialer: EyeballDialer,
     sess_metadata: Arc<serde_json::Value>,
     ratelimit: RateLimiter,
-    stream: picomux::Stream,
+    mut stream: picomux::Stream,
     is_free: bool,
 ) -> anyhow::Result<()> {
     let cmd_str = String::from_utf8_lossy(stream.metadata());
@@ -49,12 +49,22 @@ pub async fn proxy_stream(
                 .timeout(Duration::from_secs(5))
                 .await
                 .context(format!("timeout in TCP dial to {:?}", dest_addrs))??;
+            let latency = start.elapsed();
+            let resolved_addr = dest_tcp.peer_addr()?;
             tracing::trace!(
                 protocol,
                 dest_host = display(dest_host),
-                latency = debug(start.elapsed()),
+                latency = debug(latency),
                 "TCP established resolved"
             );
+            let resp = RichTunnelResponse {
+                resolved_addr,
+                open_ms: Some(latency.as_millis() as u32),
+            };
+            if matches!(cmd, TunnelCommand::Rich(_)) {
+                geph5_misc_rpc::write_prepend_length(&serde_json::to_vec(&resp)?, &mut stream)
+                    .await?;
+            }
             let (read_stream, mut write_stream) = stream.split();
             let (read_dest, mut write_dest) = dest_tcp.split();
             smol::future::race(
@@ -79,6 +89,16 @@ pub async fn proxy_stream(
                 .await
                 .context("UDP bind failed")?;
             udp_socket.connect(addr).await?;
+
+            let resp = RichTunnelResponse {
+                resolved_addr: addr,
+                open_ms: None,
+            };
+            if matches!(cmd, TunnelCommand::Rich(_)) {
+                geph5_misc_rpc::write_prepend_length(&serde_json::to_vec(&resp)?, &mut stream)
+                    .await?;
+            }
+
             let (read_stream, mut write_stream) = stream.split();
             let up_loop = async {
                 let mut read_stream = BufReader::new(read_stream);
