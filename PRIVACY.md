@@ -35,7 +35,7 @@ We offer official customer support only via email to support@geph.io
 
 We will never disclose to any third party any non-public information on our users, unless legally compelled to under the laws of the Republic of Estonia. Any such legal requests will be documented in as much detail as legally possible.
 
-**As of Mar 1 2025, no such requests have ever been received.**
+**As of April 24, 2026, no such requests have ever been received.**
 
 We will not in any circumstance allow third parties direct "backdoor" access to our servers. We commit to moving to a different jurisdiction if compulsory backdoor access ever becomes possible in the Republic of Estonia.
 
