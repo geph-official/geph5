@@ -1,9 +1,11 @@
 use std::{
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::Context;
+use geph5_misc_rpc::tunnel_command::TunnelCommand;
 
 use futures_util::{AsyncReadExt, AsyncWriteExt, io::BufReader};
 
@@ -26,22 +28,20 @@ pub async fn proxy_stream(
     stream: picomux::Stream,
     is_free: bool,
 ) -> anyhow::Result<()> {
-    let dest_host = String::from_utf8_lossy(stream.metadata());
-    let (protocol, dest_host): (&str, &str) = if dest_host.contains('$') {
-        dest_host.split_once('$').unwrap()
-    } else {
-        ("tcp", &dest_host)
-    };
+    let cmd_str = String::from_utf8_lossy(stream.metadata());
+    let cmd = TunnelCommand::from_str(&cmd_str)?;
+    let protocol = cmd.protocol().to_string();
+    let dest_host = cmd.host().to_string();
     let filter: FilterOptions =
         serde_json::from_value(sess_metadata["filter"].clone()).unwrap_or_default();
-    let dest_addrs = dns_resolve(dest_host, filter)
+    let dest_addrs = dns_resolve(&dest_host, filter)
         .await
         .context("failed to resolve DNS")?;
     if !dest_addrs.iter().all(|addr| proxy_allowed(*addr, is_free)) {
         anyhow::bail!("Proxying to {} is not allowed", dest_host);
     }
 
-    match protocol {
+    match protocol.as_str() {
         "tcp" => {
             let start = Instant::now();
             let dest_tcp = dialer

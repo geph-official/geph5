@@ -115,12 +115,12 @@ pub async fn bridge_to_leaf_route(
                     })
                 }
 
-                if asn == 4837 || asn == 4808 {
-                    return anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
-                    })
-                } else
+                // if asn == 4837 || asn == 4808 {
+                //     return anyhow::Ok(RouteDescriptor::Delay {
+                //         milliseconds: delay_ms,
+                //         lower: tls_route!().await?.into(),
+                //     })
+                // } else
                 // } else if is_china_mobile_asn(asn) {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
@@ -136,12 +136,7 @@ pub async fn bridge_to_leaf_route(
                 if country == "CN"{
                     anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: if rand::random::<bool>() {
-                            tls_route!().await?
-                        } else {
-                            weird_route!().await?
-                        }
-                        .into(),
+                        lower: weird_route!().await?.into(),
                     })
                 } else
                 if !country.is_empty(){

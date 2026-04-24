@@ -7,7 +7,9 @@ use futures_util::AsyncReadExt as _;
 use geph5_misc_rpc::{
     client_control::ConnectedInfo,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
-    read_prepend_length, write_prepend_length,
+    read_prepend_length,
+    tunnel_command::TunnelCommand,
+    write_prepend_length,
 };
 use nursery_macro::nursery;
 
@@ -75,8 +77,11 @@ pub async fn open_conn(
     }
 
     let (send, recv) = oneshot::channel();
-    let elem = (format!("{protocol}${dest_addr}"), send);
-    ctx.get(CONN_REQ_CHAN).0.send(elem).await?;
+    let cmd = TunnelCommand::Legacy {
+        protocol: protocol.to_string(),
+        host: dest_addr.to_string(),
+    };
+    ctx.get(CONN_REQ_CHAN).0.send((cmd, send)).await?;
     let mut conn = recv.await?;
     let ctx = ctx.clone();
     conn.set_on_read(clone!([ctx], move |n| {
@@ -151,7 +156,7 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     }
 }
 
-type ChanElem = (String, oneshot::Sender<picomux::Stream>);
+type ChanElem = (TunnelCommand, oneshot::Sender<picomux::Stream>);
 
 static CONN_REQ_CHAN: CtxField<(kanal::AsyncSender<ChanElem>, kanal::AsyncReceiver<ChanElem>)> =
     |_| {
@@ -230,20 +235,21 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
             loop {
                 let mux = mux.clone();
                 let ctx = ctx.clone();
-                let (remote_addr, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
+                let (cmd, send_back) = ctx.get(CONN_REQ_CHAN).1.recv().await?;
                 if let Some(latency) = mux.last_latency() {
                     stat_set_num(&ctx, "ping", latency.as_secs_f64());
                 }
                 spawn!(async move {
-                    tracing::debug!(remote_addr = display(&remote_addr), "opening tunnel");
-                    let stream = mux.open(remote_addr.as_bytes()).await;
+                    let cmd_str = cmd.to_string();
+                    tracing::debug!(cmd_str = display(&cmd_str), "opening tunnel");
+                    let stream = mux.open(cmd_str.as_bytes()).await;
                     match stream {
                         Ok(stream) => {
                             let _ = send_back.send(stream);
                         }
                         Err(err) => {
-                            tracing::warn!(remote_addr = display(&remote_addr), err = debug(&err), "session is dead, hot-potatoing the connection request to somebody else");
-                            let _ = ctx.get(CONN_REQ_CHAN).0.try_send((remote_addr, send_back));
+                            tracing::warn!(cmd_str = display(&cmd_str), err = debug(&err), "session is dead, hot-potatoing the connection request to somebody else");
+                            let _ = ctx.get(CONN_REQ_CHAN).0.try_send((cmd, send_back));
                         }
                     }
                     anyhow::Ok(())
