@@ -1,5 +1,4 @@
 use anyhow::Context;
-use defmac::defmac;
 use futures_util::{FutureExt as _, TryFutureExt};
 use geph5_broker_protocol::{BridgeDescriptor, ExitDescriptor, RouteDescriptor};
 use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
@@ -48,117 +47,100 @@ pub async fn bridge_to_leaf_route(
         .get_with(
             (bridge.clone(), exit.b2e_listen, asn, country_key.clone()),
             async {
-                defmac!(tls_route => {
-                    bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        ObfsProtocol::ConnTest(
-                            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-                        ).into()
-                    )
-                });
-                defmac!(sosistab3_route => {
-                    bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()
-                    )
-                });
-                defmac!(weird_route => {
-                    bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        ObfsProtocol::ConnTest(ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into()).into()).into()
-                    )
-                });
-                defmac!(legacy_route => {
-                    bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        ObfsProtocol::Sosistab3(gencookie()),
-                    )
-                });
-                defmac!(plain_route => {
-                    bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        ObfsProtocol::ConnTest(ObfsProtocol::None.into()).into(),
-                    )
-                });
-                defmac!(meeklike_route => {
-                    bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into()),
-                    )
-                });
-
-                if let Ok(version) = semver::Version::parse(version) &&
-                VersionReq::parse(">=0.2.72").unwrap().matches(&version) &&
-                bridge.pool.contains("meeklike")
+                if let Ok(version) = semver::Version::parse(version)
+                    && VersionReq::parse(">=0.2.72").unwrap().matches(&version)
+                    && bridge.pool.contains("meeklike")
                 {
-                    let fallback_route = if is_iran {
-                        tls_route!().await?
+                    let fallback_protocol = if is_iran {
+                        tls_protocol()
                     } else {
-                        sosistab3_route!().await?
+                        sosistab3_protocol()
                     };
+                    let fallback_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        fallback_protocol,
+                    )
+                    .await?;
+                    let meeklike_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        meeklike_protocol(),
+                    )
+                    .await?;
                     return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
                         lower: RouteDescriptor::Race(vec![
                             RouteDescriptor::Delay {
                                 milliseconds: 10000,
-                                lower: meeklike_route!().await?.into(),
+                                lower: meeklike_route.into(),
                             },
                             fallback_route,
                         ])
                         .into(),
-                    })
+                    });
                 }
 
                 // if asn == 4837 || asn == 4808 {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
-                //         lower: tls_route!().await?.into(),
+                //         lower: route.into(),
                 //     })
                 // } else
                 // } else if is_china_mobile_asn(asn) {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
-                //         lower: weird_route!().await?.into(),
+                //         lower: route.into(),
                 //     })
                 // } else
                 // if is_iran {
                 //     return anyhow::Ok(RouteDescriptor::Delay {
                 //         milliseconds: delay_ms,
-                //         lower: tls_route!().await?.into(),
+                //         lower: route.into(),
                 //     });
                 // }
-                if country == "CN"{
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: tls_route!().await?.into(),
-                    })
+                let protocol = if country == "CN" {
+                    tls_protocol()
                 } else if country == "RU" {
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: weird_route!().await?.into(),
-                    })
-                } else if !country.is_empty(){
+                    weirdest_protocol()
+                } else if !country.is_empty() {
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
-                    //     lower: tls_route!().await?.into(),
+                    //     lower: route.into(),
                     // })
-                    anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: weird_route!().await?.into(),
-                    })
+                    weird_protocol()
                 } else {
-                    anyhow::Ok(RouteDescriptor::Delay {
+                    let sosistab3_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        sosistab3_protocol(),
+                    )
+                    .await?;
+                    let legacy_route = bridge_to_leaf_route_inner(
+                        bridge.clone(),
+                        exit.b2e_listen,
+                        legacy_protocol(),
+                    )
+                    .await?;
+                    return anyhow::Ok(RouteDescriptor::Delay {
                         milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![RouteDescriptor::Timeout{milliseconds: 5000, lower: sosistab3_route!().await?.into()}, legacy_route!().await?])
-                            .into(),
-                    })
-                }
+                        lower: RouteDescriptor::Fallback(vec![
+                            RouteDescriptor::Timeout {
+                                milliseconds: 5000,
+                                lower: sosistab3_route.into(),
+                            },
+                            legacy_route,
+                        ])
+                        .into(),
+                    });
+                };
+
+                let route =
+                    bridge_to_leaf_route_inner(bridge.clone(), exit.b2e_listen, protocol).await?;
+                anyhow::Ok(RouteDescriptor::Delay {
+                    milliseconds: delay_ms,
+                    lower: route.into(),
+                })
             }
             .map(|res| {
                 if let Err(err) = res.as_ref() {
@@ -175,6 +157,48 @@ pub async fn bridge_to_leaf_route(
         )
         .await
         .map_err(|e| anyhow::anyhow!(e))
+}
+
+fn tls_protocol() -> ObfsProtocol {
+    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::PlainTls(Box::new(
+        ObfsProtocol::None,
+    ))))
+}
+
+fn sosistab3_protocol() -> ObfsProtocol {
+    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::Sosistab3New(
+        gencookie(),
+        Box::new(ObfsProtocol::None),
+    )))
+}
+
+fn weird_protocol() -> ObfsProtocol {
+    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::Sosistab3New(
+        gencookie(),
+        Box::new(ObfsProtocol::Sosistab3New(
+            gencookie(),
+            Box::new(ObfsProtocol::None),
+        )),
+    )))
+}
+
+fn weirdest_protocol() -> ObfsProtocol {
+    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::Sosistab3New(
+        gencookie(),
+        Box::new(ObfsProtocol::Hex(ObfsProtocol::None.into())),
+    )))
+}
+
+fn legacy_protocol() -> ObfsProtocol {
+    ObfsProtocol::Sosistab3(gencookie())
+}
+
+fn meeklike_protocol() -> ObfsProtocol {
+    ObfsProtocol::Meeklike(
+        gencookie(),
+        Default::default(),
+        Box::new(ObfsProtocol::None),
+    )
 }
 
 fn is_china_mobile_asn(asn: u32) -> bool {
