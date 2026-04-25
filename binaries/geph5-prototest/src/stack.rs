@@ -106,7 +106,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
             ObfsProtocol::PlainTls(sub) => {
                 let lower = inner(sub, lower);
                 let connector = TlsConnector::new()
-                    .use_sni(false)
+                    .use_sni(true)
                     .danger_accept_invalid_certs(true)
                     .danger_accept_invalid_hostnames(true)
                     .min_protocol_version(None)
