@@ -168,6 +168,5 @@ pub fn dummy_tls_acceptor() -> TlsAcceptor {
         .expect("Cannot decode identity");
     let mut builder = native_tls::TlsAcceptor::builder(identity);
     builder.min_protocol_version(Some(native_tls::Protocol::Tlsv10));
-    builder.max_protocol_version(Some(native_tls::Protocol::Tlsv12));
     builder.build().unwrap().into()
 }

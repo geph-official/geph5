@@ -5,7 +5,7 @@ use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
 use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
-use rand::RngCore;
+use rand::{Rng as _, RngCore};
 use semver::VersionReq;
 use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
@@ -166,33 +166,41 @@ fn naked_protocol() -> ObfsProtocol {
 fn tls_protocol() -> ObfsProtocol {
     ObfsProtocol::Sosistab3New(
         gencookie(),
-        Box::new(ObfsProtocol::PlainTls(Box::new(ObfsProtocol::None))),
+        ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
     )
     .into()
 }
 
 fn sosistab3_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::Sosistab3New(
-        gencookie(),
-        Box::new(ObfsProtocol::None),
-    )))
+    ObfsProtocol::ConnTest(
+        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
+    )
 }
 
 fn weird_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::Sosistab3New(
-        gencookie(),
-        Box::new(ObfsProtocol::Sosistab3New(
+    ObfsProtocol::ConnTest(
+        ObfsProtocol::Sosistab3New(
             gencookie(),
-            Box::new(ObfsProtocol::None),
-        )),
-    )))
+            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
+        )
+        .into(),
+    )
 }
 
 fn weirdest_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::Sosistab3New(
-        gencookie(),
-        Box::new(ObfsProtocol::Hex(ObfsProtocol::None.into())),
-    )))
+    let mut rng = rand::thread_rng();
+    let layer_count = rng.gen_range(3..=10);
+    let mut protocol = ObfsProtocol::None;
+
+    for _ in 0..layer_count {
+        protocol = if rng.gen_bool(0.5) {
+            ObfsProtocol::Sosistab3New(gencookie(), protocol.into())
+        } else {
+            ObfsProtocol::PlainTls(protocol.into())
+        };
+    }
+
+    ObfsProtocol::ConnTest(protocol.into())
 }
 
 fn legacy_protocol() -> ObfsProtocol {
@@ -200,11 +208,7 @@ fn legacy_protocol() -> ObfsProtocol {
 }
 
 fn meeklike_protocol() -> ObfsProtocol {
-    ObfsProtocol::Meeklike(
-        gencookie(),
-        Default::default(),
-        Box::new(ObfsProtocol::None),
-    )
+    ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into())
 }
 
 fn is_china_mobile_asn(asn: u32) -> bool {
@@ -287,11 +291,11 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         },
         ObfsProtocol::None => RouteDescriptor::Tcp(addr),
         ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
-            ping_count: 5,
+            ping_count: 1,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
-            sni_domain: None,
+            sni_domain: Some("lusheeta-toel.yandex.ru".into()),
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
