@@ -111,7 +111,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                     .danger_accept_invalid_hostnames(true)
                     .min_protocol_version(None)
                     .max_protocol_version(None);
-                TlsDialer::new(lower, connector, "example.com".into()).dynamic()
+                TlsDialer::new(lower, connector, "lusheeta-toel.yandex.ru".into()).dynamic()
             }
             ObfsProtocol::Hex(sub) => {
                 let lower = inner(sub, lower);
