@@ -102,7 +102,7 @@ pub async fn bridge_to_leaf_route(
                 let protocol = if country == "CN" {
                     tls_protocol()
                 } else if country == "RU" {
-                    meeklike_protocol()
+                    tls_protocol()
                 } else if !country.is_empty() {
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
@@ -164,9 +164,13 @@ fn naked_protocol() -> ObfsProtocol {
 }
 
 fn tls_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(Box::new(ObfsProtocol::PlainTls(Box::new(
-        ObfsProtocol::None,
-    ))))
+    ObfsProtocol::ConnTest(
+        ObfsProtocol::Sosistab3New(
+            gencookie(),
+            Box::new(ObfsProtocol::PlainTls(Box::new(ObfsProtocol::None))),
+        )
+        .into(),
+    )
 }
 
 fn sosistab3_protocol() -> ObfsProtocol {
@@ -285,11 +289,11 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         },
         ObfsProtocol::None => RouteDescriptor::Tcp(addr),
         ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
-            ping_count: 1,
+            ping_count: 5,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
-            sni_domain: Some("linode.com".into()),
+            sni_domain: None,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
