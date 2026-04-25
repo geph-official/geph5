@@ -164,13 +164,11 @@ fn naked_protocol() -> ObfsProtocol {
 }
 
 fn tls_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(
-        ObfsProtocol::Sosistab3New(
-            gencookie(),
-            Box::new(ObfsProtocol::PlainTls(Box::new(ObfsProtocol::None))),
-        )
-        .into(),
+    ObfsProtocol::Sosistab3New(
+        gencookie(),
+        Box::new(ObfsProtocol::PlainTls(Box::new(ObfsProtocol::None))),
     )
+    .into()
 }
 
 fn sosistab3_protocol() -> ObfsProtocol {
