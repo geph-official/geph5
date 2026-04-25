@@ -54,7 +54,7 @@ pub async fn bridge_to_leaf_route(
                     let fallback_protocol = if is_iran {
                         tls_protocol()
                     } else {
-                        tls_protocol()
+                        sosistab3_protocol()
                     };
                     let fallback_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
