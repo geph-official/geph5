@@ -350,7 +350,7 @@ async fn picomux_inner(
             let stream_id = {
                 let mut rng = rand::rng();
                 std::iter::repeat_with(|| rng.random())
-                    .find(|key| !buffer_table.contains_id(*key))
+                    .find(|key| !buffer_table.is_reserved(*key))
                     .unwrap()
             };
             outgoing.enqueue(Frame::new_empty(stream_id, CMD_SYN).tap_mut(|f| {
@@ -421,7 +421,7 @@ async fn picomux_inner(
                 );
                 match frame.header.command {
                     CMD_SYN => {
-                        if buffer_table.contains_id(stream_id) {
+                        if buffer_table.is_reserved(stream_id) {
                             return Err(std::io::Error::new(
                                 ErrorKind::InvalidData,
                                 "duplicate SYN",

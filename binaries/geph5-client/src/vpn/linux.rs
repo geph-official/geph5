@@ -15,10 +15,13 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     process::Command,
     sync::LazyLock,
-    time::Duration,
 };
 
-use crate::{Config, session::open_conn, spoof_dns::fake_dns_respond};
+use crate::{
+    Config,
+    session::{open_conn, wait_until_tunnel_ready},
+    spoof_dns::fake_dns_respond,
+};
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
@@ -173,10 +176,7 @@ pub(super) async fn packet_shuffle(
     let up_file = smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd_num) })
         .context("cannot init up_file")?;
 
-    // wait until we have a connection
-    while open_conn(&ctx, "", "").await.is_err() {
-        smol::Timer::after(Duration::from_millis(100));
-    }
+    wait_until_tunnel_ready(&ctx).await;
     setup_routing().unwrap();
     scopeguard::defer!(teardown_routing());
     let (mut read, mut write) = up_file.split();

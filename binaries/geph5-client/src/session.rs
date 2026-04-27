@@ -202,17 +202,17 @@ async fn run_session_once(
             .unwrap_or_default(),
         exit: exit.clone(),
     });
-    ctx.get(CURRENT_ACTIVE_SESSIONS)
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    scopeguard::defer!({
-        ctx.get(CURRENT_ACTIVE_SESSIONS)
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    });
     let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
     *failures = 0.0;
     proxy_loop(ctx.clone(), authed_pipe)
         .await
         .context(format!("inner connection to {addr} failed"))
+}
+
+pub async fn wait_until_tunnel_ready(ctx: &AnyCtx<Config>) {
+    while ctx.get(CURRENT_ACTIVE_SESSIONS).load(Ordering::SeqCst) == 0 {
+        smol::Timer::after(Duration::from_millis(100)).await;
+    }
 }
 
 #[tracing::instrument(skip_all, fields(server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
@@ -229,6 +229,12 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
     // we first register the session metadata
     mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?)
         .await?;
+    ctx.get(CURRENT_ACTIVE_SESSIONS)
+        .fetch_add(1, Ordering::SeqCst);
+    scopeguard::defer!({
+        ctx.get(CURRENT_ACTIVE_SESSIONS)
+            .fetch_sub(1, Ordering::SeqCst);
+    });
     let early_dead = ManualResetEvent::new(false);
     async {
         nursery!({
@@ -248,7 +254,10 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
                         let mut stream = mux.open(cmd_str.as_bytes()).await?;
                         // wait for the response to come back!
                         let resp: RichTunnelResponse = serde_json::from_slice(
-                            &geph5_misc_rpc::read_prepend_length(&mut stream).await?,
+                            &geph5_misc_rpc::read_prepend_length(&mut stream)
+                                .timeout(Duration::from_secs(10))
+                                .await
+                                .context("timeout waiting for tunnel open response")??,
                         )?;
                         tracing::debug!(
                             cmd_str = display(&cmd_str),

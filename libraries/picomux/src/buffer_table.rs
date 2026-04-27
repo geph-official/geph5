@@ -10,6 +10,9 @@ use futures_intrusive::sync::SharedSemaphore;
 
 use crate::{INIT_WINDOW, MAX_WINDOW, frame::Frame};
 
+const STREAM_ID_TOMBSTONE_TTL: Duration = Duration::from_secs(3600);
+const TOMBSTONE_PRUNE_INTERVAL: Duration = Duration::from_secs(60);
+
 #[allow(clippy::type_complexity)]
 type Inner = DashMap<
     u32,
@@ -21,6 +24,8 @@ type Inner = DashMap<
 #[derive(Clone)]
 pub struct BufferTable {
     inner: Arc<Inner>,
+    tombstones: Arc<DashMap<u32, Instant, BuildHasherDefault<AHasher>>>,
+    next_prune: Arc<parking_lot::Mutex<Instant>>,
 }
 
 impl BufferTable {
@@ -29,6 +34,12 @@ impl BufferTable {
             inner: Arc::new(DashMap::with_hasher(
                 BuildHasherDefault::<AHasher>::default(),
             )),
+            tombstones: Arc::new(DashMap::with_hasher(
+                BuildHasherDefault::<AHasher>::default(),
+            )),
+            next_prune: Arc::new(parking_lot::Mutex::new(
+                Instant::now() + TOMBSTONE_PRUNE_INTERVAL,
+            )),
         }
     }
 
@@ -36,15 +47,22 @@ impl BufferTable {
         self.inner.contains_key(&id)
     }
 
+    pub fn is_reserved(&self, id: u32) -> bool {
+        self.prune_expired_tombstones();
+        self.contains_id(id) || self.is_tombstoned(id)
+    }
+
     pub fn create_entry(&self, stream_id: u32) -> BufferReceive {
         let (send_incoming, recv_incoming) = async_channel::unbounded::<(Frame, Instant)>();
         let send_more = SharedSemaphore::new(false, INIT_WINDOW);
+        self.tombstones.remove(&stream_id);
         self.inner.insert(stream_id, (send_incoming, send_more));
         BufferReceive {
             id: stream_id,
             recv: recv_incoming,
 
             inner: self.inner.clone(),
+            tombstones: self.tombstones.clone(),
 
             queue_delay: None,
         }
@@ -89,6 +107,28 @@ impl BufferTable {
             inner.1.release(amount as _);
         }
     }
+
+    fn is_tombstoned(&self, id: u32) -> bool {
+        if let Some(expiry) = self.tombstones.get(&id) {
+            if *expiry > Instant::now() {
+                return true;
+            }
+            drop(expiry);
+            self.tombstones.remove(&id);
+        }
+        false
+    }
+
+    fn prune_expired_tombstones(&self) {
+        let now = Instant::now();
+        let mut next_prune = self.next_prune.lock();
+        if now < *next_prune {
+            return;
+        }
+        *next_prune = now + TOMBSTONE_PRUNE_INTERVAL;
+        drop(next_prune);
+        self.tombstones.retain(|_, expiry| *expiry > now);
+    }
 }
 
 /// The receiving end for a stream-specific buffer.
@@ -96,6 +136,7 @@ pub struct BufferReceive {
     id: u32,
     recv: async_channel::Receiver<(Frame, Instant)>,
     inner: Arc<Inner>,
+    tombstones: Arc<DashMap<u32, Instant, BuildHasherDefault<AHasher>>>,
 
     queue_delay: Option<Duration>,
 }
@@ -118,5 +159,35 @@ impl BufferReceive {
 impl Drop for BufferReceive {
     fn drop(&mut self) {
         self.inner.remove(&self.id);
+        self.tombstones
+            .insert(self.id, Instant::now() + STREAM_ID_TOMBSTONE_TTL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_entries_are_tombstoned() {
+        let table = BufferTable::new();
+        let recv = table.create_entry(123);
+
+        assert!(table.is_reserved(123));
+        drop(recv);
+        assert!(!table.contains_id(123));
+        assert!(table.is_reserved(123));
+    }
+
+    #[test]
+    fn create_entry_clears_existing_tombstone() {
+        let table = BufferTable::new();
+        drop(table.create_entry(123));
+        assert!(table.is_reserved(123));
+
+        let _recv = table.create_entry(123);
+        assert!(table.contains_id(123));
+        assert!(table.is_reserved(123));
+        assert!(table.tombstones.get(&123).is_none());
     }
 }

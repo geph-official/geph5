@@ -80,6 +80,14 @@ pub async fn proxy_stream(
                 .find(|s| s.is_ipv4())
                 .context("UDP only supports ipv4 for now")?;
             if addr.port() == 53 {
+                let resp = RichTunnelResponse {
+                    resolved_addr: addr,
+                    open_ms: None,
+                };
+                if matches!(cmd, TunnelCommand::Rich(_)) {
+                    geph5_misc_rpc::write_prepend_length(&serde_json::to_vec(&resp)?, &mut stream)
+                        .await?;
+                }
                 return proxy_dns(stream, filter).await;
             }
             if addr.port() == 443 {
