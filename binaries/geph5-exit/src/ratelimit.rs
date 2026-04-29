@@ -25,13 +25,16 @@ use crate::{
 
 static CPU_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 static CURRENT_SPEED: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
+static MEM_USAGE: Lazy<AtomicF32> = Lazy::new(|| AtomicF32::new(0.0));
 
 pub fn get_load() -> f32 {
     // we weigh CPU usage lower until it's really close to massively overloading
     let cpu = CPU_USAGE.load(Ordering::Relaxed).powi(2);
     let speed = CURRENT_SPEED.load(Ordering::Relaxed)
         / (CONFIG_FILE.wait().total_ratelimit as f32 * 1000.0);
-    cpu.max(speed)
+    // memory only dominates when genuinely close to OOM; reclaimable cache is excluded via MemAvailable
+    let mem = MEM_USAGE.load(Ordering::Relaxed).powi(6);
+    cpu.max(speed).max(mem)
 }
 
 pub fn get_kbps() -> f32 {
@@ -55,6 +58,13 @@ pub fn update_load_loop() {
             cpu_accum = cpu_accum * 0.99 + cpu_usage * 0.01;
 
             CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
+
+            let total_mem = sys.total_memory();
+            if total_mem > 0 {
+                let mem_usage = 1.0 - (sys.available_memory() as f32 / total_mem as f32);
+                MEM_USAGE.store(mem_usage, Ordering::Relaxed);
+            }
+
             let new_byte_count = TOTAL_BYTE_COUNT.load(Ordering::Relaxed);
             let byte_diff = new_byte_count - last_byte_count;
             let byte_rate = byte_diff as f32 / last_count_time.elapsed().as_secs_f32();
