@@ -847,26 +847,27 @@ impl BrokerProtocol for BrokerImpl {
         // Get a payment session for the user
         let sessid = payment_sessid(user_id).await?;
 
-        // Delete the free voucher after successful redemption
-        delete_free_voucher(user_id, code.clone()).await?;
-
+        // Special internal vouchers: just consume the local record and return
         if code.contains("!") {
+            delete_free_voucher(user_id, code).await?;
             return Ok(0);
         }
 
-        // Call the payment service to spend the gift card
+        // Call the payment service first; only delete the local record once it confirms success.
+        // This way a transient payment failure cannot silently destroy the voucher.
         let days = PaymentClient(PaymentTransport)
             .spend_giftcard(
                 sessid,
                 GiftcardWireInfo {
-                    gc_id: code,
+                    gc_id: code.clone(),
                     promo: "".to_string(),
                 },
             )
             .await?
             .map_err(|e| GenericError(format!("Failed to redeem voucher: {}", e)))?;
 
-        // Return the number of days credited to the account
+        delete_free_voucher(user_id, code).await?;
+
         Ok(days)
     }
 

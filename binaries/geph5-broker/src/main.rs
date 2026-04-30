@@ -1,6 +1,7 @@
 use anyhow::Context;
 use axum::{
     Json, Router,
+    extract::DefaultBodyLimit,
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -210,7 +211,9 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let listener = tokio::net::TcpListener::bind(CONFIG_FILE.wait().listen).await?;
-    let app = Router::new().route("/", post(rpc));
+    let app = Router::new()
+        .route("/", post(rpc))
+        .layer(DefaultBodyLimit::max(512 * 1024));
     axum::serve(listener, app).await?;
     Ok(())
 }
