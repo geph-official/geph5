@@ -22,12 +22,25 @@ pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> 
     let (read, mut write) = stream.split();
     let mut read = BufReader::new(read);
     let read_fut = async {
-        let mut buf = String::new();
+        // Read lines with a hard cap. A legitimate token is ~200 bytes base64-encoded;
+        // 4096 is generous. BufReader makes byte-by-byte reads efficient.
+        const MAX_LINE: usize = 4096;
+        let mut line = Vec::with_capacity(256);
+        let mut byte = [0u8; 1];
         loop {
-            buf.clear();
-            read.read_line(&mut buf).await?;
+            line.clear();
+            loop {
+                read.read_exact(&mut byte).await?;
+                if byte[0] == b'\n' {
+                    break;
+                }
+                if line.len() >= MAX_LINE {
+                    anyhow::bail!("bw token line too long");
+                }
+                line.push(byte[0]);
+            }
             let (token, sig): (ClientToken, SingleUnblindedSignature) =
-                stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(buf.trim())?)?;
+                stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(std::str::from_utf8(&line)?.trim())?)?;
             tracing::debug!("obtained token, crediting bandwidth");
             account.credit_bw(token, sig).await?;
         }
