@@ -46,8 +46,8 @@ payment_support_secret: support-secret
 
 | Table | Key columns | Notes |
 | --- | --- | --- |
-| `bridges_new` | `listen` (PK), `cookie`, `pool`, `expiry` | Live registry of bridge front-ends. `listen` is the control address, `cookie` is the enrollment secret, `pool` groups bridges by allocation group, and `expiry` is stored as a Unix timestamp. Expired rows are purged by the GC loop. |
-| `bridge_group_delays` | `pool` (PK), `delay_ms`, `is_plus` | SLO overrides for entire bridge pool prefixes, written by bridge-phalanx. `delay_ms` inflates the perceived latency for overloaded pools and `is_plus` marks pools that should only be served to Plus users. The broker applies the longest prefix whose `pool` matches the registered bridge pool name, so a row like `foo` also covers `foo_ipv6` unless a more specific prefix exists. |
+| `bridges_new` | `listen` (PK), `cookie`, `pool`, `expiry` | Live registry of bridge front-ends. `listen` is the control address, `cookie` is the enrollment secret, `pool` groups bridges by location/provider pool, and `expiry` is stored as a Unix timestamp. Expired rows are purged by the GC loop. |
+| `bridge_pool_delays` | `pool` (PK), `delay_ms`, `is_plus` | SLO overrides for entire bridge pool prefixes, written by bridge-phalanx. `delay_ms` inflates the perceived latency for overloaded pools and `is_plus` marks pools that should only be served to Plus users. The broker applies the longest prefix whose `pool` matches the registered bridge pool name, so a row like `foo` also covers `foo_ipv6` unless a more specific prefix exists. |
 | `bridge_availability` | `listen`, `user_country`, `user_asn`, `successes`, `failures`, `last_update` | Per-(bridge, country, ASN) success counters with exponential decay. Used to bias bridge selection toward routes that work for a user’s location. |
 
 ### Exit registry

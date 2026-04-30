@@ -5,7 +5,6 @@ use moka::future::Cache;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    collections::hash_map::Entry,
     net::SocketAddr,
     sync::LazyLock,
     time::{Duration, Instant},
@@ -21,10 +20,57 @@ pub struct BridgeMetadata {
 }
 
 #[derive(Clone, Debug)]
-struct BridgeGroupDelay {
+struct BridgePoolDelay {
     pool_prefix: String,
     delay_ms: u32,
     is_plus: bool,
+}
+
+async fn ensure_bridge_pool_delays_schema() -> anyhow::Result<()> {
+    sqlx::query(
+        r#"do $$
+        begin
+            perform pg_advisory_xact_lock(hashtext('bridge_pool_delays_migration'));
+            if to_regclass('bridge_group_delays') is not null
+               and to_regclass('bridge_pool_delays') is null then
+                alter table bridge_group_delays rename to bridge_pool_delays;
+            end if;
+        end
+        $$;"#,
+    )
+    .execute(&*POSTGRES)
+    .await?;
+
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS bridge_pool_delays (
+            pool text primary key,
+            delay_ms integer not null,
+            is_plus boolean not null default false
+        )"#,
+    )
+    .execute(&*POSTGRES)
+    .await?;
+
+    sqlx::query(
+        r#"do $$
+        begin
+            perform pg_advisory_xact_lock(hashtext('bridge_pool_delays_migration'));
+            if to_regclass('bridge_group_delays') is not null then
+                insert into bridge_pool_delays (pool, delay_ms, is_plus)
+                select pool, delay_ms, is_plus
+                from bridge_group_delays
+                on conflict (pool) do update
+                set delay_ms = excluded.delay_ms,
+                    is_plus = excluded.is_plus;
+                drop table bridge_group_delays;
+            end if;
+        end
+        $$;"#,
+    )
+    .execute(&*POSTGRES)
+    .await?;
+
+    Ok(())
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
@@ -38,26 +84,28 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
     Ok(rendezvous_bridges(bridges, key))
 }
 
+const ROUTES_PER_BRIDGE_POOL: usize = 2;
+
 fn rendezvous_bridges(bridges: Vec<BridgeMetadata>, key: u64) -> Vec<BridgeMetadata> {
-    let mut chosen: HashMap<String, (u128, BridgeMetadata)> = HashMap::new();
+    let mut chosen: HashMap<String, Vec<(u128, BridgeMetadata)>> = HashMap::new();
 
     for bridge in bridges {
         let pool = bridge.descriptor.pool.clone();
         let listen = bridge.descriptor.control_listen.to_string();
         let score = rendezvous_score(key, &listen);
-        match chosen.entry(pool) {
-            Entry::Vacant(entry) => {
-                entry.insert((score, bridge));
-            }
-            Entry::Occupied(mut entry) => {
-                if score < entry.get().0 {
-                    entry.insert((score, bridge));
-                }
-            }
+        let pool_routes = chosen.entry(pool).or_default();
+        pool_routes.push((score, bridge));
+        pool_routes.sort_unstable_by_key(|(score, _)| *score);
+        if pool_routes.len() > ROUTES_PER_BRIDGE_POOL {
+            pool_routes.truncate(ROUTES_PER_BRIDGE_POOL);
         }
     }
 
-    chosen.into_values().map(|(_, meta)| meta).collect()
+    chosen
+        .into_values()
+        .flatten()
+        .map(|(_, meta)| meta)
+        .collect()
 }
 
 fn rendezvous_score(key: u64, listen: &str) -> u128 {
@@ -77,6 +125,7 @@ async fn cached_bridges() -> anyhow::Result<Vec<BridgeMetadata>> {
 
     CACHE
         .try_get_with((), async {
+            ensure_bridge_pool_delays_schema().await?;
             let start = Instant::now();
             let probes: Vec<(String, i64, i64)> = sqlx::query_as(
                 r#"WITH recent_probes AS (
@@ -104,9 +153,9 @@ FROM bridges_new bn"#,
             )
             .fetch_all(&*POSTGRES)
             .await?;
-            let group_delays: Vec<(String, i32, bool)> = sqlx::query_as(
+            let pool_delays: Vec<(String, i32, bool)> = sqlx::query_as(
                 r#"SELECT pool, delay_ms, is_plus
-FROM bridge_group_delays"#,
+FROM bridge_pool_delays"#,
             )
             .fetch_all(&*POSTGRES)
             .await?;
@@ -115,9 +164,9 @@ FROM bridge_group_delays"#,
                 .into_iter()
                 .map(|(ip, success, fail)| (ip, (success, fail)))
                 .collect();
-            let group_delays: Vec<_> = group_delays
+            let pool_delays: Vec<_> = pool_delays
                 .into_iter()
-                .map(|(pool_prefix, delay_ms, is_plus)| BridgeGroupDelay {
+                .map(|(pool_prefix, delay_ms, is_plus)| BridgePoolDelay {
                     pool_prefix,
                     delay_ms: delay_ms as _,
                     is_plus,
@@ -131,7 +180,7 @@ FROM bridge_group_delays"#,
                             .get(&listen_host(&control_listen))
                             .copied()
                             .unwrap_or((0, 0));
-                        let matched_delay = longest_matching_group_delay(&group_delays, &row.2);
+                        let matched_delay = longest_matching_pool_delay(&pool_delays, &row.2);
                         BridgeMetadata {
                             descriptor: geph5_broker_protocol::BridgeDescriptor {
                                 control_listen,
@@ -232,11 +281,11 @@ fn listen_host(listen: &SocketAddr) -> String {
     listen.ip().to_string()
 }
 
-fn longest_matching_group_delay<'a>(
-    group_delays: &'a [BridgeGroupDelay],
+fn longest_matching_pool_delay<'a>(
+    pool_delays: &'a [BridgePoolDelay],
     pool: &str,
-) -> Option<&'a BridgeGroupDelay> {
-    group_delays
+) -> Option<&'a BridgePoolDelay> {
+    pool_delays
         .iter()
         .filter(|delay| pool.starts_with(&delay.pool_prefix))
         .max_by_key(|delay| delay.pool_prefix.len())
@@ -245,6 +294,21 @@ fn longest_matching_group_delay<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_bridge(pool: &str, listen: &str) -> BridgeMetadata {
+        BridgeMetadata {
+            descriptor: BridgeDescriptor {
+                control_listen: listen.parse().unwrap(),
+                control_cookie: "cookie".into(),
+                pool: pool.into(),
+                expiry: 0,
+            },
+            delay_ms: 0,
+            is_plus: false,
+            china_success_count: 0,
+            china_fail_count: 0,
+        }
+    }
 
     #[test]
     fn listen_host_handles_ipv4_and_ipv6() {
@@ -255,33 +319,54 @@ mod tests {
     }
 
     #[test]
-    fn longest_matching_group_delay_uses_prefix() {
-        let delays = vec![BridgeGroupDelay {
+    fn longest_matching_pool_delay_uses_prefix() {
+        let delays = vec![BridgePoolDelay {
             pool_prefix: "ls_ap_northeast_2".into(),
             delay_ms: 123,
             is_plus: true,
         }];
-        let matched = longest_matching_group_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
+        let matched = longest_matching_pool_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
         assert_eq!(matched.delay_ms, 123);
         assert!(matched.is_plus);
     }
 
     #[test]
-    fn longest_matching_group_delay_prefers_more_specific_prefix() {
+    fn longest_matching_pool_delay_prefers_more_specific_prefix() {
         let delays = vec![
-            BridgeGroupDelay {
+            BridgePoolDelay {
                 pool_prefix: "ls_ap_northeast_2".into(),
                 delay_ms: 100,
                 is_plus: false,
             },
-            BridgeGroupDelay {
+            BridgePoolDelay {
                 pool_prefix: "ls_ap_northeast_2_ipv6".into(),
                 delay_ms: 200,
                 is_plus: true,
             },
         ];
-        let matched = longest_matching_group_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
+        let matched = longest_matching_pool_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
         assert_eq!(matched.delay_ms, 200);
         assert!(matched.is_plus);
+    }
+
+    #[test]
+    fn rendezvous_bridges_returns_two_from_each_pool() {
+        let bridges = vec![
+            test_bridge("alpha", "127.0.0.1:9001"),
+            test_bridge("alpha", "127.0.0.1:9002"),
+            test_bridge("alpha", "127.0.0.1:9003"),
+            test_bridge("beta", "127.0.0.1:9011"),
+            test_bridge("beta", "127.0.0.1:9012"),
+            test_bridge("beta", "127.0.0.1:9013"),
+        ];
+
+        let selected = rendezvous_bridges(bridges, 42);
+        let mut pool_counts = HashMap::new();
+        for bridge in selected {
+            *pool_counts.entry(bridge.descriptor.pool).or_insert(0) += 1;
+        }
+
+        assert_eq!(pool_counts.get("alpha"), Some(&ROUTES_PER_BRIDGE_POOL));
+        assert_eq!(pool_counts.get("beta"), Some(&ROUTES_PER_BRIDGE_POOL));
     }
 }
