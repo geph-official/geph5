@@ -122,6 +122,7 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
     static CACHE: LazyLock<Cache<String, Vec<SocketAddr>>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(240))
+            .max_capacity(100_000)
             .build()
     });
 

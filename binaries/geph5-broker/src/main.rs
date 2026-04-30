@@ -223,6 +223,7 @@ async fn rpc(Json(payload): Json<JrpcRequest>) -> Response {
     static DEDUP_CACHE: LazyLock<Cache<(JrpcId, String), JrpcResponse>> = LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(120))
+            .max_capacity(100_000)
             .build()
     });
 
