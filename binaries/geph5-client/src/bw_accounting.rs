@@ -6,7 +6,10 @@ use stdcode::StdcodeSerializeExt;
 
 use crate::{Config, auth::IS_PLUS, bw_token::bw_token_consume, client::CtxField};
 use anyctx::AnyCtx;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
+};
 
 static FORCE_REFRESH: CtxField<(smol::channel::Sender<()>, smol::channel::Receiver<()>)> =
     |_| smol::channel::unbounded();
@@ -44,10 +47,16 @@ pub async fn bw_accounting_client_loop(
     let read_fut = {
         async {
             let mut buf = [0u8; 8];
+            let mut last_log = Instant::now() - Duration::from_secs(5);
 
             loop {
                 read.read_exact(&mut buf).await?;
                 let current_bytes = u64::from_be_bytes(buf);
+
+                if last_log.elapsed() >= Duration::from_secs(5) {
+                    tracing::debug!(current_bytes, "received remote bandwidth accounting update");
+                    last_log = Instant::now();
+                }
 
                 if current_bytes == 0 {
                     tracing::debug!(

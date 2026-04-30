@@ -4,17 +4,21 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, Uri, client::conn::http1};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
+use smol::lock::Mutex;
 
 use crate::{
     Config,
     tunneled_http::{HyperRtCompat, TunneledConnection},
 };
 
+type BrokerHttpSender = http1::SendRequest<Full<Bytes>>;
+
 pub struct TunneledHttpTransport {
     ctx: anyctx::AnyCtx<Config>,
     uri: Uri,
     authority: String,
     tls_host: Option<String>,
+    sender: Mutex<Option<BrokerHttpSender>>,
 }
 
 impl TunneledHttpTransport {
@@ -36,20 +40,11 @@ impl TunneledHttpTransport {
             uri,
             authority,
             tls_host,
+            sender: Mutex::new(None),
         }
     }
-}
 
-#[async_trait]
-impl RpcTransport for TunneledHttpTransport {
-    type Error = anyhow::Error;
-
-    async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
-        tracing::debug!(
-            method = req.method,
-            tunneled_broker = %self.uri,
-            "calling broker through Geph"
-        );
+    async fn connect(&self) -> anyhow::Result<BrokerHttpSender> {
         let host = self
             .uri
             .host()
@@ -70,7 +65,7 @@ impl RpcTransport for TunneledHttpTransport {
             Io::Plain(HyperRtCompat::new(TunneledConnection::new(conn)))
         };
 
-        let (mut sender, connection) = http1::handshake(io).await?;
+        let (sender, connection) = http1::handshake(io).await?;
         smolscale::spawn(async move {
             if let Err(err) = connection.await {
                 tracing::debug!(err = debug(err), "tunneled broker HTTP connection ended");
@@ -78,8 +73,12 @@ impl RpcTransport for TunneledHttpTransport {
         })
         .detach();
 
+        Ok(sender)
+    }
+
+    fn build_request(&self, req: JrpcRequest) -> anyhow::Result<Request<Full<Bytes>>> {
         let body = Full::new(Bytes::from(serde_json::to_vec(&req)?));
-        let request = Request::builder()
+        Request::builder()
             .method(Method::POST)
             .uri(
                 self.uri
@@ -90,15 +89,40 @@ impl RpcTransport for TunneledHttpTransport {
             .header("host", &self.authority)
             .header("content-type", "application/json")
             .body(body)
-            .context("could not build tunneled broker request")?;
-        let response = sender
-            .send_request(request)
-            .await
-            .context("cannot send tunneled broker request")?;
+            .context("could not build tunneled broker request")
+    }
+}
+
+#[async_trait]
+impl RpcTransport for TunneledHttpTransport {
+    type Error = anyhow::Error;
+
+    async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+        tracing::debug!(
+            method = req.method,
+            tunneled_broker = %self.uri,
+            "calling broker through Geph"
+        );
+
+        let request = self.build_request(req)?;
+        let mut sender = self.sender.lock().await;
+        if sender.is_none() {
+            *sender = Some(self.connect().await?);
+        }
+        let response = match sender.as_mut().unwrap().send_request(request).await {
+            Ok(response) => response,
+            Err(err) => {
+                sender.take();
+                return Err(err).context("cannot send tunneled broker request");
+            }
+        };
         let body = response
             .into_body()
             .collect()
             .await
+            .inspect_err(|_| {
+                sender.take();
+            })
             .context("cannot read tunneled broker response")?
             .to_bytes();
         Ok(serde_json::from_slice(&body)?)

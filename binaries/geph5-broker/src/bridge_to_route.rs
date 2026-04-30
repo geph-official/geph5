@@ -164,11 +164,13 @@ fn naked_protocol() -> ObfsProtocol {
 }
 
 fn tls_protocol() -> ObfsProtocol {
-    ObfsProtocol::Sosistab3New(
-        gencookie(),
-        ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+    ObfsProtocol::ConnTest(
+        ObfsProtocol::Sosistab3New(
+            gencookie(),
+            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+        )
+        .into(),
     )
-    .into()
 }
 
 fn sosistab3_protocol() -> ObfsProtocol {
@@ -291,7 +293,7 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         },
         ObfsProtocol::None => RouteDescriptor::Tcp(addr),
         ObfsProtocol::ConnTest(obfs_protocol) => RouteDescriptor::ConnTest {
-            ping_count: 1,
+            ping_count: 2,
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
