@@ -151,7 +151,6 @@ fn should_retry_accept_raw_os_error(err: i32) -> bool {
             | libc::EPROTO
             | libc::ENOPROTOOPT
             | libc::EHOSTDOWN
-            | libc::ENONET
             | libc::EHOSTUNREACH
             | libc::EOPNOTSUPP
             | libc::ENETUNREACH
@@ -160,7 +159,17 @@ fn should_retry_accept_raw_os_error(err: i32) -> bool {
             | libc::ENOMEM
             | libc::EMFILE
             | libc::ENFILE
-    )
+    ) || is_linux_accept_retry_errno(err)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn is_linux_accept_retry_errno(err: i32) -> bool {
+    matches!(err, libc::ENONET)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn is_linux_accept_retry_errno(_: i32) -> bool {
+    false
 }
 
 #[cfg(windows)]
