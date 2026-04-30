@@ -6,17 +6,27 @@ use stdcode::StdcodeSerializeExt;
 
 use crate::{Config, auth::IS_PLUS, bw_token::bw_token_consume, client::CtxField};
 use anyctx::AnyCtx;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static FORCE_REFRESH: CtxField<(smol::channel::Sender<()>, smol::channel::Receiver<()>)> =
     |_| smol::channel::unbounded();
+
+const BW_TOKEN_BYTES: u64 = 10_000_000;
+
+static ACCOUNTED_BYTES: CtxField<AtomicU64> = |_| AtomicU64::new(0);
 
 pub fn notify_bw_accounting(ctx: &AnyCtx<Config>, consumed: usize) {
     if !ctx.get(IS_PLUS).load(Ordering::SeqCst) {
         return;
     }
-    if rand::random::<f64>() < (consumed as f64) * 1.01 / 10_000_000.0 {
-        // waste 1%
+
+    let old_bytes = ctx
+        .get(ACCOUNTED_BYTES)
+        .fetch_add(consumed as u64, Ordering::SeqCst);
+    let new_bytes = old_bytes + consumed as u64;
+    let tokens_due = new_bytes / BW_TOKEN_BYTES - old_bytes / BW_TOKEN_BYTES;
+
+    for _ in 0..tokens_due {
         let _ = ctx.get(FORCE_REFRESH).0.try_send(());
     }
 }

@@ -172,13 +172,14 @@ impl RateLimiter {
         if bytes == 0 {
             return;
         }
+        let charged_bytes = bytes;
         let multiplier = (1.0 / (1.0 - get_load().min(0.999)) - 1.0) / 2.0;
 
-        let bytes = (bytes as f32 * (multiplier.max(1.0))).min(100000.0);
+        let rate_limited_bytes = (bytes as f32 * (multiplier.max(1.0))).min(100000.0);
 
         if let Some(inner) = &self.inner {
             let out_of_bw = self.bw_enabled.load(Ordering::SeqCst)
-                && self.bw_account.consume_bw(bytes as _) == 0;
+                && self.bw_account.consume_bw(charged_bytes) == 0;
             let limiter = if out_of_bw {
                 self.fallback.as_ref().unwrap_or(inner)
             } else {
@@ -188,7 +189,7 @@ impl RateLimiter {
             let mut delay: f32 = 0.005;
             loop {
                 if limiter
-                    .check_n((bytes as u32).try_into().unwrap())
+                    .check_n((rate_limited_bytes as u32).try_into().unwrap())
                     .unwrap()
                     .is_ok()
                 {
