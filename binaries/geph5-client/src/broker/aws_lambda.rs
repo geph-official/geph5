@@ -1,5 +1,3 @@
-#![cfg(not(target_os = "ios"))]
-
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
