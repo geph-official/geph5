@@ -7,15 +7,20 @@ use std::{
 use anyhow::Context;
 use blake3::Hasher;
 use futures_concurrency::future::RaceOk;
+use futures_util::{
+    future::{Either, select},
+    pin_mut,
+};
 use ipnet::Ipv6Net;
 use once_cell::sync::OnceCell;
-use rand::Rng;
+use rand::{Rng, seq::IteratorRandom};
 use smol::{Async, net::TcpStream, process::Command};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 use crate::{CONFIG_FILE, session::SessionKey};
 
 static IPV6_POOL: OnceCell<Vec<Ipv6Addr>> = OnceCell::new();
+const IPV6_HEAD_START: Duration = Duration::from_millis(250);
 
 /// Something that can be used for happy-eyeballs dialing, with its own IPv6 address.
 #[derive(Clone, Debug)]
@@ -32,25 +37,90 @@ impl EyeballDialer {
     /// Connect to a given remote.
     pub async fn connect(&self, addrs: Vec<SocketAddr>) -> anyhow::Result<TcpStream> {
         let my_addr = self.inner;
+        let addrs = pick_eyeball_addrs(addrs);
 
-        let streams: Vec<_> = addrs
-            .into_iter()
-            .enumerate()
-            .map(|(idx, addr)| async move {
-                if idx > 0 {
-                    smol::Timer::after(Duration::from_millis(500 * idx as u64)).await;
-                    tracing::debug!(idx, addr = display(addr), "eyeballed to non-ideal");
-                }
-                if addr.is_ipv6()
-                    && let Some(my_addr) = my_addr
-                {
-                    return connect_from(my_addr, addr).await;
-                }
-                Ok(TcpStream::connect(addr).await?)
-            })
-            .collect();
-        streams.race_ok().await.map_err(|mut e| e.remove(0))
+        match (addrs.ipv6, addrs.ipv4) {
+            (None, None) => anyhow::bail!("no addresses given"),
+            (Some(addr), None) | (None, Some(addr)) => connect_one(my_addr, addr).await,
+            (Some(ipv6), Some(ipv4)) => connect_dual_stack(my_addr, ipv6, ipv4).await,
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct EyeballAddrs {
+    ipv6: Option<SocketAddr>,
+    ipv4: Option<SocketAddr>,
+}
+
+fn pick_eyeball_addrs(addrs: Vec<SocketAddr>) -> EyeballAddrs {
+    let mut rng = rand::thread_rng();
+
+    EyeballAddrs {
+        ipv6: addrs
+            .iter()
+            .filter(|addr| addr.is_ipv6())
+            .choose(&mut rng)
+            .copied(),
+        ipv4: addrs
+            .iter()
+            .filter(|addr| addr.is_ipv4())
+            .choose(&mut rng)
+            .copied(),
+    }
+}
+
+async fn connect_dual_stack(
+    my_addr: Option<Ipv6Addr>,
+    ipv6: SocketAddr,
+    ipv4: SocketAddr,
+) -> anyhow::Result<TcpStream> {
+    let ipv6_connect = connect_one(my_addr, ipv6);
+    let head_start = smol::Timer::after(IPV6_HEAD_START);
+    pin_mut!(ipv6_connect);
+    pin_mut!(head_start);
+
+    match select(ipv6_connect, head_start).await {
+        Either::Left((Ok(stream), _)) => Ok(stream),
+        Either::Left((Err(ipv6_err), _)) => {
+            tracing::debug!(
+                err = debug(&ipv6_err),
+                addr = display(ipv6),
+                fallback_addr = display(ipv4),
+                "IPv6 connect failed before head start elapsed; trying IPv4 immediately"
+            );
+            connect_one(my_addr, ipv4)
+                .await
+                .with_context(|| format!("IPv6 connect failed first: {ipv6_err:?}"))
+        }
+        Either::Right((_, ipv6_connect)) => {
+            tracing::debug!(
+                addr = display(ipv6),
+                fallback_addr = display(ipv4),
+                head_start_ms = IPV6_HEAD_START.as_millis(),
+                "IPv6 head start elapsed; racing IPv4 fallback"
+            );
+            (ipv6_connect, connect_one(my_addr, ipv4))
+                .race_ok()
+                .await
+                .map_err(|errors| {
+                    anyhow::anyhow!(
+                        "both IPv6 and IPv4 connects failed: IPv6: {:?}; IPv4: {:?}",
+                        errors[0],
+                        errors[1]
+                    )
+                })
+        }
+    }
+}
+
+async fn connect_one(my_addr: Option<Ipv6Addr>, addr: SocketAddr) -> anyhow::Result<TcpStream> {
+    if addr.is_ipv6()
+        && let Some(my_addr) = my_addr
+    {
+        return connect_from(my_addr, addr).await;
+    }
+    Ok(TcpStream::connect(addr).await?)
 }
 
 /// Pick a deterministic IPv6 from the pool for a session using rendezvous hashing.
@@ -266,5 +336,33 @@ mod tests {
             net.network(),
             "Should be exactly the single /128 address"
         );
+    }
+
+    #[test]
+    fn pick_eyeball_addrs_uses_at_most_one_per_family() {
+        let addrs = vec![
+            "[2001:db8::1]:443".parse().unwrap(),
+            "[2001:db8::2]:443".parse().unwrap(),
+            "192.0.2.1:443".parse().unwrap(),
+            "192.0.2.2:443".parse().unwrap(),
+        ];
+
+        let picked = pick_eyeball_addrs(addrs);
+
+        assert!(picked.ipv6.is_some_and(|addr| addr.is_ipv6()));
+        assert!(picked.ipv4.is_some_and(|addr| addr.is_ipv4()));
+    }
+
+    #[test]
+    fn pick_eyeball_addrs_handles_single_family() {
+        let addrs = vec![
+            "192.0.2.1:443".parse().unwrap(),
+            "192.0.2.2:443".parse().unwrap(),
+        ];
+
+        let picked = pick_eyeball_addrs(addrs);
+
+        assert_eq!(picked.ipv6, None);
+        assert!(picked.ipv4.is_some_and(|addr| addr.is_ipv4()));
     }
 }
