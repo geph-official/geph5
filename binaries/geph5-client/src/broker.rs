@@ -17,7 +17,6 @@ use itertools::Itertools;
 use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 use priority_race::PriorityRaceTransport;
 use race::RaceTransport;
-use std::sync::atomic::Ordering;
 use tunneled_http::TunneledHttpTransport;
 
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,7 @@ use std::{collections::BTreeMap, net::SocketAddr};
 
 use crate::{
     client::{Config, CtxField},
-    control_prot::CURRENT_ACTIVE_SESSIONS,
+    control_prot::CURRENT_CONNECTED_INFOS,
     timeout::{BROKER_RPC_TIMEOUT, RpcTransportExt},
 };
 
@@ -164,7 +163,7 @@ static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
             tunneled,
             is_connected: std::sync::Arc::new({
                 let ctx = ctx.clone();
-                move || ctx.get(CURRENT_ACTIVE_SESSIONS).load(Ordering::SeqCst) > 0
+                move || !ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty()
             }),
         }))
     })

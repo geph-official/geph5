@@ -34,7 +34,7 @@ use crate::{
     bw_accounting::{bw_accounting_client_loop, notify_bw_accounting},
     china::is_chinese_host,
     client::CtxField,
-    control_prot::{CURRENT_ACTIVE_SESSIONS, CURRENT_CONNECTED_INFO},
+    control_prot::CURRENT_CONNECTED_INFOS,
     get_dialer::get_dialer,
     spoof_dns::fake_dns_backtranslate,
     stats::{stat_incr_num, stat_set_num},
@@ -194,29 +194,41 @@ async fn run_session_once(
     .await
     .context("overall dial/mux/auth timeout")??;
 
-    *ctx.get(CURRENT_CONNECTED_INFO).lock() = Some(ConnectedInfo {
+    let connected_info = ConnectedInfo {
         protocol: authed_pipe.protocol().to_string(),
+        exit: exit.clone(),
         bridge: authed_pipe
             .remote_addr()
-            .map(|s| s.to_string())
-            .unwrap_or_default(),
-        exit: exit.clone(),
-    });
+            .and_then(|addr| addr.parse::<SocketAddr>().ok()),
+    };
     let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
+    let mux = start_mux(authed_pipe);
     *failures = 0.0;
-    proxy_loop(ctx.clone(), authed_pipe)
+
+    // we first register the session metadata
+    mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?)
+        .await?;
+    let connected_info_idx = ctx
+        .get(CURRENT_CONNECTED_INFOS)
+        .lock()
+        .insert(connected_info);
+    scopeguard::defer!({
+        ctx.get(CURRENT_CONNECTED_INFOS)
+            .lock()
+            .remove(connected_info_idx);
+    });
+    proxy_loop(ctx.clone(), mux)
         .await
         .context(format!("inner connection to {addr} failed"))
 }
 
 pub async fn wait_until_tunnel_ready(ctx: &AnyCtx<Config>) {
-    while ctx.get(CURRENT_ACTIVE_SESSIONS).load(Ordering::SeqCst) == 0 {
+    while ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty() {
         smol::Timer::after(Duration::from_millis(100)).await;
     }
 }
 
-#[tracing::instrument(skip_all, fields(server=display(authed_pipe.remote_addr().unwrap_or("(none)"))))]
-async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Result<()> {
+fn start_mux(authed_pipe: impl Pipe) -> Arc<PicoMux> {
     let (read, write) = authed_pipe.split();
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
@@ -224,18 +236,12 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
         timeout: Duration::from_secs(120),
     });
     mux.set_debloat(true);
-    let mux = Arc::new(mux);
+    Arc::new(mux)
+}
 
-    // we first register the session metadata
-    mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?)
-        .await?;
-    ctx.get(CURRENT_ACTIVE_SESSIONS)
-        .fetch_add(1, Ordering::SeqCst);
-    scopeguard::defer!({
-        ctx.get(CURRENT_ACTIVE_SESSIONS)
-            .fetch_sub(1, Ordering::SeqCst);
-    });
-    let early_dead = ManualResetEvent::new(false);
+#[tracing::instrument(skip_all)]
+async fn proxy_loop(ctx: AnyCtx<Config>, mux: Arc<PicoMux>) -> anyhow::Result<()> {
+    let early_dead = Arc::new(ManualResetEvent::new(false));
     async {
         nursery!({
             loop {
@@ -247,6 +253,7 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
                 }
                 let cmd_str = TunnelCommand::Rich(cmd).to_string();
                 let cmd_str2 = cmd_str.clone();
+                let early_dead = early_dead.clone();
                 spawn!(
                     async move {
                         tracing::debug!(cmd_str = display(&cmd_str), "opening tunnel...");
@@ -275,6 +282,7 @@ async fn proxy_loop(ctx: AnyCtx<Config>, authed_pipe: impl Pipe) -> anyhow::Resu
                             err = debug(err),
                             "failed while opening tunnel"
                         );
+                        early_dead.set();
                     })
                 )
                 .detach();

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use smol::lock::Semaphore;
 
 use crate::client::Config;
-use crate::control_prot::CURRENT_CONNECTED_INFO;
+use crate::control_prot::CURRENT_CONNECTED_INFOS;
 use crate::database;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,7 +21,7 @@ pub struct DeviceMetadata {
 /// Get device metadata information including package version and IP address.
 /// The IP address is fetched from checkip.amazonaws.com and cached for 24 hours.
 pub async fn get_device_metadata(ctx: &AnyCtx<Config>) -> anyhow::Result<DeviceMetadata> {
-    if ctx.init().vpn && ctx.get(CURRENT_CONNECTED_INFO).lock().is_some() {
+    if ctx.init().vpn && !ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty() {
         anyhow::bail!("cannot get device metadata if VPN is on")
     }
 

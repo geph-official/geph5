@@ -1,6 +1,6 @@
 use std::{
     convert::Infallible,
-    sync::{LazyLock, atomic::AtomicUsize},
+    sync::LazyLock,
     time::{Duration, SystemTime},
 };
 
@@ -28,8 +28,8 @@ pub struct ControlProtocolImpl {
     pub ctx: AnyCtx<Config>,
 }
 
-pub static CURRENT_CONNECTED_INFO: CtxField<Mutex<Option<ConnectedInfo>>> = |_| Mutex::new(None);
-pub static CURRENT_ACTIVE_SESSIONS: CtxField<AtomicUsize> = |_| AtomicUsize::new(0);
+pub static CURRENT_CONNECTED_INFOS: CtxField<Mutex<Slab<ConnectedInfo>>> =
+    |_| Mutex::new(Slab::new());
 
 static REGISTRATIONS: LazyLock<Mutex<Slab<RegistrationProgress>>> =
     LazyLock::new(|| Mutex::new(Slab::new()));
@@ -49,20 +49,17 @@ impl ControlProtocol for ControlProtocolImpl {
         if self.ctx.init().dry_run {
             return ConnInfo::Disconnected;
         }
-        match self.ctx.get(CURRENT_CONNECTED_INFO).lock().clone() {
-            Some(val) => {
-                if self
-                    .ctx
-                    .get(CURRENT_ACTIVE_SESSIONS)
-                    .load(std::sync::atomic::Ordering::SeqCst)
-                    > 0
-                {
-                    ConnInfo::Connected(val)
-                } else {
-                    ConnInfo::Connecting
-                }
-            }
-            None => ConnInfo::Connecting,
+        let connected_infos = self
+            .ctx
+            .get(CURRENT_CONNECTED_INFOS)
+            .lock()
+            .iter()
+            .map(|(_, info)| info.clone())
+            .collect::<Vec<_>>();
+        if connected_infos.is_empty() {
+            ConnInfo::Connecting
+        } else {
+            ConnInfo::Connected(connected_infos)
         }
     }
 

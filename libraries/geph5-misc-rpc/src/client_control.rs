@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{net::SocketAddr, time::SystemTime};
 
 use async_trait::async_trait;
 use geph5_broker_protocol::{AccountLevel, BwConsumptionInfo, ExitDescriptor, NetStatus};
@@ -11,15 +11,14 @@ use serde_json::Value;
 pub enum ConnInfo {
     Disconnected,
     Connecting,
-    Connected(ConnectedInfo),
+    Connected(Vec<ConnectedInfo>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnectedInfo {
     pub protocol: String,
-    pub bridge: String,
-
     pub exit: ExitDescriptor,
+    pub bridge: Option<SocketAddr>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
