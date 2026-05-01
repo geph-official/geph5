@@ -109,6 +109,21 @@ fn default_ipv6_pool_size() -> usize {
     1000
 }
 
+#[cfg(target_os = "linux")]
+fn disable_process_thp() -> std::io::Result<()> {
+    let rc = unsafe { libc::prctl(libc::PR_SET_THP_DISABLE, 1, 0, 0, 0) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn disable_process_thp() -> std::io::Result<()> {
+    Ok(())
+}
+
 fn default_exit_metadata() -> ExitMetadata {
     let cfg = CONFIG_FILE.wait();
     let mut allowed_levels = vec![AccountLevel::Plus];
@@ -174,7 +189,10 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    std::thread::spawn(update_load_loop);
+    if let Err(err) = disable_process_thp() {
+        eprintln!("warning: failed to disable THP for geph5-exit: {err}");
+    }
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
         .with(
@@ -183,6 +201,9 @@ fn main() -> anyhow::Result<()> {
                 .from_env_lossy(),
         )
         .init();
+    tracing::info!("process requested THP disable");
+
+    std::thread::spawn(update_load_loop);
     tracing::info!("**** START GEPH EXIT ****");
     let args = CliArgs::parse();
     let config: ConfigFile = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
