@@ -50,10 +50,12 @@ use crate::{
 
 use super::Config;
 
-const TARGET_SESSION_COUNT: usize = 1;
+const TARGET_SESSION_COUNT: usize = 6;
 
 struct ConnectedSession {
     worker_id: usize,
+    exit: String,
+    bridge: String,
     mux: Arc<PicoMux>,
     accounting: BwAccountingHandle,
     pending_opens: AtomicUsize,
@@ -162,6 +164,8 @@ fn select_session(ctx: &AnyCtx<Config>) -> Option<Arc<ConnectedSession>> {
     skip(ctx, session, cmd),
     fields(
         worker_id = session.worker_id,
+        exit = %session.exit,
+        bridge = %session.bridge,
         protocol = %cmd.protocol,
         host = %cmd.host,
     )
@@ -182,7 +186,7 @@ async fn open_tunnel_on_session(
 
     let cmd_str = TunnelCommand::Rich(cmd).to_string();
     let start = Instant::now();
-    tracing::debug!(cmd_str = display(&cmd_str), "opening tunnel...");
+    tracing::debug!("opening tunnel...");
     let mut stream = match session.mux.open(cmd_str.as_bytes()).await {
         Ok(stream) => stream,
         Err(err) => {
@@ -219,7 +223,6 @@ async fn open_tunnel_on_session(
         }
     };
     tracing::debug!(
-        cmd_str = display(&cmd_str),
         total_latency = start.elapsed().as_millis(),
         remote_latency = open_ms,
         "tunnel open"
@@ -257,7 +260,7 @@ pub async fn run_session(ctx: AnyCtx<Config>) -> Infallible {
 async fn session_worker(ctx: AnyCtx<Config>, worker_id: usize) -> Infallible {
     let mut failures = 0.0f64;
     if worker_id > 0 {
-        let jitter = rand::thread_rng().gen_range(0.0..10.0);
+        let jitter = rand::thread_rng().gen_range(0.0..120.0);
         smol::Timer::after(Duration::from_secs_f64(jitter)).await;
     }
 
@@ -331,19 +334,20 @@ async fn run_session_once(
     .await
     .context("overall dial/mux/auth timeout")??;
 
+    let bridge = authed_pipe.remote_addr().unwrap_or("").to_string();
     let connected_info = ConnectedInfo {
         protocol: authed_pipe.protocol().to_string(),
         exit: exit.clone(),
-        bridge: authed_pipe
-            .remote_addr()
-            .and_then(|addr| addr.parse::<SocketAddr>().ok()),
+        bridge: bridge.parse::<SocketAddr>().ok(),
     };
-    let addr: SocketAddr = authed_pipe.remote_addr().unwrap_or("").parse()?;
+    let addr: SocketAddr = bridge.parse()?;
     let mux = start_mux(authed_pipe);
     let (accounting, accounting_loop) = bw_accounting_pair();
     let early_dead = Arc::new(ManualResetEvent::new(false));
     let session = Arc::new(ConnectedSession {
         worker_id,
+        exit: format!("{}/{}/{}", exit.country, exit.city, exit.b2e_listen.ip()),
+        bridge,
         mux: mux.clone(),
         accounting,
         pending_opens: AtomicUsize::new(0),

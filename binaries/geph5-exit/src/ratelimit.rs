@@ -32,7 +32,7 @@ pub fn get_load() -> f32 {
     let cpu = CPU_USAGE.load(Ordering::Relaxed).powi(2);
     let speed = CURRENT_SPEED.load(Ordering::Relaxed)
         / (CONFIG_FILE.wait().total_ratelimit as f32 * 1000.0);
-    // memory only dominates when genuinely close to OOM; reclaimable cache is excluded via MemAvailable
+    // memory only dominates when genuinely close to OOM; reclaimable cache and free swap count as available
     let mem = MEM_USAGE.load(Ordering::Relaxed).powi(6);
     cpu.max(speed).max(mem)
 }
@@ -59,9 +59,10 @@ pub fn update_load_loop() {
 
             CPU_USAGE.store(cpu_accum, Ordering::Relaxed);
 
-            let total_mem = sys.total_memory();
+            let total_mem = sys.total_memory() + sys.total_swap();
             if total_mem > 0 {
-                let mem_usage = 1.0 - (sys.available_memory() as f32 / total_mem as f32);
+                let available_mem = sys.available_memory() + sys.free_swap();
+                let mem_usage = 1.0 - (available_mem as f32 / total_mem as f32);
                 MEM_USAGE.store(mem_usage, Ordering::Relaxed);
             }
 
@@ -88,19 +89,15 @@ pub async fn get_ratelimiter(
     RATE_LIMITER_CACHE
         .get_with(session_key, async move {
             match level {
-                AccountLevel::Free => RateLimiter::new(
-                    CONFIG_FILE.wait().free_ratelimit,
-                    100,
-                    BwAccount::empty(),
-                    None,
-                ),
+                AccountLevel::Free => {
+                    RateLimiter::new(CONFIG_FILE.wait().free_ratelimit, BwAccount::empty(), None)
+                }
                 AccountLevel::Plus => RateLimiter::new(
                     CONFIG_FILE.wait().plus_ratelimit,
-                    100,
                     BwAccount::empty(),
                     Some(token.to_string()),
                 )
-                .with_fallback(CONFIG_FILE.wait().free_ratelimit / 2, 100),
+                .with_fallback(CONFIG_FILE.wait().free_ratelimit / 2),
             }
         })
         .await
@@ -117,15 +114,10 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// Creates a new rate limiter with the given speed limit, in B/s
-    pub fn new(
-        limit_kb: u32,
-        burst_kb: u32,
-        bw_account: BwAccount,
-        log_tag: Option<String>,
-    ) -> Self {
+    /// Creates a new rate limiter with the given speed limit, in KiB/s.
+    pub fn new(limit_kb: u32, bw_account: BwAccount, log_tag: Option<String>) -> Self {
         let limit = NonZeroU32::new((limit_kb + 1) * 1024).unwrap();
-        let burst_size = NonZeroU32::new(burst_kb * 1024).unwrap();
+        let burst_size = burst_size(limit_kb);
         let inner = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst_size));
         Self {
             inner: Some(Arc::new(inner)),
@@ -137,9 +129,9 @@ impl RateLimiter {
     }
 
     /// Configure a fallback rate limit, used when paid bandwidth is exhausted.
-    pub fn with_fallback(mut self, limit_kb: u32, burst_kb: u32) -> Self {
+    pub fn with_fallback(mut self, limit_kb: u32) -> Self {
         let limit = NonZeroU32::new((limit_kb + 1) * 1024).unwrap();
-        let burst = NonZeroU32::new(burst_kb * 1024).unwrap();
+        let burst = burst_size(limit_kb);
         let fb = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst));
         self.fallback = Some(Arc::new(fb));
         self
@@ -230,4 +222,13 @@ impl RateLimiter {
 
         Ok(total_bytes)
     }
+}
+
+fn burst_size(limit_kb: u32) -> NonZeroU32 {
+    NonZeroU32::new(
+        200_u32
+            .max((limit_kb + 1).saturating_mul(5))
+            .saturating_mul(1024),
+    )
+    .unwrap()
 }

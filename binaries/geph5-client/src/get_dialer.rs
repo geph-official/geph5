@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
@@ -88,6 +88,16 @@ pub async fn get_dialer(
         ));
     }
 
+    if let Some(cached) = read_cached_exit_route(ctx, &ctx.init().exit_constraint).await?
+        && exit_route_is_unexpired(&cached)
+    {
+        tracing::debug!(
+            expiry = cached.exit.expiry,
+            "returning unexpired cached exit route"
+        );
+        return dialer_from_exit_route(ctx, cached);
+    }
+
     let res: anyhow::Result<ExitRouteDescriptor> = async {
         let (_level, conn_token, sig) = get_connect_token(ctx)
             .await
@@ -159,6 +169,14 @@ pub async fn get_dialer(
     };
 
     dialer_from_exit_route(ctx, exit_route)
+}
+
+fn exit_route_is_unexpired(route: &ExitRouteDescriptor) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    route.exit.expiry > now
 }
 
 fn dialer_from_exit_route(
@@ -354,14 +372,27 @@ mod tests {
         }
     }
 
-    fn sample_exit() -> ExitDescriptor {
+    fn sample_exit_with_expiry(expiry: u64) -> ExitDescriptor {
         ExitDescriptor {
             c2e_listen: "127.0.0.1:9000".parse().unwrap(),
             b2e_listen: "127.0.0.1:9001".parse().unwrap(),
             country: CountryCode::CAN,
             city: "Toronto".into(),
             load: 0.1,
-            expiry: 1,
+            expiry,
+        }
+    }
+
+    fn sample_exit() -> ExitDescriptor {
+        sample_exit_with_expiry(1)
+    }
+
+    fn sample_exit_route(expiry: u64) -> ExitRouteDescriptor {
+        let signing_key = SigningKey::from_bytes(&[7; 32]);
+        ExitRouteDescriptor {
+            exit_pubkey: signing_key.verifying_key(),
+            exit: sample_exit_with_expiry(expiry),
+            route: RouteDescriptor::Tcp("127.0.0.1:9002".parse().unwrap()),
         }
     }
 
@@ -410,5 +441,17 @@ mod tests {
             }
             _ => panic!("expected race route"),
         }
+    }
+
+    #[test]
+    fn exit_route_expiry_is_compared_to_current_unix_time() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        assert!(exit_route_is_unexpired(&sample_exit_route(now + 1)));
+        assert!(!exit_route_is_unexpired(&sample_exit_route(now)));
+        assert!(!exit_route_is_unexpired(&sample_exit_route(now - 1)));
     }
 }
