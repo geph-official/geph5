@@ -20,7 +20,7 @@ use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use crate::{CONFIG_FILE, session::SessionKey};
 
 static IPV6_POOL: OnceCell<Vec<Ipv6Addr>> = OnceCell::new();
-const IPV6_HEAD_START: Duration = Duration::from_millis(250);
+const IPV6_HEAD_START: Duration = Duration::from_millis(350);
 
 /// Something that can be used for happy-eyeballs dialing, with its own IPv6 address.
 #[derive(Clone, Debug)]
