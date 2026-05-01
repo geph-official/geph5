@@ -62,7 +62,11 @@ impl FromStr for TunnelCommand {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RichTunnelResponse {
-    pub resolved_addr: SocketAddr,
-    pub open_ms: Option<u32>,
+#[serde(rename_all = "snake_case")]
+pub enum RichTunnelResponse {
+    Success {
+        resolved_addr: SocketAddr,
+        open_ms: Option<u32>,
+    },
+    Fail(String),
 }

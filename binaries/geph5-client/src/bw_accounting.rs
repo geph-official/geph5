@@ -4,33 +4,59 @@ use futures_util::{AsyncReadExt, AsyncWriteExt};
 
 use stdcode::StdcodeSerializeExt;
 
-use crate::{Config, auth::IS_PLUS, bw_token::bw_token_consume, client::CtxField};
+use crate::{Config, auth::IS_PLUS, bw_token::bw_token_consume};
 use anyctx::AnyCtx;
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
-static FORCE_REFRESH: CtxField<(smol::channel::Sender<()>, smol::channel::Receiver<()>)> =
-    |_| smol::channel::unbounded();
-
 const BW_TOKEN_BYTES: u64 = 10_000_000;
 
-static ACCOUNTED_BYTES: CtxField<AtomicU64> = |_| AtomicU64::new(0);
+#[derive(Clone)]
+pub struct BwAccountingHandle {
+    force_refresh: smol::channel::Sender<()>,
+    accounted_bytes: Arc<AtomicU64>,
+}
 
-pub fn notify_bw_accounting(ctx: &AnyCtx<Config>, consumed: usize) {
+pub struct BwAccountingLoop {
+    handle: BwAccountingHandle,
+    force_refresh: smol::channel::Receiver<()>,
+}
+
+pub fn bw_accounting_pair() -> (BwAccountingHandle, BwAccountingLoop) {
+    let (send, recv) = smol::channel::unbounded();
+    let handle = BwAccountingHandle {
+        force_refresh: send,
+        accounted_bytes: Arc::new(AtomicU64::new(0)),
+    };
+    let accounting_loop = BwAccountingLoop {
+        handle: handle.clone(),
+        force_refresh: recv,
+    };
+    (handle, accounting_loop)
+}
+
+pub fn notify_bw_accounting(
+    ctx: &AnyCtx<Config>,
+    accounting: &BwAccountingHandle,
+    consumed: usize,
+) {
     if !ctx.get(IS_PLUS).load(Ordering::SeqCst) {
         return;
     }
 
-    let old_bytes = ctx
-        .get(ACCOUNTED_BYTES)
+    let old_bytes = accounting
+        .accounted_bytes
         .fetch_add(consumed as u64, Ordering::SeqCst);
     let new_bytes = old_bytes + consumed as u64;
     let tokens_due = new_bytes / BW_TOKEN_BYTES - old_bytes / BW_TOKEN_BYTES;
 
     for _ in 0..tokens_due {
-        let _ = ctx.get(FORCE_REFRESH).0.try_send(());
+        let _ = accounting.force_refresh.try_send(());
     }
 }
 
@@ -39,6 +65,7 @@ pub fn notify_bw_accounting(ctx: &AnyCtx<Config>, consumed: usize) {
 pub async fn bw_accounting_client_loop(
     ctx: AnyCtx<Config>,
     stream: picomux::Stream,
+    accounting: BwAccountingLoop,
 ) -> anyhow::Result<()> {
     tracing::info!("starting bandwidth accounting");
 
@@ -66,7 +93,7 @@ pub async fn bw_accounting_client_loop(
                 }
 
                 if current_bytes == 0 {
-                    let _ = ctx.get(FORCE_REFRESH).0.send(()).await;
+                    let _ = accounting.handle.force_refresh.send(()).await;
                 }
             }
         }
@@ -75,7 +102,7 @@ pub async fn bw_accounting_client_loop(
     let write_fut = {
         async {
             loop {
-                let _ = ctx.get(FORCE_REFRESH).1.recv().await;
+                let _ = accounting.force_refresh.recv().await;
 
                 if !ctx.get(IS_PLUS).load(Ordering::SeqCst) {
                     tracing::debug!("not plus, skipping bandwidth token send");
