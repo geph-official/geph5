@@ -59,7 +59,9 @@ impl ControlProtocol for ControlProtocolImpl {
         if connected_infos.is_empty() {
             ConnInfo::Connecting
         } else {
-            ConnInfo::Connected(connected_infos)
+            ConnInfo::Connected {
+                sessions: connected_infos,
+            }
         }
     }
 

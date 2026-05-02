@@ -11,7 +11,7 @@ use serde_json::Value;
 pub enum ConnInfo {
     Disconnected,
     Connecting,
-    Connected(Vec<ConnectedInfo>),
+    Connected { sessions: Vec<ConnectedInfo> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
