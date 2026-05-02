@@ -7,9 +7,9 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-async-trait = "0.1.80"
-pin-project = "1.1.5"
-futures-util = { version = "0.3.30", features = ["io"] }
+async-trait = "0.1.89"
+pin-project = "1.1.11"
+futures-util = { version = "0.3.32", features = ["io"] }
 sillad = { version = "0.2", path = "../sillad" }
 bipe = "0.2.8"
 smolscale = "0.4.16"

@@ -67,6 +67,13 @@ static CURRENT_SESSIONS: CtxField<parking_lot::Mutex<Slab<Arc<ConnectedSession>>
 
 static NEXT_SESSION_PICK: CtxField<AtomicUsize> = |_| AtomicUsize::new(0);
 
+fn bridge_addr_for_session(
+    remote_addr: Option<SocketAddr>,
+    exit: &geph5_broker_protocol::ExitDescriptor,
+) -> Option<SocketAddr> {
+    remote_addr.filter(|remote_addr| remote_addr.ip() != exit.c2e_listen.ip())
+}
+
 pub async fn open_conn(
     ctx: &AnyCtx<Config>,
     protocol: &str,
@@ -334,11 +341,15 @@ async fn run_session_once(
     .await
     .context("overall dial/mux/auth timeout")??;
 
-    let bridge = authed_pipe.remote_addr().unwrap_or("").to_string();
+    let remote_addr = authed_pipe
+        .remote_addr()
+        .and_then(|addr| addr.parse::<SocketAddr>().ok());
+    let bridge_addr = bridge_addr_for_session(remote_addr, &exit);
+    let bridge = remote_addr.map(|addr| addr.to_string()).unwrap_or_default();
     let connected_info = ConnectedInfo {
         protocol: authed_pipe.protocol().to_string(),
         exit: exit.clone(),
-        bridge: bridge.parse::<SocketAddr>().ok(),
+        bridge: bridge_addr,
     };
     let addr: SocketAddr = bridge.parse()?;
     let mux = start_mux(authed_pipe);
@@ -500,5 +511,44 @@ async fn client_auth(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bridge_addr_for_session;
+    use geph5_broker_protocol::ExitDescriptor;
+    use isocountry::CountryCode;
+    use std::net::{Ipv4Addr, SocketAddr};
+
+    fn sample_exit() -> ExitDescriptor {
+        ExitDescriptor {
+            c2e_listen: SocketAddr::from((Ipv4Addr::new(198, 51, 100, 10), 443)),
+            b2e_listen: SocketAddr::from((Ipv4Addr::new(198, 51, 100, 10), 8443)),
+            country: CountryCode::USA,
+            city: "Test".to_string(),
+            load: 0.0,
+            expiry: 0,
+        }
+    }
+
+    #[test]
+    fn direct_session_does_not_report_bridge() {
+        let exit = sample_exit();
+        let direct_addr = SocketAddr::from((Ipv4Addr::new(198, 51, 100, 10), 443));
+        assert_eq!(bridge_addr_for_session(Some(direct_addr), &exit), None);
+    }
+
+    #[test]
+    fn bridged_session_reports_bridge() {
+        let exit = sample_exit();
+        let bridge_addr = SocketAddr::from((Ipv4Addr::new(203, 0, 113, 7), 9000));
+        assert_eq!(bridge_addr_for_session(Some(bridge_addr), &exit), Some(bridge_addr));
+    }
+
+    #[test]
+    fn missing_remote_addr_does_not_report_bridge() {
+        let exit = sample_exit();
+        assert_eq!(bridge_addr_for_session(None, &exit), None);
     }
 }
