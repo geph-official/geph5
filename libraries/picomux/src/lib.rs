@@ -533,11 +533,15 @@ impl AsyncRead for Stream {
         //     Poll::Pending
         // } else {
         let this = self.project();
-        let r = this.read_incoming.poll_read(cx, buf);
-        if r.is_ready() {
-            (this.on_read)(buf.len());
+        match this.read_incoming.poll_read(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                if n > 0 {
+                    (this.on_read)(n);
+                }
+                Poll::Ready(Ok(n))
+            }
+            other => other,
         }
-        r
         // }
     }
 }
@@ -555,11 +559,15 @@ impl AsyncWrite for Stream {
         //     Poll::Pending
         // } else {
         let this = self.project();
-        let r = this.write_outgoing.poll_write(cx, buf);
-        if r.is_ready() {
-            (this.on_write)(buf.len());
+        match this.write_outgoing.poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                if n > 0 {
+                    (this.on_write)(n);
+                }
+                Poll::Ready(Ok(n))
+            }
+            other => other,
         }
-        r
         // }
     }
 
