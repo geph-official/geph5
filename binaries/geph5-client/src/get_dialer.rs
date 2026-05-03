@@ -354,6 +354,7 @@ mod tests {
             http_proxy_listen: None,
             pac_listen: None,
             control_listen: None,
+            control_listen_unix: None,
             exit_constraint: ExitConstraint::Auto,
             allow_direct: false,
             cache: None,

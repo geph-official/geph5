@@ -36,6 +36,8 @@ pub struct Config {
     pub pac_listen: Option<SocketAddr>,
 
     pub control_listen: Option<SocketAddr>,
+    #[serde(default)]
+    pub control_listen_unix: Option<PathBuf>,
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
     pub allow_direct: bool,
@@ -92,6 +94,7 @@ impl Config {
         this.http_proxy_listen = None;
         this.pac_listen = None;
         this.control_listen = None;
+        this.control_listen_unix = None;
         this
     }
 }
@@ -249,7 +252,7 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
-    let rpc_serve = async {
+    let tcp_rpc_serve = async {
         if let Some(control_listen) = ctx.init().control_listen {
             nanorpc_sillad::rpc_serve(
                 sillad::tcp::TcpListener::bind(control_listen).await?,
@@ -261,6 +264,19 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             smol::future::pending().await
         }
     };
+    let unix_rpc_serve = async {
+        #[cfg(unix)]
+        if let Some(path) = ctx.init().control_listen_unix.as_ref() {
+            nanorpc_sillad::rpc_serve(
+                sillad::unix::UnixListener::bind(path).await?,
+                ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
+            )
+            .await?;
+            return anyhow::Ok(());
+        }
+        smol::future::pending().await
+    };
+    let rpc_serve = tcp_rpc_serve.race(unix_rpc_serve);
     if ctx.init().dry_run {
         rpc_serve.await
     } else {

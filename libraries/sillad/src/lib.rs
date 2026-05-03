@@ -6,6 +6,8 @@ use pin_project::pin_project;
 pub mod dialer;
 pub mod listener;
 pub mod tcp;
+#[cfg(unix)]
+pub mod unix;
 
 /// Sillad overall is based on returning connection-like items that implement AsyncRead and AsyncWrite, as well as a few other things. This is called a Pipe.
 pub trait Pipe: AsyncRead + AsyncWrite + Send + Unpin + 'static {
