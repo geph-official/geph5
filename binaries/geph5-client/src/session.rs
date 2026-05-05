@@ -74,6 +74,15 @@ fn bridge_addr_for_session(
     remote_addr.filter(|remote_addr| remote_addr.ip() != exit.c2e_listen.ip())
 }
 
+fn exit_log_label(exit: &geph5_broker_protocol::ExitDescriptor) -> String {
+    let exit_ip = exit.b2e_listen.ip();
+    if exit.city.is_empty() {
+        exit_ip.to_string()
+    } else {
+        format!("{}/{exit_ip}", exit.city)
+    }
+}
+
 pub async fn open_conn(
     ctx: &AnyCtx<Config>,
     protocol: &str,
@@ -357,7 +366,7 @@ async fn run_session_once(
     let early_dead = Arc::new(ManualResetEvent::new(false));
     let session = Arc::new(ConnectedSession {
         worker_id,
-        exit: format!("{}/{}/{}", exit.country, exit.city, exit.b2e_listen.ip()),
+        exit: exit_log_label(&exit),
         bridge,
         mux: mux.clone(),
         accounting,
@@ -516,7 +525,7 @@ async fn client_auth(
 
 #[cfg(test)]
 mod tests {
-    use super::bridge_addr_for_session;
+    use super::{bridge_addr_for_session, exit_log_label};
     use geph5_broker_protocol::ExitDescriptor;
     use isocountry::CountryCode;
     use std::net::{Ipv4Addr, SocketAddr};
@@ -550,5 +559,18 @@ mod tests {
     fn missing_remote_addr_does_not_report_bridge() {
         let exit = sample_exit();
         assert_eq!(bridge_addr_for_session(None, &exit), None);
+    }
+
+    #[test]
+    fn exit_log_label_uses_city_and_ip() {
+        let exit = sample_exit();
+        assert_eq!(exit_log_label(&exit), "Test/198.51.100.10");
+    }
+
+    #[test]
+    fn exit_log_label_falls_back_to_ip_when_city_missing() {
+        let mut exit = sample_exit();
+        exit.city.clear();
+        assert_eq!(exit_log_label(&exit), "198.51.100.10");
     }
 }
