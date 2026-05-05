@@ -101,7 +101,7 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
     static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
-            .resolve("dns11.quad9.net", "9.9.9.11".parse().unwrap())
+            .resolve("cloudflare-dns.com", "1.1.1.1".parse().unwrap())
             .pool_max_idle_per_host(16)
             .pool_idle_timeout(Duration::from_secs(1))
             .build()
@@ -110,7 +110,7 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
 
     let start = Instant::now();
     let resp = CLIENT
-        .post("https://dns11.quad9.net/dns-query")
+        .post("https://cloudflare-dns.com/dns-query")
         .body(req)
         .header("content-type", "application/dns-message")
         .send()
