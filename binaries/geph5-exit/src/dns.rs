@@ -100,15 +100,17 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
 
     static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         reqwest::Client::builder()
-            .timeout(Duration::from_secs(1))
-            .resolve("dns.mullvad.net", "194.242.2.2:0".parse().unwrap())
+            .timeout(Duration::from_secs(5))
+            .resolve("dns.quad9.net", "9.9.9.9".parse().unwrap())
+            .pool_max_idle_per_host(16)
+            .pool_idle_timeout(Duration::from_secs(1))
             .build()
             .unwrap()
     });
 
     let start = Instant::now();
     let resp = CLIENT
-        .post("https://dns.mullvad.net/dns-query")
+        .post("https://dns.quad9.net/dns-query")
         .body(req)
         .header("content-type", "application/dns-message")
         .send()
