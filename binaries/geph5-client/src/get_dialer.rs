@@ -2,7 +2,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
-use async_native_tls::TlsConnector;
+use async_native_tls::{Protocol, TlsConnector};
 use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
     DOMAIN_EXIT_ROUTE, ExitConstraint, ExitDescriptor, ExitRouteDescriptor, GetExitRouteArgs,
@@ -317,7 +317,7 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
                         .danger_accept_invalid_certs(true)
                         .danger_accept_invalid_hostnames(true)
                         .min_protocol_version(None)
-                        .max_protocol_version(None),
+                        .max_protocol_version(Some(Protocol::Tlsv12)),
                     sni_domain
                         .clone()
                         .unwrap_or_else(|| "example.com".to_string()),

@@ -110,7 +110,7 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
                     .danger_accept_invalid_certs(true)
                     .danger_accept_invalid_hostnames(true)
                     .min_protocol_version(None)
-                    .max_protocol_version(None);
+                    .max_protocol_version(Some(native_tls::Protocol::Tlsv12));
                 TlsDialer::new(lower, connector, "lusheeta-toel.yandex.ru".into()).dynamic()
             }
             ObfsProtocol::Hex(sub) => {
@@ -168,5 +168,6 @@ pub fn dummy_tls_acceptor() -> TlsAcceptor {
         .expect("Cannot decode identity");
     let mut builder = native_tls::TlsAcceptor::builder(identity);
     builder.min_protocol_version(Some(native_tls::Protocol::Tlsv10));
+    builder.max_protocol_version(Some(native_tls::Protocol::Tlsv12));
     builder.build().unwrap().into()
 }

@@ -99,7 +99,9 @@ pub async fn bridge_to_leaf_route(
                 //         lower: route.into(),
                 //     });
                 // }
-                let protocol = if country == "CN" {
+                let protocol = if asn == 4134 {
+                    sosistab3_protocol()
+                } else if country == "CN" {
                     tls_protocol()
                 } else if country == "RU" {
                     tls_protocol()
