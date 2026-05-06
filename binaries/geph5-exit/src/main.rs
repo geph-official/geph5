@@ -17,6 +17,7 @@ use serde_with::{DisplayFromStr, serde_as};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    str::FromStr,
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -47,7 +48,7 @@ struct ConfigFile {
 
     c2e_listen: SocketAddr,
     b2e_listen: SocketAddr,
-    ip_addr: Option<IpAddr>,
+    ip_addr: Option<AdvertisedIpSource>,
 
     country: CountryCode,
     city: String,
@@ -79,6 +80,28 @@ struct ConfigFile {
 
     #[serde(default = "default_ipv6_pool_size")]
     ipv6_pool_size: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AdvertisedIpSource {
+    Static(IpAddr),
+    Hostname(String),
+}
+
+impl<'de> Deserialize<'de> for AdvertisedIpSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(serde::de::Error::custom("ip_addr must not be empty"));
+        }
+        Ok(IpAddr::from_str(trimmed)
+            .map(AdvertisedIpSource::Static)
+            .unwrap_or_else(|_| AdvertisedIpSource::Hostname(trimmed.to_string())))
+    }
 }
 
 fn default_free_ratelimit() -> u32 {
@@ -211,4 +234,47 @@ fn main() -> anyhow::Result<()> {
     CONFIG_FILE.set(config).ok().unwrap();
 
     smol::future::block_on(smolscale::spawn(listen_main()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AdvertisedIpSource, ConfigFile};
+
+    fn parse_ip_addr(value: &str) -> Option<AdvertisedIpSource> {
+        let yaml = format!(
+            r#"
+signing_secret: /tmp/geph5-exit-test-secret
+c2e_listen: 0.0.0.0:9002
+b2e_listen: 0.0.0.0:9003
+ip_addr: {value}
+country: US
+city: NYC
+"#
+        );
+        serde_yaml::from_str::<ConfigFile>(&yaml).unwrap().ip_addr
+    }
+
+    #[test]
+    fn static_ipv4_ip_addr_still_parses() {
+        assert_eq!(
+            parse_ip_addr("203.0.113.5"),
+            Some(AdvertisedIpSource::Static("203.0.113.5".parse().unwrap()))
+        );
+    }
+
+    #[test]
+    fn static_ipv6_ip_addr_still_parses() {
+        assert_eq!(
+            parse_ip_addr("\"2001:db8::5\""),
+            Some(AdvertisedIpSource::Static("2001:db8::5".parse().unwrap()))
+        );
+    }
+
+    #[test]
+    fn hostname_ip_addr_parses_as_dynamic_source() {
+        assert_eq!(
+            parse_ip_addr("exit.example.org"),
+            Some(AdvertisedIpSource::Hostname("exit.example.org".into()))
+        );
+    }
 }
