@@ -5,7 +5,7 @@ use std::{
         Arc, LazyLock,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::Context;
@@ -14,7 +14,7 @@ use async_io_bufpool::pooled_read;
 use async_trait::async_trait;
 
 use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
-use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService};
+use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService, ObfsProtocol};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{LivenessConfig, PicoMux, Stream};
@@ -50,7 +50,7 @@ impl BridgeControlProtocol for State {
     async fn tcp_forward(&self, b2e_dest: SocketAddr, metadata: B2eMetadata) -> SocketAddr {
         static MAPPING: LazyLock<
             Cache<
-                (IpAddr, SocketAddr, B2eMetadata),
+                (IpAddr, SocketAddr, ObfsProtocol),
                 (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>),
             >,
         > = LazyLock::new(|| {
@@ -58,9 +58,10 @@ impl BridgeControlProtocol for State {
                 .time_to_idle(Duration::from_secs(3600))
                 .build()
         });
+        let protocol = metadata.protocol;
 
         MAPPING
-            .get_with((self.my_ip, b2e_dest, metadata.clone()), async {
+            .get_with((self.my_ip, b2e_dest, protocol.clone()), async {
                 let listener = random_tcp_listener(self.my_ip).await;
                 let addr = listener
                     .local_addr()
@@ -69,7 +70,7 @@ impl BridgeControlProtocol for State {
                 let task = smolscale::spawn(handle_one_listener(
                     listener,
                     b2e_dest,
-                    metadata,
+                    protocol,
                     self.pool.clone(),
                 ));
                 (addr, Arc::new(task))
@@ -107,7 +108,7 @@ async fn random_tcp_listener(my_ip: IpAddr) -> TcpListener {
 async fn handle_one_listener(
     mut listener: impl Listener,
     b2e_dest: SocketAddr,
-    metadata: B2eMetadata,
+    protocol: ObfsProtocol,
     pool: String,
 ) -> anyhow::Result<()> {
     static COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -119,7 +120,7 @@ async fn handle_one_listener(
         let remote_ip = SocketAddr::from_str(client_conn.remote_addr().unwrap())
             .unwrap()
             .ip();
-        let metadata = metadata.clone();
+        let protocol = protocol.clone();
         let pool = pool.clone();
         smolscale::spawn(async move {
             let remote_asn = asn_count::ip_to_asn(remote_ip).await.unwrap_or(0);
@@ -138,7 +139,7 @@ async fn handle_one_listener(
                     "closing a connection"
                 );
             });
-            let exit_conn = dial_pooled(b2e_dest, &metadata.stdcode())
+            let exit_conn = dial_pooled(b2e_dest, &protocol)
                 .await
                 .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
             let (client_read, client_write) = client_conn.split();
@@ -192,7 +193,15 @@ where
     }
 }
 
-async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<picomux::Stream> {
+fn encode_b2e_metadata(protocol: &ObfsProtocol) -> Vec<u8> {
+    B2eMetadata {
+        protocol: protocol.clone(),
+        expiry: SystemTime::now() + Duration::from_secs(86400),
+    }
+    .stdcode()
+}
+
+async fn dial_pooled(b2e_dest: SocketAddr, protocol: &ObfsProtocol) -> anyhow::Result<picomux::Stream> {
     static POOLS: Lazy<Cache<SocketAddr, Arc<SinglePool>>> = Lazy::new(|| {
         Cache::builder()
             .time_to_idle(Duration::from_secs(3600 * 2))
@@ -209,8 +218,9 @@ async fn dial_pooled(b2e_dest: SocketAddr, metadata: &[u8]) -> anyhow::Result<pi
         })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
+    let metadata = encode_b2e_metadata(protocol);
     let stream = pool
-        .connect(metadata)
+        .connect(&metadata)
         .timeout(Duration::from_secs(1))
         .await
         .context("timeout connecting through pool")?

@@ -1,6 +1,6 @@
 use std::{
     hash::BuildHasherDefault,
-    sync::Arc,
+    sync::{Arc, Mutex, OnceLock, Weak},
     time::{Duration, Instant},
 };
 
@@ -19,24 +19,71 @@ type Inner = DashMap<
     (async_channel::Sender<(Frame, Instant)>, SharedSemaphore),
     BuildHasherDefault<AHasher>,
 >;
+type Tombstones = DashMap<u32, Instant, BuildHasherDefault<AHasher>>;
+
+struct RegistryEntry {
+    inner: Weak<Inner>,
+    tombstones: Weak<Tombstones>,
+}
+
+static REGISTRY: OnceLock<Mutex<Vec<RegistryEntry>>> = OnceLock::new();
+
+fn registry() -> &'static Mutex<Vec<RegistryEntry>> {
+    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GlobalBufferTableStats {
+    pub live_tables: usize,
+    pub active_streams: usize,
+    pub active_stream_capacity: usize,
+    pub tombstones: usize,
+    pub tombstone_capacity: usize,
+}
+
+pub fn global_buffer_table_stats() -> GlobalBufferTableStats {
+    let mut guard = registry().lock().unwrap();
+    let mut stats = GlobalBufferTableStats::default();
+    guard.retain(|entry| {
+        let Some(inner) = entry.inner.upgrade() else {
+            return false;
+        };
+        let Some(tombstones) = entry.tombstones.upgrade() else {
+            return false;
+        };
+        stats.live_tables += 1;
+        stats.active_streams += inner.len();
+        stats.active_stream_capacity += inner.capacity();
+        stats.tombstones += tombstones.len();
+        stats.tombstone_capacity += tombstones.capacity();
+        true
+    });
+    stats
+}
 
 /// A table containing all the buffers for the streams within a mux.
 #[derive(Clone)]
 pub struct BufferTable {
     inner: Arc<Inner>,
-    tombstones: Arc<DashMap<u32, Instant, BuildHasherDefault<AHasher>>>,
+    tombstones: Arc<Tombstones>,
     next_prune: Arc<parking_lot::Mutex<Instant>>,
 }
 
 impl BufferTable {
     pub fn new() -> Self {
+        let inner = Arc::new(DashMap::with_hasher(
+            BuildHasherDefault::<AHasher>::default(),
+        ));
+        let tombstones = Arc::new(DashMap::with_hasher(
+            BuildHasherDefault::<AHasher>::default(),
+        ));
+        registry().lock().unwrap().push(RegistryEntry {
+            inner: Arc::downgrade(&inner),
+            tombstones: Arc::downgrade(&tombstones),
+        });
         Self {
-            inner: Arc::new(DashMap::with_hasher(
-                BuildHasherDefault::<AHasher>::default(),
-            )),
-            tombstones: Arc::new(DashMap::with_hasher(
-                BuildHasherDefault::<AHasher>::default(),
-            )),
+            inner,
+            tombstones,
             next_prune: Arc::new(parking_lot::Mutex::new(
                 Instant::now() + TOMBSTONE_PRUNE_INTERVAL,
             )),

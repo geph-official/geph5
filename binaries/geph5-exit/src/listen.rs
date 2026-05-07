@@ -4,7 +4,7 @@ use futures_util::{AsyncReadExt, TryFutureExt};
 use geph5_broker_protocol::AccountLevel;
 use geph5_ip_to_asn::ip_to_asn_country;
 use geph5_misc_rpc::{
-    bridge::B2eMetadata,
+    bridge::{B2eMetadata, ObfsProtocol},
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
     read_prepend_length, write_prepend_length,
 };
@@ -75,9 +75,20 @@ async fn c2e_loop() -> anyhow::Result<()> {
 
 async fn b2e_loop() -> anyhow::Result<()> {
     let mut listener = TcpListener::bind(CONFIG_FILE.wait().b2e_listen).await?;
-    let b2e_table: Cache<B2eMetadata, Sender<picomux::Stream>> = Cache::builder()
+    let b2e_table: Cache<ObfsProtocol, Sender<picomux::Stream>> = Cache::builder()
         .time_to_idle(Duration::from_secs(1200))
         .build();
+    let b2e_table_report = b2e_table.clone();
+    smolscale::spawn(async move {
+        loop {
+            smol::Timer::after(Duration::from_secs(60)).await;
+            tracing::info!(
+                b2e_table_entries = b2e_table_report.entry_count(),
+                "b2e table snapshot"
+            );
+        }
+    })
+    .detach();
     loop {
         let b2e_raw = match listener.accept().await {
             Ok(conn) => conn,
@@ -101,20 +112,21 @@ async fn b2e_loop() -> anyhow::Result<()> {
             loop {
                 let lala = b2e_mux.accept().await?;
                 let b2e_metadata: B2eMetadata = stdcode::deserialize(lala.metadata())?;
+                let protocol = b2e_metadata.protocol;
                 tracing::trace!(
                     bridge_addr = display(&bridge_addr),
                     "accepting b2e with metadata"
                 );
 
                 let send = b2e_table
-                    .get_with(b2e_metadata.clone(), async {
+                    .get_with(protocol.clone(), async {
                         tracing::debug!(
                             bridge_addr = display(&bridge_addr),
                             table_length = display(b2e_table.entry_count()),
                             "creating new b2e metadata"
                         );
                         let (send, recv) = tachyonix::channel(1);
-                        smolscale::spawn(b2e_process::b2e_process(b2e_metadata, recv)).detach();
+                        smolscale::spawn(b2e_process::b2e_process(protocol, recv)).detach();
                         send
                     })
                     .await;

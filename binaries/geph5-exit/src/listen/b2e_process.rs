@@ -2,7 +2,7 @@ use std::io::ErrorKind;
 
 use async_trait::async_trait;
 use futures_util::TryFutureExt;
-use geph5_misc_rpc::bridge::{B2eMetadata, ObfsProtocol};
+use geph5_misc_rpc::bridge::ObfsProtocol;
 use sillad::listener::{DynListener, ListenerExt};
 use sillad_conntest::ConnTestListener;
 use sillad_hex::HexListener;
@@ -13,12 +13,12 @@ use tachyonix::Receiver;
 use super::{handle_client, tls::dummy_tls_config};
 
 pub async fn b2e_process(
-    b2e_metadata: B2eMetadata,
+    protocol: ObfsProtocol,
     recv: Receiver<picomux::Stream>,
 ) -> anyhow::Result<()> {
-    tracing::debug!("b2e_process called with {:?}", b2e_metadata);
+    tracing::debug!("b2e_process called with {:?}", protocol);
     let listener = ReceiverListener(recv);
-    b2e_inner(create_listener(b2e_metadata.protocol, listener)).await?;
+    b2e_inner(create_listener(protocol, listener)).await?;
     Ok(())
 }
 

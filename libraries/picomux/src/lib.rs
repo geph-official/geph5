@@ -41,6 +41,7 @@ use tachyonix::{Receiver, Sender};
 use tap::Tap;
 
 use crate::frame::{Header, PingInfo};
+pub use buffer_table::{GlobalBufferTableStats, global_buffer_table_stats};
 
 const INIT_WINDOW: usize = 10;
 const MAX_WINDOW: usize = 1500;

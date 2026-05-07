@@ -17,7 +17,10 @@ use serde_with::{DisplayFromStr, serde_as};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    process,
     str::FromStr,
+    thread,
+    time::Duration,
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -35,6 +38,49 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use crate::ratelimit::update_load_loop;
 use geph5_broker_protocol::{AccountLevel, ExitCategory, ExitMetadata};
+use session::RATE_LIMITER_CACHE;
+
+fn read_status_kb(field: &str) -> Option<u64> {
+    let contents = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix(field) {
+            return rest
+                .split_whitespace()
+                .next()
+                .and_then(|val| val.parse::<u64>().ok());
+        }
+    }
+    None
+}
+
+fn instrumentation_report_loop() {
+    tracing::info!(
+        pid = process::id(),
+        picomux_stream_size = std::mem::size_of::<picomux::Stream>(),
+        sosistab_over_stream_size =
+            std::mem::size_of::<sillad_sosistab3::SosistabPipe<picomux::Stream>>(),
+        "instrumentation type sizes"
+    );
+    loop {
+        thread::sleep(Duration::from_secs(60));
+        let picomux_stats = picomux::global_buffer_table_stats();
+        let sosistab_stats = sillad_sosistab3::listener::global_listener_stats();
+        tracing::info!(
+            vmrss_kb = read_status_kb("VmRSS:"),
+            vmswap_kb = read_status_kb("VmSwap:"),
+            rate_limiter_entries = RATE_LIMITER_CACHE.entry_count(),
+            picomux_tables = picomux_stats.live_tables,
+            picomux_active_streams = picomux_stats.active_streams,
+            picomux_active_stream_capacity = picomux_stats.active_stream_capacity,
+            picomux_tombstones = picomux_stats.tombstones,
+            picomux_tombstone_capacity = picomux_stats.tombstone_capacity,
+            sosistab_listeners = sosistab_stats.live_listeners,
+            sosistab_queue_slots = sosistab_stats.queue_slots,
+            sosistab_queue_payload_bytes = sosistab_stats.queue_payload_bytes,
+            "instrumentation snapshot"
+        );
+    }
+}
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
@@ -233,6 +279,7 @@ fn main() -> anyhow::Result<()> {
 
     CONFIG_FILE.set(config).ok().unwrap();
 
+    std::thread::spawn(instrumentation_report_loop);
     smol::future::block_on(smolscale::spawn(listen_main()))
 }
 

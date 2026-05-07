@@ -1,6 +1,11 @@
 use std::{
+    any::type_name,
     io::ErrorKind,
-    sync::Mutex,
+    mem::size_of,
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -20,19 +25,73 @@ use tap::Tap;
 use crate::{Cookie, SosistabPipe, dedup::Dedup, handshake::Handshake, state::State};
 
 const WAIT_INTERVAL: Duration = Duration::from_secs(300);
+const LISTENER_QUEUE_CAPACITY: usize = 1000;
+
+static LIVE_LISTENERS: AtomicUsize = AtomicUsize::new(0);
+static LISTENER_QUEUE_SLOTS: AtomicUsize = AtomicUsize::new(0);
+static LISTENER_QUEUE_PAYLOAD_BYTES: AtomicUsize = AtomicUsize::new(0);
+static LOGGED_PIPE_SIZES: OnceLock<Mutex<std::collections::HashSet<usize>>> = OnceLock::new();
+
+fn logged_pipe_sizes() -> &'static Mutex<std::collections::HashSet<usize>> {
+    LOGGED_PIPE_SIZES.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GlobalListenerStats {
+    pub live_listeners: usize,
+    pub queue_slots: usize,
+    pub queue_payload_bytes: usize,
+}
+
+pub fn global_listener_stats() -> GlobalListenerStats {
+    GlobalListenerStats {
+        live_listeners: LIVE_LISTENERS.load(Ordering::Relaxed),
+        queue_slots: LISTENER_QUEUE_SLOTS.load(Ordering::Relaxed),
+        queue_payload_bytes: LISTENER_QUEUE_PAYLOAD_BYTES.load(Ordering::Relaxed),
+    }
+}
 
 /// A sosistab3 listener.
 pub struct SosistabListener<P: Pipe> {
     recv_pipe: Receiver<SosistabPipe<P>>,
     _task: Task<std::io::Result<()>>,
+    queue_payload_bytes: usize,
 }
 
 impl<P: Pipe> SosistabListener<P> {
     /// Listens to incoming sosistab3 pipes by wrapping an existing sillad Listener.
     pub fn new(listener: impl Listener<P = P>, cookie: Cookie) -> Self {
-        let (send_pipe, recv_pipe) = tachyonix::channel(1000);
+        let pipe_size = size_of::<SosistabPipe<P>>();
+        let queue_payload_bytes = LISTENER_QUEUE_CAPACITY.saturating_mul(pipe_size);
+        let (send_pipe, recv_pipe) = tachyonix::channel(LISTENER_QUEUE_CAPACITY);
         let _task = smolscale::spawn(listen_loop(listener, send_pipe, cookie));
-        Self { recv_pipe, _task }
+        LIVE_LISTENERS.fetch_add(1, Ordering::Relaxed);
+        LISTENER_QUEUE_SLOTS.fetch_add(LISTENER_QUEUE_CAPACITY, Ordering::Relaxed);
+        LISTENER_QUEUE_PAYLOAD_BYTES.fetch_add(queue_payload_bytes, Ordering::Relaxed);
+        let mut logged = logged_pipe_sizes().lock().unwrap();
+        if logged.insert(pipe_size) {
+            tracing::info!(
+                pipe_type = type_name::<P>(),
+                pipe_size,
+                queue_capacity = LISTENER_QUEUE_CAPACITY,
+                queue_payload_bytes,
+                "sosistab listener queue layout observed"
+            );
+        }
+        drop(logged);
+        Self {
+            recv_pipe,
+            _task,
+            queue_payload_bytes,
+        }
+    }
+}
+
+impl<P: Pipe> Drop for SosistabListener<P> {
+    fn drop(&mut self) {
+        LIVE_LISTENERS.fetch_sub(1, Ordering::Relaxed);
+        LISTENER_QUEUE_SLOTS.fetch_sub(LISTENER_QUEUE_CAPACITY, Ordering::Relaxed);
+        LISTENER_QUEUE_PAYLOAD_BYTES.fetch_sub(self.queue_payload_bytes, Ordering::Relaxed);
     }
 }
 
