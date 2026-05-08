@@ -5,7 +5,7 @@ use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
 use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
-use rand::{Rng as _, RngCore};
+use rand::RngCore;
 use semver::VersionReq;
 use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
@@ -15,6 +15,21 @@ use std::{
     sync::{Arc, LazyLock},
     time::{Duration, SystemTime},
 };
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum ProtocolFlavor {
+    Tls,
+    Sosistab3,
+    Legacy,
+    Meeklike,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct StableProtocolKey {
+    bridge: BridgeDescriptor,
+    exit_b2e: SocketAddr,
+    flavor: ProtocolFlavor,
+}
 
 pub async fn bridge_to_leaf_route(
     bridge: BridgeDescriptor,
@@ -52,9 +67,9 @@ pub async fn bridge_to_leaf_route(
                     && bridge.pool.contains("meeklike")
                 {
                     let fallback_protocol = if is_iran {
-                        tls_protocol()
+                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
                     } else {
-                        sosistab3_protocol()
+                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await
                     };
                     let fallback_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
@@ -65,7 +80,7 @@ pub async fn bridge_to_leaf_route(
                     let meeklike_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        meeklike_protocol(),
+                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Meeklike).await,
                     )
                     .await?;
                     return anyhow::Ok(RouteDescriptor::Delay {
@@ -100,28 +115,29 @@ pub async fn bridge_to_leaf_route(
                 //     });
                 // }
                 let protocol = if asn == 4134 {
-                    sosistab3_protocol()
+                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await
                 } else if country == "CN" {
-                    tls_protocol()
+                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
                 } else if country == "RU" {
-                    tls_protocol()
+                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
                 } else if !country.is_empty() {
                     // anyhow::Ok(RouteDescriptor::Delay {
                     //     milliseconds: delay_ms,
                     //     lower: route.into(),
                     // })
-                    sosistab3_protocol()
+                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await
                 } else {
                     let sosistab3_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        sosistab3_protocol(),
+                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3)
+                            .await,
                     )
                     .await?;
                     let legacy_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        legacy_protocol(),
+                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Legacy).await,
                     )
                     .await?;
                     return anyhow::Ok(RouteDescriptor::Delay {
@@ -159,60 +175,6 @@ pub async fn bridge_to_leaf_route(
         )
         .await
         .map_err(|e| anyhow::anyhow!(e))
-}
-
-fn naked_protocol() -> ObfsProtocol {
-    ObfsProtocol::None
-}
-
-fn tls_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(
-        ObfsProtocol::Sosistab3New(
-            gencookie(),
-            ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
-        )
-        .into(),
-    )
-}
-
-fn sosistab3_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(
-        ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
-    )
-}
-
-fn weird_protocol() -> ObfsProtocol {
-    ObfsProtocol::ConnTest(
-        ObfsProtocol::Sosistab3New(
-            gencookie(),
-            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
-        )
-        .into(),
-    )
-}
-
-fn weirdest_protocol() -> ObfsProtocol {
-    let mut rng = rand::thread_rng();
-    let layer_count = rng.gen_range(3..=10);
-    let mut protocol = ObfsProtocol::None;
-
-    for _ in 0..layer_count {
-        protocol = if rng.gen_bool(0.5) {
-            ObfsProtocol::Sosistab3New(gencookie(), protocol.into())
-        } else {
-            ObfsProtocol::PlainTls(protocol.into())
-        };
-    }
-
-    ObfsProtocol::ConnTest(protocol.into())
-}
-
-fn legacy_protocol() -> ObfsProtocol {
-    ObfsProtocol::Sosistab3(gencookie())
-}
-
-fn meeklike_protocol() -> ObfsProtocol {
-    ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into())
 }
 
 fn is_china_mobile_asn(asn: u32) -> bool {
@@ -253,6 +215,50 @@ fn gencookie() -> String {
     let mut b = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut b);
     hex::encode(b)
+}
+
+fn generate_protocol(flavor: ProtocolFlavor) -> ObfsProtocol {
+    match flavor {
+        ProtocolFlavor::Tls => ObfsProtocol::ConnTest(
+            ObfsProtocol::Sosistab3New(
+                gencookie(),
+                ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+            )
+            .into(),
+        ),
+        ProtocolFlavor::Sosistab3 => {
+            ObfsProtocol::ConnTest(
+                ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
+            )
+        }
+        ProtocolFlavor::Legacy => ObfsProtocol::Sosistab3(gencookie()),
+        ProtocolFlavor::Meeklike => {
+            ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into())
+        }
+    }
+}
+
+async fn stable_protocol(
+    bridge: &BridgeDescriptor,
+    exit_b2e: SocketAddr,
+    flavor: ProtocolFlavor,
+) -> ObfsProtocol {
+    static CACHE: LazyLock<Cache<StableProtocolKey, ObfsProtocol>> = LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(24 * 60 * 60))
+            .build()
+    });
+
+    CACHE
+        .get_with(
+            StableProtocolKey {
+                bridge: bridge.clone(),
+                exit_b2e,
+                flavor,
+            },
+            async move { generate_protocol(flavor) },
+        )
+        .await
 }
 
 async fn bridge_to_leaf_route_inner(
