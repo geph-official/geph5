@@ -245,7 +245,7 @@ async fn stable_protocol(
 ) -> ObfsProtocol {
     static CACHE: LazyLock<Cache<StableProtocolKey, ObfsProtocol>> = LazyLock::new(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(24 * 60 * 60))
+            .time_to_idle(Duration::from_secs(24 * 60 * 60))
             .build()
     });
 
