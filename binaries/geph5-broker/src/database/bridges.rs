@@ -5,10 +5,12 @@ use moka::future::Cache;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::LazyLock,
     time::{Duration, Instant},
 };
+
+const NON_IPV6_BRIDGE_DELAY_MS: u32 = 300;
 
 #[derive(Clone, Debug)]
 pub struct BridgeMetadata {
@@ -181,6 +183,10 @@ FROM bridge_pool_delays"#,
                             .copied()
                             .unwrap_or((0, 0));
                         let matched_delay = longest_matching_pool_delay(&pool_delays, &row.2);
+                        let delay_ms = effective_bridge_delay_ms(
+                            matched_delay.map(|m| m.delay_ms),
+                            control_listen.ip(),
+                        );
                         BridgeMetadata {
                             descriptor: geph5_broker_protocol::BridgeDescriptor {
                                 control_listen,
@@ -188,7 +194,7 @@ FROM bridge_pool_delays"#,
                                 pool: row.2,
                                 expiry: row.3 as _,
                             },
-                            delay_ms: matched_delay.map(|m| m.delay_ms).unwrap_or(0),
+                            delay_ms,
                             is_plus: matched_delay.map(|m| m.is_plus).unwrap_or(false),
                             china_success_count: china_success_count as _,
                             china_fail_count: china_fail_count as _,
@@ -291,6 +297,15 @@ fn longest_matching_pool_delay<'a>(
         .max_by_key(|delay| delay.pool_prefix.len())
 }
 
+fn effective_bridge_delay_ms(pool_delay_ms: Option<u32>, listen_ip: IpAddr) -> u32 {
+    let delay_ms = pool_delay_ms.unwrap_or(0);
+    if listen_ip.is_ipv6() {
+        delay_ms
+    } else {
+        delay_ms.saturating_add(NON_IPV6_BRIDGE_DELAY_MS)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +362,26 @@ mod tests {
         let matched = longest_matching_pool_delay(&delays, "ls_ap_northeast_2_ipv6").unwrap();
         assert_eq!(matched.delay_ms, 200);
         assert!(matched.is_plus);
+    }
+
+    #[test]
+    fn effective_bridge_delay_adds_penalty_for_non_ipv6() {
+        assert_eq!(
+            effective_bridge_delay_ms(Some(123), IpAddr::from([203, 0, 113, 1])),
+            423
+        );
+        assert_eq!(
+            effective_bridge_delay_ms(Some(123), IpAddr::from([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1])),
+            123
+        );
+    }
+
+    #[test]
+    fn effective_bridge_delay_saturates_non_ipv6_penalty() {
+        assert_eq!(
+            effective_bridge_delay_ms(Some(u32::MAX), IpAddr::from([203, 0, 113, 1])),
+            u32::MAX
+        );
     }
 
     #[test]
