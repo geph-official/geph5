@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const NON_IPV6_BRIDGE_DELAY_MS: u32 = 300;
+const NON_IPV6_BRIDGE_DELAY_MS: u32 = 50;
 
 #[derive(Clone, Debug)]
 pub struct BridgeMetadata {
@@ -368,7 +368,7 @@ mod tests {
     fn effective_bridge_delay_adds_penalty_for_non_ipv6() {
         assert_eq!(
             effective_bridge_delay_ms(Some(123), IpAddr::from([203, 0, 113, 1])),
-            423
+            173
         );
         assert_eq!(
             effective_bridge_delay_ms(Some(123), IpAddr::from([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1])),
