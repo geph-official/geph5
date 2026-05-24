@@ -369,6 +369,7 @@ async fn build_route_for_exit(
         for route in (join_all(raw_descriptors.into_iter().map(|meta| {
             let bridge = meta.descriptor.control_listen;
             let exit_b2e = exit.b2e_listen;
+            let pool = meta.descriptor.pool.clone();
             bridge_to_leaf_route(
                 meta.descriptor,
                 meta.delay_ms,
@@ -385,6 +386,7 @@ async fn build_route_for_exit(
                     "failed to call bridge_to_leaf_route"
                 )
             })
+            .map_ok(move |route| (pool, route))
         }))
         .await)
             .into_iter()
@@ -392,10 +394,83 @@ async fn build_route_for_exit(
         {
             routes.push(route);
         }
-        return Ok(RouteDescriptor::Race(routes));
+        return Ok(RouteDescriptor::Race(group_ipv6_fallback_routes(routes)));
     }
 
     unreachable!()
+}
+
+const IPV6_POOL_SUFFIX: &str = "_ipv6";
+const IPV6_FALLBACK_TIMEOUT_MS: u32 = 5000;
+
+struct BridgePoolRoutes {
+    base_pool: String,
+    ipv4: Vec<RouteDescriptor>,
+    ipv6: Vec<RouteDescriptor>,
+}
+
+fn group_ipv6_fallback_routes(routes: Vec<(String, RouteDescriptor)>) -> Vec<RouteDescriptor> {
+    let mut groups: Vec<BridgePoolRoutes> = Vec::new();
+
+    for (pool, route) in routes {
+        let (base_pool, is_ipv6) = split_ipv6_pool(&pool);
+        let base_pool = base_pool.to_string();
+
+        let group = match groups.iter_mut().find(|group| group.base_pool == base_pool) {
+            Some(group) => group,
+            None => {
+                groups.push(BridgePoolRoutes {
+                    base_pool,
+                    ipv4: Vec::new(),
+                    ipv6: Vec::new(),
+                });
+                groups.last_mut().unwrap()
+            }
+        };
+
+        if is_ipv6 {
+            group.ipv6.push(route);
+        } else {
+            group.ipv4.push(route);
+        }
+    }
+
+    groups
+        .into_iter()
+        .filter_map(|group| {
+            let ipv6 = combine_family_routes(group.ipv6);
+            let ipv4 = combine_family_routes(group.ipv4);
+            match (ipv6, ipv4) {
+                (Some(ipv6), Some(ipv4)) => Some(RouteDescriptor::Fallback(vec![
+                    RouteDescriptor::Timeout {
+                        milliseconds: IPV6_FALLBACK_TIMEOUT_MS,
+                        lower: ipv6.into(),
+                    },
+                    ipv4,
+                ])),
+                (Some(ipv6), None) => Some(ipv6),
+                (None, Some(ipv4)) => Some(ipv4),
+                (None, None) => None,
+            }
+        })
+        .collect()
+}
+
+fn split_ipv6_pool(pool: &str) -> (&str, bool) {
+    match pool.strip_suffix(IPV6_POOL_SUFFIX) {
+        Some(base_pool) => (base_pool, true),
+        None => (pool, false),
+    }
+}
+
+fn combine_family_routes(mut routes: Vec<RouteDescriptor>) -> Option<RouteDescriptor> {
+    if routes.len() == 1 {
+        routes.pop()
+    } else if routes.is_empty() {
+        None
+    } else {
+        Some(RouteDescriptor::Race(routes))
+    }
 }
 
 #[async_trait]
@@ -919,6 +994,108 @@ mod tests {
     fn parse_client_ip_rejects_invalid() {
         let metadata = json!({"ip_addr": "not-an-ip"});
         assert_eq!(parse_client_ip(&metadata), None);
+    }
+
+    fn tcp_route(port: u16) -> RouteDescriptor {
+        RouteDescriptor::Tcp(format!("127.0.0.1:{port}").parse().unwrap())
+    }
+
+    fn route_port(route: &RouteDescriptor) -> u16 {
+        match route {
+            RouteDescriptor::Tcp(addr) => addr.port(),
+            other => panic!("expected tcp route, got {other:?}"),
+        }
+    }
+
+    fn race_ports(route: &RouteDescriptor) -> Vec<u16> {
+        match route {
+            RouteDescriptor::Race(routes) => routes.iter().map(route_port).collect(),
+            other => panic!("expected race route, got {other:?}"),
+        }
+    }
+
+    fn fallback_pair(route: &RouteDescriptor) -> (&RouteDescriptor, &RouteDescriptor) {
+        match route {
+            RouteDescriptor::Fallback(routes) => {
+                assert_eq!(routes.len(), 2);
+                let ipv6 = match &routes[0] {
+                    RouteDescriptor::Timeout {
+                        milliseconds,
+                        lower,
+                    } => {
+                        assert_eq!(*milliseconds, IPV6_FALLBACK_TIMEOUT_MS);
+                        lower.as_ref()
+                    }
+                    other => panic!("expected timeout-wrapped IPv6 route, got {other:?}"),
+                };
+                (ipv6, &routes[1])
+            }
+            other => panic!("expected fallback route, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ipv6_pool_is_grouped_behind_ipv4_fallback() {
+        let routes = group_ipv6_fallback_routes(vec![
+            ("alpha".into(), tcp_route(9001)),
+            ("alpha_ipv6".into(), tcp_route(9002)),
+        ]);
+
+        assert_eq!(routes.len(), 1);
+        let (ipv6, ipv4) = fallback_pair(&routes[0]);
+        assert_eq!(route_port(ipv6), 9002);
+        assert_eq!(route_port(ipv4), 9001);
+    }
+
+    #[test]
+    fn multiple_family_routes_are_raced_inside_fallback() {
+        let routes = group_ipv6_fallback_routes(vec![
+            ("alpha".into(), tcp_route(9001)),
+            ("alpha_ipv6".into(), tcp_route(9002)),
+            ("alpha".into(), tcp_route(9003)),
+            ("alpha_ipv6".into(), tcp_route(9004)),
+        ]);
+
+        assert_eq!(routes.len(), 1);
+        let (ipv6, ipv4) = fallback_pair(&routes[0]);
+        assert_eq!(race_ports(ipv6), vec![9002, 9004]);
+        assert_eq!(race_ports(ipv4), vec![9001, 9003]);
+    }
+
+    #[test]
+    fn unpaired_ipv4_and_ipv6_pools_remain_direct_routes() {
+        let routes = group_ipv6_fallback_routes(vec![
+            ("alpha".into(), tcp_route(9001)),
+            ("beta_ipv6".into(), tcp_route(9002)),
+        ]);
+
+        assert_eq!(routes.len(), 2);
+        assert_eq!(route_port(&routes[0]), 9001);
+        assert_eq!(route_port(&routes[1]), 9002);
+    }
+
+    #[test]
+    fn only_trailing_ipv6_suffix_is_special() {
+        let routes = group_ipv6_fallback_routes(vec![
+            ("alpha".into(), tcp_route(9001)),
+            ("alpha_ipv6_extra".into(), tcp_route(9002)),
+        ]);
+
+        assert_eq!(routes.len(), 2);
+        assert_eq!(route_port(&routes[0]), 9001);
+        assert_eq!(route_port(&routes[1]), 9002);
+    }
+
+    #[test]
+    fn unrelated_pool_names_are_not_grouped() {
+        let routes = group_ipv6_fallback_routes(vec![
+            ("alpha_ipv6".into(), tcp_route(9001)),
+            ("alphabet".into(), tcp_route(9002)),
+        ]);
+
+        assert_eq!(routes.len(), 2);
+        assert_eq!(route_port(&routes[0]), 9001);
+        assert_eq!(route_port(&routes[1]), 9002);
     }
 
     fn sample_net_status() -> NetStatus {
