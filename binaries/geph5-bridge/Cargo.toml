@@ -31,6 +31,7 @@ anyhow = "1.0.102"
 stdcode = "0.1.14"
 smol = "2.0.2"
 futures-util = { version = "0.3.32", features = ["io"] }
+governor = "0.6.3"
 deadpool = "0.12.3"
 once_cell = "1.21.4"
 dashmap = "6.1.0"

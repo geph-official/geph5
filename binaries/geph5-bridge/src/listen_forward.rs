@@ -14,7 +14,9 @@ use async_io_bufpool::pooled_read;
 use async_trait::async_trait;
 
 use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
-use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlProtocol, BridgeControlService, ObfsProtocol};
+use geph5_misc_rpc::bridge::{
+    B2eMetadata, BridgeControlProtocol, BridgeControlService, ObfsProtocol,
+};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{LivenessConfig, PicoMux, Stream};
@@ -26,14 +28,22 @@ use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
 
-use crate::asn_count::{self, incr_bytes_asn};
+use crate::{
+    asn_count::{self, incr_bytes_asn},
+    ratelimit::BridgeRateLimiter,
+};
 
 pub async fn listen_forward_loop(
     my_ip: IpAddr,
     pool: String,
     listener: impl Listener,
+    rate_limiter: BridgeRateLimiter,
 ) -> anyhow::Result<()> {
-    let state = State { my_ip, pool };
+    let state = State {
+        my_ip,
+        pool,
+        rate_limiter,
+    };
     nanorpc_sillad::rpc_serve(listener, BridgeControlService(state)).await?;
     Ok(())
 }
@@ -43,6 +53,7 @@ struct State {
     // b2e_dest => (metadata, task)
     my_ip: IpAddr,
     pool: String,
+    rate_limiter: BridgeRateLimiter,
 }
 
 #[async_trait]
@@ -72,6 +83,7 @@ impl BridgeControlProtocol for State {
                     b2e_dest,
                     protocol,
                     self.pool.clone(),
+                    self.rate_limiter.clone(),
                 ));
                 (addr, Arc::new(task))
             })
@@ -110,6 +122,7 @@ async fn handle_one_listener(
     b2e_dest: SocketAddr,
     protocol: ObfsProtocol,
     pool: String,
+    rate_limiter: BridgeRateLimiter,
 ) -> anyhow::Result<()> {
     static COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -122,6 +135,7 @@ async fn handle_one_listener(
             .ip();
         let protocol = protocol.clone();
         let pool = pool.clone();
+        let rate_limiter = rate_limiter.clone();
         smolscale::spawn(async move {
             let remote_asn = asn_count::ip_to_asn(remote_ip).await.unwrap_or(0);
             tracing::trace!(
@@ -147,6 +161,7 @@ async fn handle_one_listener(
             io_copy_with_timeout(
                 exit_read,
                 client_write,
+                rate_limiter.clone(),
                 &pool,
                 remote_asn,
                 Duration::from_secs(1800),
@@ -154,6 +169,7 @@ async fn handle_one_listener(
             .race(io_copy_with_timeout(
                 client_read,
                 exit_write,
+                rate_limiter,
                 &pool,
                 remote_asn,
                 Duration::from_secs(1800),
@@ -169,6 +185,7 @@ async fn handle_one_listener(
 pub async fn io_copy_with_timeout<R, W>(
     mut reader: R,
     mut writer: W,
+    rate_limiter: BridgeRateLimiter,
     pool: &str,
     asn: u32,
     timeout: Duration,
@@ -183,6 +200,7 @@ where
                 if buf.is_empty() {
                     return Ok(());
                 }
+                rate_limiter.wait(buf.len()).await;
                 writer.write_all(&buf).await?;
 
                 incr_bytes_asn(pool, asn, buf.len() as u64);
@@ -201,7 +219,10 @@ fn encode_b2e_metadata(protocol: &ObfsProtocol) -> Vec<u8> {
     .stdcode()
 }
 
-async fn dial_pooled(b2e_dest: SocketAddr, protocol: &ObfsProtocol) -> anyhow::Result<picomux::Stream> {
+async fn dial_pooled(
+    b2e_dest: SocketAddr,
+    protocol: &ObfsProtocol,
+) -> anyhow::Result<picomux::Stream> {
     static POOLS: Lazy<Cache<SocketAddr, Arc<SinglePool>>> = Lazy::new(|| {
         Cache::builder()
             .time_to_idle(Duration::from_secs(3600 * 2))

@@ -2472,6 +2472,7 @@ dependencies = [
  "geph5-broker-protocol",
  "geph5-ip-to-asn",
  "geph5-misc-rpc",
+ "governor",
  "influxdb-line-protocol",
  "moka",
  "nano-influxdb",

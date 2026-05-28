@@ -1,6 +1,7 @@
 mod asn_count;
 mod influxdb;
 mod listen_forward;
+mod ratelimit;
 
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -14,6 +15,7 @@ use futures_util::future::join_all;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
 use listen_forward::listen_forward_loop;
 use rand::Rng;
+use ratelimit::BridgeRateLimiter;
 use sillad::{dialer::DialerExt, tcp::TcpDialer};
 use sillad_sosistab3::{Cookie, listener::SosistabListener};
 use smol::future::FutureExt as _;
@@ -25,6 +27,8 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+const BRIDGE_TOTAL_RATELIMIT_ENV: &str = "GEPH5_BRIDGE_TOTAL_RATELIMIT";
+
 #[derive(Clone, Debug)]
 struct BridgeInstance {
     advertised_ip: IpAddr,
@@ -35,13 +39,16 @@ struct BridgeInstance {
 }
 
 fn main() {
-    if std::env::var("GEPH5_BRIDGE_POOL")
-        .unwrap()
-        .contains("yaofan")
-    {
+    let base_pool = std::env::var("GEPH5_BRIDGE_POOL").unwrap();
+    let configured_rate_limit_kib = bridge_total_ratelimit_from_env().unwrap();
+    let child_process_count = bridge_child_process_count(&base_pool);
+    let effective_rate_limit_kib =
+        effective_rate_limit_kib(configured_rate_limit_kib, child_process_count);
+
+    if base_pool.contains("yaofan") {
         smolscale::permanently_single_threaded();
         if std::env::var("GEPH5_BRIDGE_CHILD").is_err() {
-            for _ in 0..available_parallelism().unwrap().get() {
+            for _ in 0..child_process_count {
                 std::thread::spawn(|| {
                     let current_exe = std::env::current_exe().unwrap();
 
@@ -76,10 +83,16 @@ fn main() {
                 .from_env_lossy(),
         )
         .init();
-    smolscale::block_on(async {
+    smolscale::block_on(async move {
+        tracing::info!(
+            configured_rate_limit_kib,
+            effective_rate_limit_kib,
+            child_process_count,
+            "configured bridge rate limit"
+        );
+        let rate_limiter = BridgeRateLimiter::new(effective_rate_limit_kib);
         let auth_token: Arc<str> = std::env::var("GEPH5_BRIDGE_TOKEN").unwrap().into();
         let broker_addr: SocketAddr = std::env::var("GEPH5_BROKER_ADDR").unwrap().parse().unwrap();
-        let base_pool = std::env::var("GEPH5_BRIDGE_POOL").unwrap();
 
         let mut instances = vec![new_bridge_instance(
             discover_public_ipv4().await?.into(),
@@ -92,11 +105,14 @@ fn main() {
             ));
         }
 
-        join_all(
-            instances
-                .into_iter()
-                .map(|instance| run_bridge_instance(instance, auth_token.clone(), broker_addr)),
-        )
+        join_all(instances.into_iter().map(|instance| {
+            run_bridge_instance(
+                instance,
+                auth_token.clone(),
+                broker_addr,
+                rate_limiter.clone(),
+            )
+        }))
         .await;
         anyhow::Ok(())
     })
@@ -126,6 +142,7 @@ async fn run_bridge_instance(
     instance: BridgeInstance,
     auth_token: Arc<str>,
     broker_addr: SocketAddr,
+    rate_limiter: BridgeRateLimiter,
 ) {
     tracing::info!(
         pool = %instance.pool,
@@ -155,6 +172,7 @@ async fn run_bridge_instance(
                 instance.advertised_ip,
                 instance.pool.clone(),
                 control_listener,
+                rate_limiter.clone(),
             )
             .await
             {
@@ -169,6 +187,38 @@ async fn run_bridge_instance(
         }
     })
     .await
+}
+
+fn bridge_total_ratelimit_from_env() -> anyhow::Result<u32> {
+    let raw = std::env::var(BRIDGE_TOTAL_RATELIMIT_ENV)
+        .with_context(|| format!("{BRIDGE_TOTAL_RATELIMIT_ENV} must be set"))?;
+    parse_bridge_total_ratelimit(&raw)
+}
+
+fn parse_bridge_total_ratelimit(raw: &str) -> anyhow::Result<u32> {
+    let limit = raw.trim().parse::<u32>().with_context(|| {
+        format!("{BRIDGE_TOTAL_RATELIMIT_ENV} must be a positive integer KiB/s")
+    })?;
+    anyhow::ensure!(
+        limit > 0,
+        "{BRIDGE_TOTAL_RATELIMIT_ENV} must be greater than zero"
+    );
+    Ok(limit)
+}
+
+fn bridge_child_process_count(pool: &str) -> usize {
+    if pool.contains("yaofan") {
+        available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1)
+    } else {
+        1
+    }
+}
+
+fn effective_rate_limit_kib(configured_rate_limit_kib: u32, process_count: usize) -> u32 {
+    let process_count = u32::try_from(process_count).unwrap_or(u32::MAX).max(1);
+    (configured_rate_limit_kib / process_count).max(1)
 }
 
 async fn broker_loop(
@@ -340,6 +390,33 @@ mod tests {
             parse_default_ipv6_interface(sample).as_deref(),
             Some("eth0")
         );
+    }
+
+    #[test]
+    fn parse_bridge_total_ratelimit_accepts_positive_integer() {
+        assert_eq!(parse_bridge_total_ratelimit("125000").unwrap(), 125000);
+        assert_eq!(parse_bridge_total_ratelimit(" 42 ").unwrap(), 42);
+    }
+
+    #[test]
+    fn parse_bridge_total_ratelimit_rejects_zero_and_invalid_values() {
+        assert!(parse_bridge_total_ratelimit("0").is_err());
+        assert!(parse_bridge_total_ratelimit("").is_err());
+        assert!(parse_bridge_total_ratelimit("12.5").is_err());
+    }
+
+    #[test]
+    fn effective_rate_limit_is_split_across_processes() {
+        assert_eq!(effective_rate_limit_kib(1000, 1), 1000);
+        assert_eq!(effective_rate_limit_kib(1000, 4), 250);
+        assert_eq!(effective_rate_limit_kib(3, 8), 1);
+        assert_eq!(effective_rate_limit_kib(1000, 0), 1000);
+    }
+
+    #[test]
+    fn bridge_child_process_count_only_splits_yaofan_pools() {
+        assert_eq!(bridge_child_process_count("regular"), 1);
+        assert!(bridge_child_process_count("yaofan-main") >= 1);
     }
 
     #[test]
