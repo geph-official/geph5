@@ -4,6 +4,7 @@ mod listen_forward;
 mod ratelimit;
 
 use std::{
+    env::VarError,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
     thread::available_parallelism,
@@ -43,7 +44,7 @@ fn main() {
     let configured_rate_limit_kib = bridge_total_ratelimit_from_env().unwrap();
     let child_process_count = bridge_child_process_count(&base_pool);
     let effective_rate_limit_kib =
-        effective_rate_limit_kib(configured_rate_limit_kib, child_process_count);
+        configured_rate_limit_kib.map(|limit| effective_rate_limit_kib(limit, child_process_count));
 
     if base_pool.contains("yaofan") {
         smolscale::permanently_single_threaded();
@@ -84,13 +85,21 @@ fn main() {
         )
         .init();
     smolscale::block_on(async move {
-        tracing::info!(
-            configured_rate_limit_kib,
-            effective_rate_limit_kib,
-            child_process_count,
-            "configured bridge rate limit"
-        );
-        let rate_limiter = BridgeRateLimiter::new(effective_rate_limit_kib);
+        let rate_limiter = match effective_rate_limit_kib {
+            Some(effective_rate_limit_kib) => {
+                tracing::info!(
+                    configured_rate_limit_kib,
+                    effective_rate_limit_kib,
+                    child_process_count,
+                    "configured bridge rate limit"
+                );
+                BridgeRateLimiter::limited(effective_rate_limit_kib)
+            }
+            None => {
+                tracing::info!("bridge rate limit disabled");
+                BridgeRateLimiter::unlimited()
+            }
+        };
         let auth_token: Arc<str> = std::env::var("GEPH5_BRIDGE_TOKEN").unwrap().into();
         let broker_addr: SocketAddr = std::env::var("GEPH5_BROKER_ADDR").unwrap().parse().unwrap();
 
@@ -189,10 +198,25 @@ async fn run_bridge_instance(
     .await
 }
 
-fn bridge_total_ratelimit_from_env() -> anyhow::Result<u32> {
-    let raw = std::env::var(BRIDGE_TOTAL_RATELIMIT_ENV)
-        .with_context(|| format!("{BRIDGE_TOTAL_RATELIMIT_ENV} must be set"))?;
-    parse_bridge_total_ratelimit(&raw)
+fn bridge_total_ratelimit_from_env() -> anyhow::Result<Option<u32>> {
+    let raw = match std::env::var(BRIDGE_TOTAL_RATELIMIT_ENV) {
+        Ok(raw) => Some(raw),
+        Err(VarError::NotPresent) => None,
+        Err(err) => {
+            return Err(err).with_context(|| format!("cannot read {BRIDGE_TOTAL_RATELIMIT_ENV}"));
+        }
+    };
+    parse_optional_bridge_total_ratelimit(raw.as_deref())
+}
+
+fn parse_optional_bridge_total_ratelimit(raw: Option<&str>) -> anyhow::Result<Option<u32>> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    parse_bridge_total_ratelimit(raw).map(Some)
 }
 
 fn parse_bridge_total_ratelimit(raw: &str) -> anyhow::Result<u32> {
@@ -396,6 +420,23 @@ mod tests {
     fn parse_bridge_total_ratelimit_accepts_positive_integer() {
         assert_eq!(parse_bridge_total_ratelimit("125000").unwrap(), 125000);
         assert_eq!(parse_bridge_total_ratelimit(" 42 ").unwrap(), 42);
+    }
+
+    #[test]
+    fn parse_optional_bridge_total_ratelimit_allows_unset_and_blank() {
+        assert_eq!(parse_optional_bridge_total_ratelimit(None).unwrap(), None);
+        assert_eq!(
+            parse_optional_bridge_total_ratelimit(Some("")).unwrap(),
+            None
+        );
+        assert_eq!(
+            parse_optional_bridge_total_ratelimit(Some("   ")).unwrap(),
+            None
+        );
+        assert_eq!(
+            parse_optional_bridge_total_ratelimit(Some("125000")).unwrap(),
+            Some(125000)
+        );
     }
 
     #[test]

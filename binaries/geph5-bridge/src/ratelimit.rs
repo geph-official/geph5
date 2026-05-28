@@ -8,20 +8,28 @@ const TEN_GIB_IN_KIB: u32 = 10 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct BridgeRateLimiter {
-    inner: Arc<DefaultDirectRateLimiter>,
+    inner: Option<Arc<DefaultDirectRateLimiter>>,
 }
 
 impl BridgeRateLimiter {
-    pub fn new(limit_kib_per_second: u32) -> Self {
+    pub fn limited(limit_kib_per_second: u32) -> Self {
         let limit = NonZeroU32::new(limit_kib_per_second).expect("rate limit must be non-zero");
         let burst = NonZeroU32::new(TEN_GIB_IN_KIB).unwrap();
         let inner = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst));
         Self {
-            inner: Arc::new(inner),
+            inner: Some(Arc::new(inner)),
         }
     }
 
+    pub fn unlimited() -> Self {
+        Self { inner: None }
+    }
+
     pub async fn wait(&self, bytes: usize) {
+        if self.inner.is_none() {
+            return;
+        }
+
         let mut tokens = stochastic_kib_charge(bytes);
         while tokens > 0 {
             let chunk = tokens.min(TEN_GIB_IN_KIB);
@@ -34,7 +42,14 @@ impl BridgeRateLimiter {
         let tokens = NonZeroU32::new(tokens).unwrap();
         let mut delay = 0.005;
         loop {
-            if self.inner.check_n(tokens).unwrap().is_ok() {
+            if self
+                .inner
+                .as_ref()
+                .unwrap()
+                .check_n(tokens)
+                .unwrap()
+                .is_ok()
+            {
                 break;
             }
 
