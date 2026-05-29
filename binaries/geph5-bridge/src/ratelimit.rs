@@ -16,6 +16,10 @@ impl BridgeRateLimiter {
         let limit = NonZeroU32::new(limit_kib_per_second).expect("rate limit must be non-zero");
         let burst = NonZeroU32::new(TEN_GIB_IN_KIB).unwrap();
         let inner = governor::RateLimiter::direct(Quota::per_second(limit).allow_burst(burst));
+        inner
+            .check_n(burst)
+            .expect("startup burst must fit configured bridge rate limit")
+            .expect("fresh bridge rate limiter should accept startup burst drain");
         Self {
             inner: Some(Arc::new(inner)),
         }
@@ -92,5 +96,13 @@ mod tests {
         assert_eq!(stochastic_kib_charge_with_sample(1536, 511), 2);
         assert_eq!(stochastic_kib_charge_with_sample(1536, 512), 1);
         assert_eq!(stochastic_kib_charge_with_sample(1536, 1023), 1);
+    }
+
+    #[test]
+    fn limited_rate_limiter_starts_empty() {
+        let limiter = BridgeRateLimiter::limited(1);
+        let token = NonZeroU32::new(1).unwrap();
+        let decision = limiter.inner.as_ref().unwrap().check_n(token).unwrap();
+        assert!(decision.is_err());
     }
 }
