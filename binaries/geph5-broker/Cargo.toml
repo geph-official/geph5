@@ -44,7 +44,6 @@ bytes = { version = "1.11.1", features = ["serde"] }
 argon2 = "0.5.3"
 rusty_pool = "0.7.0"
 oneshot = "0.1.13"
-cadence = "1.8.0"
 clap = { version = "4.6.1", features = ["derive"] }
 reqwest = { version = "0.12.28", default-features = false, features=["json", "rustls-tls-webpki-roots"] }
 hex = "0.4.3"
@@ -52,8 +51,7 @@ tap = "1.0.1"
 blocking = "1.6.2"
 cached = {version="0.54.0", features=["async"]}
 smol = "2.0.2"
-influxdb-line-protocol = "2.0.0"
-nano-influxdb = { path = "../../libraries/nano-influxdb" }
+geph5-stats = { path = "../../libraries/geph5-stats" }
 tikv-jemallocator = "0.6.1"
 geph5-ip-to-asn = { path = "../../libraries/geph5-ip-to-asn" }
 semver = "1.0.28"

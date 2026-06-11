@@ -1,8 +1,6 @@
 use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
-use cadence::prelude::*;
-use cadence::{StatsdClient, UdpMetricSink};
 use ed25519_dalek::VerifyingKey;
 use futures_util::{TryFutureExt, future::join_all};
 use geph5_broker_protocol::{
@@ -10,10 +8,10 @@ use geph5_broker_protocol::{
     Credential, DOMAIN_EXIT_DESCRIPTOR, DOMAIN_EXIT_ROUTE, DOMAIN_NET_STATUS, ExitCategory,
     ExitConstraint, ExitDescriptor, ExitList, ExitMetadata, ExitRouteDescriptor, GenericError,
     GetExitRouteArgs, GetRoutesArgs, JsonSigned, LegacyNewsItem, Mac, NetStatus, RouteDescriptor,
-    StdcodeSigned, UserInfo, VoucherInfo,
+    StatEvent, StdcodeSigned, UserInfo, VoucherInfo,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
-use influxdb_line_protocol::LineProtocolBuilder;
+use geph5_stats::StatsdUdpSink;
 use isocountry::CountryCode;
 use mizaru2::{
     BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature,
@@ -74,22 +72,13 @@ impl RpcService for WrappedBrokerService {
         }
         let start = Instant::now();
         let resp = self.0.respond(method, params).await?;
-        let method = method.to_string();
-        smolscale::spawn(async move {
-            if let Some(endpoint) = &CONFIG_FILE.wait().influxdb {
-                let _ = endpoint
-                    .send_line(
-                        LineProtocolBuilder::new()
-                            .measurement("broker_rpc_calls")
-                            .tag("method", &method)
-                            .field("latency", start.elapsed().as_secs_f64())
-                            .close_line()
-                            .build(),
-                    )
-                    .await;
-            }
-        })
-        .detach();
+        if let Some(sink) = STATS_SINK.as_ref() {
+            sink.send_one(&StatEvent::timer_ms(
+                "broker_rpc_calls",
+                &[("method", method)],
+                start.elapsed().as_secs_f64() * 1000.0,
+            ));
+        }
         Some(resp)
     }
 }
@@ -784,15 +773,35 @@ impl BrokerProtocol for BrokerImpl {
         Ok(())
     }
 
+    async fn report_stats(&self, stats: Mac<Vec<StatEvent>>) -> Result<(), GenericError> {
+        let config = CONFIG_FILE.wait();
+        let bridge_key = blake3::hash(config.bridge_token.as_bytes());
+        let exit_key = blake3::hash(config.exit_token.as_bytes());
+        let events = stats
+            .clone()
+            .verify(bridge_key.as_bytes())
+            .or_else(|_| stats.verify(exit_key.as_bytes()))
+            .map_err(|_| GenericError("invalid stats MAC".to_string()))?;
+        if events.len() > 10_000 {
+            return Err(GenericError("too many stats in one batch".to_string()));
+        }
+        if let Some(sink) = STATS_SINK.as_ref() {
+            sink.send_many(&events);
+        }
+        Ok(())
+    }
+
+    // Legacy untagged stats from not-yet-upgraded fleet members; the classic
+    // "geph5."-prefixed lines are what the old Telegraf templates parse.
     async fn incr_stat(&self, stat: String, value: i32) {
-        if let Some(client) = STATSD_CLIENT.as_ref() {
-            client.count(&stat, value).unwrap();
+        if let Some(sink) = STATS_SINK.as_ref() {
+            sink.send_raw_line(&format!("geph5.{stat}:{value}|c"));
         }
     }
 
     async fn set_stat(&self, stat: String, value: f64) {
-        if let Some(client) = STATSD_CLIENT.as_ref() {
-            client.gauge(&stat, value).unwrap();
+        if let Some(sink) = STATS_SINK.as_ref() {
+            sink.send_raw_line(&format!("geph5.{stat}:{value}|g"));
         }
     }
 
@@ -1223,14 +1232,10 @@ mod tests {
     }
 }
 
-pub static STATSD_CLIENT: Lazy<Option<StatsdClient>> = Lazy::new(|| {
-    if let Some(statsd_addr) = CONFIG_FILE.wait().statsd_addr {
-        let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-        Some(StatsdClient::from_sink(
-            "geph5",
-            UdpMetricSink::from(statsd_addr, socket).unwrap(),
-        ))
-    } else {
-        None
-    }
+/// Fire-and-forget sink towards the local Telegraf statsd listener.
+pub static STATS_SINK: Lazy<Option<StatsdUdpSink>> = Lazy::new(|| {
+    CONFIG_FILE
+        .wait()
+        .statsd_addr
+        .map(|addr| StatsdUdpSink::new(addr).unwrap())
 });

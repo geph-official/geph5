@@ -1,7 +1,7 @@
 mod asn_count;
-mod influxdb;
 mod listen_forward;
 mod ratelimit;
+mod stats;
 
 use std::{
     env::VarError,
@@ -102,6 +102,14 @@ fn main() {
         };
         let auth_token: Arc<str> = std::env::var("GEPH5_BRIDGE_TOKEN").unwrap().into();
         let broker_addr: SocketAddr = std::env::var("GEPH5_BROKER_ADDR").unwrap().parse().unwrap();
+
+        {
+            let auth_token = auth_token.clone();
+            smolscale::spawn(
+                async move { stats::stats_flush_loop(&auth_token, broker_addr).await },
+            )
+            .detach();
+        }
 
         let mut instances = vec![new_bridge_instance(
             discover_public_ipv4().await?.into(),

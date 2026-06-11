@@ -12,7 +12,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
-    BrokerClient, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, JsonSigned, Mac,
+    BrokerClient, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, JsonSigned, Mac, StatEvent,
 };
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
@@ -264,31 +264,27 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                         ACCEPT_FREE.store(accept_free, Ordering::Relaxed);
                     }
 
-                    client
-                        .set_stat(format!("{server_name}.kbps"), get_kbps() as _)
-                        .await?;
                     static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
-                    client
-                        .set_stat(
-                            format!("{server_name}.uptime"),
-                            START_TIME.elapsed().as_secs_f64(),
-                        )
-                        .await?;
-
                     let load = get_load();
-                    client
-                        .set_stat(format!("{server_name}.load"), load as _)
-                        .await?;
-                    let task_count = get_task_count();
-                    client
-                        .set_stat(format!("{server_name}.task_count"), task_count as _)
-                        .await?;
-                    client
-                        .set_stat(
-                            format!("{server_name}.schedlag"),
+                    let exit_tag: &[(&str, &str)] = &[("exit", &server_name)];
+                    let stats = vec![
+                        StatEvent::gauge("kbps", exit_tag, get_kbps() as _),
+                        StatEvent::gauge("uptime", exit_tag, START_TIME.elapsed().as_secs_f64()),
+                        StatEvent::gauge("load", exit_tag, load as _),
+                        StatEvent::gauge("task_count", exit_tag, get_task_count() as _),
+                        StatEvent::gauge(
+                            "schedlag",
+                            exit_tag,
                             SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
-                        )
-                        .await?;
+                        ),
+                    ];
+                    client
+                        .report_stats(Mac::new(
+                            stats,
+                            blake3::hash(broker.auth_token.as_bytes()).as_bytes(),
+                        ))
+                        .await?
+                        .map_err(|e| anyhow::anyhow!(e.0))?;
 
                     let descriptor = descriptor_for_ip(my_ip, load);
                     let metadata = exit_metadata();

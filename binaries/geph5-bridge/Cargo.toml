@@ -43,7 +43,6 @@ oneshot = "0.1.13"
 async-io-bufpool = "0.1.2"
 tikv-jemallocator = { version = "0.6.1", features = ["unprefixed_malloc_on_supported_platforms"] }
 clap = "4.6.1"
-influxdb-line-protocol = "2.0.0"
-nano-influxdb = { path = "../../libraries/nano-influxdb" }
+geph5-stats = { path = "../../libraries/geph5-stats" }
 
 #jemalloc_pprof = "0.6.0"

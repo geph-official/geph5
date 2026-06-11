@@ -1358,15 +1358,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
 
 [[package]]
-name = "cadence"
-version = "1.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca08f6db9f0c963249cf23a27820f9d973d2acaad4d6bfaeb858b58ebd58a6a"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2044,12 +2035,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doc-comment"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "780955b8b195a21ab8e4ac6b60dd1dbdcec1dc6c51c0617964b08c81785e12c9"
-
-[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2472,10 +2457,9 @@ dependencies = [
  "geph5-broker-protocol",
  "geph5-ip-to-asn",
  "geph5-misc-rpc",
+ "geph5-stats",
  "governor",
- "influxdb-line-protocol",
  "moka",
- "nano-influxdb",
  "nanorpc",
  "nanorpc-sillad",
  "once_cell",
@@ -2512,19 +2496,17 @@ dependencies = [
  "blocking",
  "bytes",
  "cached",
- "cadence",
  "clap",
  "ed25519-dalek",
  "futures-util",
  "geph5-broker-protocol",
  "geph5-ip-to-asn",
  "geph5-misc-rpc",
+ "geph5-stats",
  "hex",
- "influxdb-line-protocol",
  "isocountry",
  "mizaru2",
  "moka",
- "nano-influxdb",
  "nanorpc",
  "nanorpc-sillad",
  "once_cell",
@@ -2563,6 +2545,7 @@ dependencies = [
  "blake3",
  "bytes",
  "ed25519-dalek",
+ "geph5-stats",
  "isocountry",
  "language-tags",
  "melpow",
@@ -2842,6 +2825,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x25519-dalek",
+]
+
+[[package]]
+name = "geph5-stats"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3447,19 +3437,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "influxdb-line-protocol"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22fa7ee6be451ea0b1912b962c91c8380835e97cf1584a77e18264e908448dcb"
-dependencies = [
- "bytes",
- "log",
- "nom",
- "smallvec",
- "snafu",
-]
-
-[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3841,15 +3818,6 @@ dependencies = [
  "smallvec",
  "tagptr",
  "uuid",
-]
-
-[[package]]
-name = "nano-influxdb"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "reqwest",
- "serde",
 ]
 
 [[package]]
@@ -5753,28 +5721,6 @@ dependencies = [
  "tabwriter",
  "thread_local",
  "waker-fn",
-]
-
-[[package]]
-name = "snafu"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4de37ad025c587a29e8f3f5605c00f70b98715ef90b9061a815b9e59e9042d6"
-dependencies = [
- "doc-comment",
- "snafu-derive",
-]
-
-[[package]]
-name = "snafu-derive"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "990079665f075b699031e9c08fd3ab99be5029b96f3b78dc0709e8f77e4efebf"
-dependencies = [
- "heck 0.4.1",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]

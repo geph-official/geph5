@@ -11,7 +11,6 @@ use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
 use moka::future::Cache;
-use nano_influxdb::InfluxDbEndpoint;
 use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -140,10 +139,6 @@ struct ConfigFile {
 
     #[serde(default)]
     payment_support_secret: String,
-
-    /// Optional InfluxDB configuration for metrics
-    #[serde(default)]
-    influxdb: Option<InfluxDbEndpoint>,
 }
 
 fn default_puzzle_difficulty() -> u16 {
@@ -186,11 +181,10 @@ async fn main() -> anyhow::Result<()> {
     let config: ConfigFile =
         serde_yaml::from_str(&config_contents).context("Failed to parse the config file")?;
 
-    // Log if InfluxDB is configured
-    if let Some(influxdb) = &config.influxdb {
-        tracing::info!("InfluxDB endpoint configured at {}", influxdb.url);
+    if let Some(statsd_addr) = &config.statsd_addr {
+        tracing::info!("statsd endpoint configured at {statsd_addr}");
     } else {
-        tracing::info!("No InfluxDB endpoint configured");
+        tracing::info!("no statsd endpoint configured; metrics disabled");
     }
 
     let _ = CONFIG_FILE.set(config);

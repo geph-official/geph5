@@ -130,8 +130,7 @@ pub async fn bridge_to_leaf_route(
                     let sosistab3_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
-                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3)
-                            .await,
+                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await,
                     )
                     .await?;
                     let legacy_route = bridge_to_leaf_route_inner(
@@ -226,11 +225,9 @@ fn generate_protocol(flavor: ProtocolFlavor) -> ObfsProtocol {
             )
             .into(),
         ),
-        ProtocolFlavor::Sosistab3 => {
-            ObfsProtocol::ConnTest(
-                ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
-            )
-        }
+        ProtocolFlavor::Sosistab3 => ObfsProtocol::ConnTest(
+            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
+        ),
         ProtocolFlavor::Legacy => ObfsProtocol::Sosistab3(gencookie()),
         ProtocolFlavor::Meeklike => {
             ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into())

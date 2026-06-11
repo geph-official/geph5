@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, fmt::Display, net::SocketAddr};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+pub use geph5_stats::{StatEvent, StatKind};
 use mizaru2::{
     BlindedClientToken, BlindedSignature, ClientToken, SingleBlindedSignature,
     SingleUnblindedSignature, UnblindedSignature,
@@ -88,8 +89,13 @@ pub trait BrokerProtocol {
 
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError>;
 
+    /// Reports a batch of stats, authenticated with the bridge or exit token.
+    async fn report_stats(&self, stats: Mac<Vec<StatEvent>>) -> Result<(), GenericError>;
+
+    /// Deprecated, unauthenticated; kept for old fleet members. Use report_stats instead.
     async fn incr_stat(&self, stat: String, value: i32);
 
+    /// Deprecated, unauthenticated; kept for old fleet members. Use report_stats instead.
     async fn set_stat(&self, stat: String, value: f64);
 
     async fn upload_available(&self, data: AvailabilityData);
