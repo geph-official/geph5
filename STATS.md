@@ -89,38 +89,46 @@ copy carries the real Postgres credentials; the repo copy has placeholders).
   each packet (`bridge_bytes:1048576|c|#pool:viet,asn:4134,country:CN`), so
   the config never grows per-metric rules. The `templates` block that parses
   old dot-path stats is legacy and dies with the last old exit.
-- `outputs.postgresql`: auto-creates one table per measurement and new
-  columns for new tags. `metric_buffer_limit = 100000` rides out Aiven
+- `outputs.postgresql` with `schema = "metrics"`: auto-creates one table per
+  measurement and new columns for new tags. Landing in the `metrics` schema
+  is what *makes* a table a metric — everything downstream discovers tables
+  there by introspection. `metric_buffer_limit = 100000` rides out Aiven
   failovers.
 - The listener binds `127.0.0.1` only — nothing off-host can spoof stats.
 
 **Adding a new metric end-to-end**: call
 `stats.counter("my_new_thing", &[("color", "red")], 1.0)` somewhere. That's
-it. Telegraf creates the `my_new_thing` table on first flush. (For rollups
-and `metric()` support, add matching `_minutely`/`_hourly` tables and a
-clause in `metrics_rollup_tier()` — see `sql/metrics.sql`.)
+it — there is no list of metric names anywhere. Telegraf creates
+`metrics.my_new_thing` on first flush; the next pg_cron rollup tick
+discovers it, creates its time index and `_minutely`/`_hourly` tiers, and
+retention and `metric()` apply from then on.
 
 ## Storage: Postgres resolution tiers
 
-Schema: `binaries/geph5-broker/sql/metrics.sql` — idempotent, apply with
-`psql "$POSTGRES_URL" -f metrics.sql`.
+Schema machinery: `binaries/geph5-broker/sql/metrics.sql` — idempotent,
+apply with `psql "$POSTGRES_URL" -f metrics.sql`. It contains **no central
+metric registry**: rollup, retention and tier creation iterate the tables
+that exist in the `metrics` schema. Aggregation semantics come from the data
+and structure, not configuration:
+
+- the statsd `metric_type` column: counter → sum, gauge → avg
+- structural per-column rules for timer tables: `count`/`sum` → sum,
+  `mean` → count-weighted mean, `*percentile*`/`upper` → max, `lower` → min
 
 | tier | resolution | retention | example |
 |---|---|---|---|
-| raw | ~10s (Telegraf flush) | 14 days | `bridge_bytes` |
-| minutely | 1 min | 90 days | `bridge_bytes_minutely` |
-| hourly | 1 h | forever | `bridge_bytes_hourly` |
+| raw | ~10s (Telegraf flush) | 14 days | `metrics.bridge_bytes` |
+| minutely | 1 min | 90 days | `metrics.bridge_bytes_minutely` |
+| hourly | 1 h | forever | `metrics.bridge_bytes_hourly` |
 
 Maintained by pg_cron:
 
-- `geph5-metrics-rollup` (every 10 min): upserts the trailing 3 hours of raw
-  into both rollup tiers, so the current partial bucket keeps refreshing and
-  late data is absorbed.
+- `geph5-metrics-rollup` (every 10 min): discovers raw tables, creates any
+  missing tiers/indexes, and upserts the trailing 3 hours into both rollup
+  tiers, so the current partial bucket keeps refreshing and late data is
+  absorbed.
 - `geph5-metrics-retention` (daily 04:20): deletes raw > 14 d and
-  minutely > 90 d.
-
-Rollup aggregation: gauges → mean, counters → sum, timers → count-weighted
-mean + worst-case upper/p99.
+  minutely > 90 d, again for whatever tables exist.
 
 ## Querying: the `metric()` function
 
@@ -160,8 +168,16 @@ FROM metric('broker_rpc_calls', $__timeFrom(), $__timeTo(), interval '$__interva
 ORDER BY 1;
 ```
 
-Whole-range aggregations (pie charts) can hit `*_hourly` directly; with
+Whole-range aggregations (pie charts) can hit `metrics.*_hourly` directly; with
 table-format SQL, set the pie panel's `reduceOptions` to "All values".
+
+### Pooler caveat
+
+The broker's database URL goes through Aiven's connection pooler in
+transaction-pooling mode, where session state (e.g. `SET search_path`) leaks
+unpredictably across clients. Everything in `metrics.sql` is therefore fully
+schema-qualified and nothing in the pipeline may ever rely on `SET` —
+qualify your tables (`metrics.foo`) in any ad-hoc SQL too.
 
 ## Measurements
 

@@ -1,235 +1,261 @@
--- Geph5 metrics schema: raw tables fed by Telegraf (statsd -> outputs.postgresql),
--- Whisper-style resolution tiers maintained by pg_cron, and a metric() helper
--- that mixes resolutions so Grafana panels never have to name rollup tables.
+-- Geph5 metrics: a fully convention-driven pipeline. There is NO central list
+-- of metric names anywhere in this file.
 --
---   raw      ~10s points   kept 14 days
---   minutely 1-min rollup  kept 90 days
---   hourly   1-h rollup    kept forever
+--   * Telegraf (statsd -> outputs.postgresql, schema = "metrics") creates one
+--     table per measurement inside the `metrics` schema. Membership in that
+--     schema is what makes something a metric.
+--   * Every pg_cron rollup tick discovers raw tables by introspection,
+--     auto-creates missing `<name>_minutely` / `<name>_hourly` tiers (and a
+--     time index on the raw table), and upserts the trailing window.
+--   * Aggregation semantics come from the data itself: the statsd
+--     `metric_type` column (counter -> sum, gauge -> avg) plus structural
+--     per-column rules for timer tables (count -> sum, mean -> count-weighted
+--     mean, *percentile*/upper -> max, lower -> min).
+--   * Retention is by suffix convention: raw 14 days, minutely 90 days,
+--     hourly forever.
 --
--- Apply with: psql "$POSTGRES_URL" -f metrics.sql
--- Idempotent: safe to re-run.
+-- So emitting a brand-new stat from any geph5 binary materializes the table,
+-- indexes, rollup tiers, retention, and metric() support within one rollup
+-- tick, with zero configuration here or anywhere else.
+--
+-- Apply with: psql "$POSTGRES_URL" -f metrics.sql   (idempotent)
+
+CREATE SCHEMA IF NOT EXISTS metrics;
 
 ------------------------------------------------------------------------------
--- Raw tables. Telegraf auto-creates missing tables/columns, but we pre-create
--- them to control types and indexes. One table per measurement; statsd tags
--- become text columns, the value lands in "value" (gauges/counters) or in the
--- aggregate fields Telegraf computes for timers.
-------------------------------------------------------------------------------
-
--- Exit gauges, tagged by exit (reported every ~2s per exit via broker RPC).
-CREATE TABLE IF NOT EXISTS "kbps"       ("time" timestamptz NOT NULL, "exit" text, "value" double precision);
-CREATE TABLE IF NOT EXISTS "load"       ("time" timestamptz NOT NULL, "exit" text, "value" double precision);
-CREATE TABLE IF NOT EXISTS "uptime"     ("time" timestamptz NOT NULL, "exit" text, "value" double precision);
-CREATE TABLE IF NOT EXISTS "task_count" ("time" timestamptz NOT NULL, "exit" text, "value" double precision);
-CREATE TABLE IF NOT EXISTS "schedlag"   ("time" timestamptz NOT NULL, "exit" text, "value" double precision);
-
--- Bridge traffic counter, tagged by pool/asn/country (summed per 10s flush window).
-CREATE TABLE IF NOT EXISTS "bridge_bytes"
-    ("time" timestamptz NOT NULL, "pool" text, "asn" text, "country" text, "value" double precision);
-
--- Broker self-stats (30s loop).
-CREATE TABLE IF NOT EXISTS "bridge_pools"  ("time" timestamptz NOT NULL, "pool" text, "value" double precision);
-CREATE TABLE IF NOT EXISTS "broker_logins" ("time" timestamptz NOT NULL, "kind" text, "value" double precision);
-CREATE TABLE IF NOT EXISTS "plus"          ("time" timestamptz NOT NULL, "value" double precision);
-CREATE TABLE IF NOT EXISTS "broker_sysstat" ("time" timestamptz NOT NULL, "ip_addr" text, "value" double precision);
-
--- Per-RPC timer; Telegraf's statsd input aggregates each 10s window into
--- count/mean/percentiles, so row volume is per-method, not per-call.
-CREATE TABLE IF NOT EXISTS "broker_rpc_calls" (
-    "time" timestamptz NOT NULL,
-    "method" text,
-    "mean" double precision,
-    "stddev" double precision,
-    "sum" double precision,
-    "upper" double precision,
-    "lower" double precision,
-    "count" bigint,
-    "90_percentile" double precision,
-    "99_percentile" double precision
-);
-
-CREATE INDEX IF NOT EXISTS kbps_time_idx             ON "kbps" ("time");
-CREATE INDEX IF NOT EXISTS load_time_idx             ON "load" ("time");
-CREATE INDEX IF NOT EXISTS uptime_time_idx           ON "uptime" ("time");
-CREATE INDEX IF NOT EXISTS task_count_time_idx       ON "task_count" ("time");
-CREATE INDEX IF NOT EXISTS schedlag_time_idx         ON "schedlag" ("time");
-CREATE INDEX IF NOT EXISTS bridge_bytes_time_idx     ON "bridge_bytes" ("time");
-CREATE INDEX IF NOT EXISTS bridge_bytes_pool_time_idx ON "bridge_bytes" ("pool", "time");
-CREATE INDEX IF NOT EXISTS bridge_pools_time_idx     ON "bridge_pools" ("time");
-CREATE INDEX IF NOT EXISTS broker_logins_time_idx    ON "broker_logins" ("time");
-CREATE INDEX IF NOT EXISTS plus_time_idx             ON "plus" ("time");
-CREATE INDEX IF NOT EXISTS broker_sysstat_time_idx   ON "broker_sysstat" ("time");
-CREATE INDEX IF NOT EXISTS broker_rpc_calls_time_idx ON "broker_rpc_calls" ("time");
-
-------------------------------------------------------------------------------
--- Hourly rollups. Raw data is kept RAW_RETENTION (14 days); hourly forever.
--- Tag columns default to '' so they can participate in primary keys.
-------------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS "kbps_hourly"
-    ("time" timestamptz NOT NULL, "exit" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "exit"));
-CREATE TABLE IF NOT EXISTS "load_hourly"
-    ("time" timestamptz NOT NULL, "exit" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "exit"));
-CREATE TABLE IF NOT EXISTS "uptime_hourly"
-    ("time" timestamptz NOT NULL, "exit" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "exit"));
-CREATE TABLE IF NOT EXISTS "task_count_hourly"
-    ("time" timestamptz NOT NULL, "exit" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "exit"));
-CREATE TABLE IF NOT EXISTS "schedlag_hourly"
-    ("time" timestamptz NOT NULL, "exit" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "exit"));
-CREATE TABLE IF NOT EXISTS "bridge_bytes_hourly"
-    ("time" timestamptz NOT NULL,
-     "pool" text NOT NULL DEFAULT '', "asn" text NOT NULL DEFAULT '', "country" text NOT NULL DEFAULT '',
-     "value" double precision,
-     PRIMARY KEY ("time", "pool", "asn", "country"));
-CREATE TABLE IF NOT EXISTS "bridge_pools_hourly"
-    ("time" timestamptz NOT NULL, "pool" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "pool"));
-CREATE TABLE IF NOT EXISTS "broker_logins_hourly"
-    ("time" timestamptz NOT NULL, "kind" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "kind"));
-CREATE TABLE IF NOT EXISTS "plus_hourly"
-    ("time" timestamptz NOT NULL, "value" double precision,
-     PRIMARY KEY ("time"));
-CREATE TABLE IF NOT EXISTS "broker_sysstat_hourly"
-    ("time" timestamptz NOT NULL, "ip_addr" text NOT NULL DEFAULT '', "value" double precision,
-     PRIMARY KEY ("time", "ip_addr"));
-CREATE TABLE IF NOT EXISTS "broker_rpc_calls_hourly"
-    ("time" timestamptz NOT NULL, "method" text NOT NULL DEFAULT '',
-     "count" double precision, "mean" double precision, "upper" double precision,
-     "p99" double precision,
-     PRIMARY KEY ("time", "method"));
-
-------------------------------------------------------------------------------
--- Minutely rollups: same shape (including the primary key) as the hourly ones.
+-- One-time migration: move the original public-schema metric tables into the
+-- metrics schema. Guarded; a no-op once they have moved. This is the only
+-- place table names appear, and it exists purely to migrate legacy state.
 ------------------------------------------------------------------------------
 
 DO $$
 DECLARE
     t text;
+    v text;
 BEGIN
     FOREACH t IN ARRAY ARRAY[
         'kbps', 'load', 'uptime', 'task_count', 'schedlag', 'bridge_bytes',
         'bridge_pools', 'broker_logins', 'plus', 'broker_sysstat', 'broker_rpc_calls'
     ] LOOP
-        EXECUTE format('CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL)',
-                       t || '_minutely', t || '_hourly');
+        FOREACH v IN ARRAY ARRAY[t, t || '_minutely', t || '_hourly'] LOOP
+            IF to_regclass('public.' || quote_ident(v)) IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE public.%I SET SCHEMA metrics', v);
+            END IF;
+        END LOOP;
     END LOOP;
 END $$;
 
 ------------------------------------------------------------------------------
--- Rollup job: upserts the trailing window into both tiers, so the current
--- partial bucket keeps refreshing and late data is absorbed. Idempotent.
+-- Purge stray function variants left by earlier applies that ran through the
+-- transaction pooler with an inconsistent search_path.
 ------------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION metrics_rollup_tier(trunc_unit text, suffix text, cutoff timestamptz)
+DO $purge$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN
+        SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname IN ('public', 'metrics')
+          AND (p.proname LIKE 'metrics\_%' OR (n.nspname = 'metrics' AND p.proname = 'metric'))
+    LOOP
+        EXECUTE format('DROP FUNCTION %I.%I(%s)', r.nspname, r.proname, r.args);
+    END LOOP;
+END $purge$;
+
+------------------------------------------------------------------------------
+-- Introspection helpers.
+------------------------------------------------------------------------------
+
+-- Raw metric tables: every base table in the metrics schema that has a "time"
+-- column and is not itself a rollup tier.
+CREATE OR REPLACE FUNCTION metrics.raw_tables()
+RETURNS SETOF text LANGUAGE sql STABLE AS $$
+    SELECT t.table_name::text
+    FROM information_schema.tables t
+    WHERE t.table_schema = 'metrics' AND t.table_type = 'BASE TABLE'
+      AND t.table_name NOT LIKE '%\_minutely' ESCAPE '\'
+      AND t.table_name NOT LIKE '%\_hourly' ESCAPE '\'
+      AND EXISTS (SELECT 1 FROM information_schema.columns c
+                  WHERE c.table_schema = 'metrics' AND c.table_name = t.table_name
+                    AND c.column_name = 'time')
+$$;
+
+CREATE OR REPLACE FUNCTION metrics.text_cols(tbl text)
+RETURNS text[] LANGUAGE sql STABLE AS $$
+    SELECT coalesce(array_agg(column_name::text ORDER BY column_name), '{}')
+    FROM information_schema.columns
+    WHERE table_schema = 'metrics' AND table_name = tbl AND data_type = 'text'
+$$;
+
+CREATE OR REPLACE FUNCTION metrics.num_cols(tbl text)
+RETURNS text[] LANGUAGE sql STABLE AS $$
+    SELECT coalesce(array_agg(column_name::text ORDER BY column_name), '{}')
+    FROM information_schema.columns
+    WHERE table_schema = 'metrics' AND table_name = tbl
+      AND column_name <> 'time'
+      AND data_type IN ('double precision', 'real', 'bigint', 'integer', 'smallint', 'numeric')
+$$;
+
+-- The statsd type of a metric ('counter' | 'gauge' | 'timing'), read from the
+-- data; NULL when unknown (e.g. rows written before metric_type was stored).
+CREATE OR REPLACE FUNCTION metrics.type_of(tbl text)
+RETURNS text LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    result text;
+BEGIN
+    IF NOT ('metric_type' = ANY (metrics.text_cols(tbl))) THEN
+        RETURN NULL;
+    END IF;
+    EXECUTE format(
+        'SELECT metric_type FROM metrics.%I WHERE metric_type IS NOT NULL
+         ORDER BY "time" DESC LIMIT 1', tbl) INTO result;
+    RETURN result;
+END $$;
+
+-- How to aggregate one numeric column when downsampling. Structural rules
+-- only; no per-metric configuration.
+CREATE OR REPLACE FUNCTION metrics.agg_expr(col text, mtype text, cols text[])
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE
+        WHEN col = 'count' THEN format('sum(%I)', col)
+        WHEN col = 'sum' THEN format('sum(%I)', col)
+        WHEN col = 'mean' AND 'count' = ANY (cols)
+            THEN format('sum(%I * "count") / nullif(sum("count"), 0)', col)
+        WHEN col LIKE '%percentile%' OR col IN ('upper', 'max') THEN format('max(%I)', col)
+        WHEN col IN ('lower', 'min') THEN format('min(%I)', col)
+        WHEN mtype = 'counter' THEN format('sum(%I)', col)
+        ELSE format('avg(%I)', col)
+    END
+$$;
+
+------------------------------------------------------------------------------
+-- Tier management: create missing rollup tables (and the raw time index)
+-- from the raw table's own shape. Tag columns are NOT NULL DEFAULT '' so they
+-- can participate in the primary key that ON CONFLICT upserts against.
+------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION metrics.ensure_tiers(raw text)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-    gauge_table text;
+    suffix text;
+    col text;
+    cols_sql text;
 BEGIN
-    -- Gauges tagged by exit: mean per bucket.
-    FOREACH gauge_table IN ARRAY ARRAY['kbps', 'load', 'uptime', 'task_count', 'schedlag'] LOOP
-        EXECUTE format($f$
-            INSERT INTO %1$I ("time", "exit", "value")
-            SELECT date_trunc(%4$L, "time"), coalesce("exit", ''), avg("value")
-            FROM %2$I WHERE "time" >= %3$L GROUP BY 1, 2
-            ON CONFLICT ("time", "exit") DO UPDATE SET "value" = EXCLUDED."value"
-        $f$, gauge_table || suffix, gauge_table, cutoff, trunc_unit);
+    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON metrics.%I ("time")',
+                   raw || '_time_idx', raw);
+    FOREACH suffix IN ARRAY ARRAY['_minutely', '_hourly'] LOOP
+        CONTINUE WHEN to_regclass('metrics.' || quote_ident(raw || suffix)) IS NOT NULL;
+        cols_sql := '"time" timestamptz NOT NULL';
+        FOREACH col IN ARRAY metrics.text_cols(raw) LOOP
+            cols_sql := cols_sql || format(', %I text NOT NULL DEFAULT %L', col, '');
+        END LOOP;
+        FOREACH col IN ARRAY metrics.num_cols(raw) LOOP
+            cols_sql := cols_sql || format(', %I double precision', col);
+        END LOOP;
+        cols_sql := cols_sql || format(', PRIMARY KEY (%s)',
+            (SELECT string_agg(quote_ident(c), ', ')
+             FROM unnest('{time}'::text[] || metrics.text_cols(raw)) AS c));
+        EXECUTE format('CREATE TABLE metrics.%I (%s)', raw || suffix, cols_sql);
     END LOOP;
-
-    -- Counter: sum per bucket.
-    EXECUTE format($f$
-        INSERT INTO %1$I ("time", "pool", "asn", "country", "value")
-        SELECT date_trunc(%3$L, "time"), coalesce("pool", ''), coalesce("asn", ''), coalesce("country", ''), sum("value")
-        FROM "bridge_bytes" WHERE "time" >= %2$L GROUP BY 1, 2, 3, 4
-        ON CONFLICT ("time", "pool", "asn", "country") DO UPDATE SET "value" = EXCLUDED."value"
-    $f$, 'bridge_bytes' || suffix, cutoff, trunc_unit);
-
-    EXECUTE format($f$
-        INSERT INTO %1$I ("time", "pool", "value")
-        SELECT date_trunc(%3$L, "time"), coalesce("pool", ''), avg("value")
-        FROM "bridge_pools" WHERE "time" >= %2$L GROUP BY 1, 2
-        ON CONFLICT ("time", "pool") DO UPDATE SET "value" = EXCLUDED."value"
-    $f$, 'bridge_pools' || suffix, cutoff, trunc_unit);
-
-    EXECUTE format($f$
-        INSERT INTO %1$I ("time", "kind", "value")
-        SELECT date_trunc(%3$L, "time"), coalesce("kind", ''), avg("value")
-        FROM "broker_logins" WHERE "time" >= %2$L GROUP BY 1, 2
-        ON CONFLICT ("time", "kind") DO UPDATE SET "value" = EXCLUDED."value"
-    $f$, 'broker_logins' || suffix, cutoff, trunc_unit);
-
-    EXECUTE format($f$
-        INSERT INTO %1$I ("time", "value")
-        SELECT date_trunc(%3$L, "time"), avg("value")
-        FROM "plus" WHERE "time" >= %2$L GROUP BY 1
-        ON CONFLICT ("time") DO UPDATE SET "value" = EXCLUDED."value"
-    $f$, 'plus' || suffix, cutoff, trunc_unit);
-
-    EXECUTE format($f$
-        INSERT INTO %1$I ("time", "ip_addr", "value")
-        SELECT date_trunc(%3$L, "time"), coalesce("ip_addr", ''), avg("value")
-        FROM "broker_sysstat" WHERE "time" >= %2$L GROUP BY 1, 2
-        ON CONFLICT ("time", "ip_addr") DO UPDATE SET "value" = EXCLUDED."value"
-    $f$, 'broker_sysstat' || suffix, cutoff, trunc_unit);
-
-    -- Timer: count-weighted mean, worst-case upper/p99.
-    EXECUTE format($f$
-        INSERT INTO %1$I ("time", "method", "count", "mean", "upper", "p99")
-        SELECT date_trunc(%3$L, "time"), coalesce("method", ''),
-               sum("count"),
-               sum("mean" * "count") / nullif(sum("count"), 0),
-               max("upper"),
-               max("99_percentile")
-        FROM "broker_rpc_calls" WHERE "time" >= %2$L GROUP BY 1, 2
-        ON CONFLICT ("time", "method") DO UPDATE
-            SET "count" = EXCLUDED."count", "mean" = EXCLUDED."mean",
-                "upper" = EXCLUDED."upper", "p99" = EXCLUDED."p99"
-    $f$, 'broker_rpc_calls' || suffix, cutoff, trunc_unit);
-END $$;
-
-CREATE OR REPLACE FUNCTION metrics_rollup(since timestamptz DEFAULT now() - interval '3 hours')
-RETURNS void LANGUAGE plpgsql AS $$
-BEGIN
-    PERFORM metrics_rollup_tier('minute', '_minutely', date_trunc('minute', since));
-    PERFORM metrics_rollup_tier('hour', '_hourly', date_trunc('hour', since));
 END $$;
 
 ------------------------------------------------------------------------------
--- Retention: raw 14 days, minutely 90 days (history lives on hourly forever).
+-- Rollup: upsert the trailing window into one tier. Only columns present in
+-- BOTH the raw table and the tier participate, so hand-crafted or historical
+-- tier tables with fewer columns keep working.
 ------------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION metrics_retention()
+CREATE OR REPLACE FUNCTION metrics.rollup_tier(raw text, trunc_unit text, suffix text, cutoff timestamptz)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-    t text;
+    tier text := raw || suffix;
+    mtype text := metrics.type_of(raw);
+    raw_nums text[] := metrics.num_cols(raw);
+    tags text[];
+    nums text[];
+    col text;
+    sel_tags text := '';
+    ins_cols text := '"time"';
+    sel_aggs text := '';
+    upd_sets text := '';
+    conflict_cols text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY[
-        'kbps', 'load', 'uptime', 'task_count', 'schedlag',
-        'bridge_bytes', 'bridge_pools', 'broker_logins', 'plus',
-        'broker_sysstat', 'broker_rpc_calls'
-    ] LOOP
-        EXECUTE format('DELETE FROM %I WHERE "time" < now() - interval ''14 days''', t);
-        EXECUTE format('DELETE FROM %I WHERE "time" < now() - interval ''90 days''', t || '_minutely');
+    -- intersect with the tier's columns
+    SELECT coalesce(array_agg(c ORDER BY c), '{}') INTO tags
+    FROM unnest(metrics.text_cols(raw)) c WHERE c = ANY (metrics.text_cols(tier));
+    SELECT coalesce(array_agg(c ORDER BY c), '{}') INTO nums
+    FROM unnest(raw_nums) c WHERE c = ANY (metrics.num_cols(tier));
+    IF array_length(nums, 1) IS NULL THEN
+        RETURN;
+    END IF;
+
+    FOREACH col IN ARRAY tags LOOP
+        ins_cols := ins_cols || format(', %I', col);
+        sel_tags := sel_tags || format(', coalesce(%I, %L)', col, '');
+    END LOOP;
+    FOREACH col IN ARRAY nums LOOP
+        ins_cols := ins_cols || format(', %I', col);
+        sel_aggs := sel_aggs || format(', %s', metrics.agg_expr(col, mtype, raw_nums));
+        upd_sets := upd_sets || format('%s%I = EXCLUDED.%I',
+                                       CASE WHEN upd_sets = '' THEN '' ELSE ', ' END, col, col);
+    END LOOP;
+    SELECT string_agg(quote_ident(c), ', ')
+    INTO conflict_cols FROM unnest('{time}'::text[] || tags) AS c;
+
+    EXECUTE format(
+        $q$ INSERT INTO metrics.%I (%s)
+            SELECT date_trunc(%L, "time")%s%s
+            FROM metrics.%I WHERE "time" >= %L
+            GROUP BY %s
+            ON CONFLICT (%s) DO UPDATE SET %s $q$,
+        tier, ins_cols, trunc_unit, sel_tags, sel_aggs, raw, cutoff,
+        (SELECT string_agg((i)::text, ', ') FROM generate_series(1, 1 + coalesce(array_length(tags, 1), 0)) i),
+        conflict_cols, upd_sets);
+END $$;
+
+CREATE OR REPLACE FUNCTION metrics.rollup(since timestamptz DEFAULT now() - interval '3 hours')
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    raw text;
+BEGIN
+    FOR raw IN SELECT metrics.raw_tables() LOOP
+        PERFORM metrics.ensure_tiers(raw);
+        PERFORM metrics.rollup_tier(raw, 'minute', '_minutely', date_trunc('minute', since));
+        PERFORM metrics.rollup_tier(raw, 'hour', '_hourly', date_trunc('hour', since));
     END LOOP;
 END $$;
 
 ------------------------------------------------------------------------------
--- metric(): Graphite-style resolution transparency for Grafana. Picks the raw
--- table for short, fine-grained ranges and the hourly rollup otherwise, then
--- buckets and aggregates. Tag columns come back as a jsonb object.
+-- Retention by suffix convention: raw 14 days, minutely 90 days.
+------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION metrics.retention()
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    raw text;
+BEGIN
+    FOR raw IN SELECT metrics.raw_tables() LOOP
+        EXECUTE format('DELETE FROM metrics.%I WHERE "time" < now() - interval ''14 days''', raw);
+        IF to_regclass('metrics.' || quote_ident(raw || '_minutely')) IS NOT NULL THEN
+            EXECUTE format('DELETE FROM metrics.%I WHERE "time" < now() - interval ''90 days''',
+                           raw || '_minutely');
+        END IF;
+    END LOOP;
+END $$;
+
+------------------------------------------------------------------------------
+-- metric(): Graphite-style resolution transparency for Grafana. Lives in the
+-- public schema (so panels call it unqualified) and reads the metrics schema.
 --
--- Example Grafana query:
 --   SELECT "time", tags->>'exit' AS exit, value
---   FROM metric('kbps', $__timeFrom(), $__timeTo(), $__interval::interval)
+--   FROM metric('kbps', $__timeFrom(), $__timeTo(), interval '$__interval')
+--
 -- For counters pass agg => 'sum'; for timer tables pass field => 'mean' etc.
 ------------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION metric(
+CREATE OR REPLACE FUNCTION public.metric(
     p_name text,
     p_from timestamptz,
     p_to timestamptz,
@@ -244,9 +270,8 @@ DECLARE
     min_hi timestamptz;
     b1 timestamptz;  -- hourly/minutely boundary
     b2 timestamptz;  -- minutely/raw boundary
-    tag_pairs text;
+    tag_cols text[];
     tags_expr text;
-    tag_cols text;
     inner_cols text;
     src_sql text;
 BEGIN
@@ -254,30 +279,24 @@ BEGIN
         RAISE EXCEPTION 'metric(): unsupported aggregation %', p_agg;
     END IF;
 
-    -- Tags = text columns present in BOTH raw and rollup tables (the rollups
-    -- share a schema), so stray columns Telegraf may have auto-added to the
-    -- raw table can't break the union below.
-    SELECT string_agg(format('%L, %I', r.column_name, r.column_name), ', ' ORDER BY r.column_name),
-           string_agg(quote_ident(r.column_name), ', ' ORDER BY r.column_name)
-    INTO tag_pairs, tag_cols
-    FROM information_schema.columns r
-    JOIN information_schema.columns h
-      ON h.table_schema = 'public' AND h.table_name = p_name || '_hourly'
-     AND h.column_name = r.column_name AND h.data_type = 'text'
-    WHERE r.table_schema = 'public' AND r.table_name = p_name AND r.data_type = 'text';
+    -- Tags = text columns present in both raw and rollup tiers, minus the
+    -- statsd bookkeeping column.
+    SELECT coalesce(array_agg(c ORDER BY c), '{}') INTO tag_cols
+    FROM unnest(metrics.text_cols(p_name)) c
+    WHERE c = ANY (metrics.text_cols(p_name || '_hourly')) AND c <> 'metric_type';
 
-    tags_expr := coalesce('jsonb_build_object(' || tag_pairs || ')', $j$'{}'::jsonb$j$);
-    inner_cols := '"time", ' || coalesce(tag_cols || ', ', '') || quote_ident(p_field);
+    SELECT coalesce('jsonb_build_object(' ||
+               string_agg(format('%L, %I', c, c), ', ') || ')', $j$'{}'::jsonb$j$)
+    INTO tags_expr FROM unnest(tag_cols) c;
+    SELECT '"time", ' || coalesce(string_agg(quote_ident(c), ', ') || ', ', '') || quote_ident(p_field)
+    INTO inner_cols FROM unnest(tag_cols) c;
 
-    -- Whisper-style resolution mixing across three tiers. The result is the
-    -- union of hourly [p_from, b1) + minutely [b1, b2) + raw [b2, p_to), with
-    -- the boundaries placed by bucket size and actual tier coverage:
-    --   bucket >= 1h          -> hourly everywhere (b1 = b2 = p_to)
-    --   1min <= bucket < 1h   -> minutely where it exists, raw only for the
-    --                            not-yet-rolled-up tail, hourly before minutely
-    --   bucket < 1min         -> raw wherever raw exists, then minutely/hourly
-    EXECUTE format('SELECT min("time") FROM %I', p_name) INTO raw_lo;
-    EXECUTE format('SELECT min("time"), max("time") + interval ''1 minute'' FROM %I',
+    -- Whisper-style resolution mixing: hourly [p_from, b1) + minutely
+    -- [b1, b2) + raw [b2, p_to), boundaries placed by bucket size and tier
+    -- coverage. Buckets >= 1h read hourly only; >= 1min prefer minutely with
+    -- raw filling the not-yet-rolled-up tail; finer buckets prefer raw.
+    EXECUTE format('SELECT min("time") FROM metrics.%I', p_name) INTO raw_lo;
+    EXECUTE format('SELECT min("time"), max("time") + interval ''1 minute'' FROM metrics.%I',
                    p_name || '_minutely') INTO min_lo, min_hi;
     raw_lo := coalesce(raw_lo, p_to);
 
@@ -293,11 +312,11 @@ BEGIN
     END IF;
 
     src_sql := format(
-        'SELECT %1$s FROM %2$I WHERE "time" >= %5$L AND "time" < %6$L
+        'SELECT %1$s FROM metrics.%2$I WHERE "time" >= %5$L AND "time" < %6$L
          UNION ALL
-         SELECT %1$s FROM %3$I WHERE "time" >= %7$L AND "time" < %8$L
+         SELECT %1$s FROM metrics.%3$I WHERE "time" >= %7$L AND "time" < %8$L
          UNION ALL
-         SELECT %1$s FROM %4$I WHERE "time" >= %9$L AND "time" < %10$L',
+         SELECT %1$s FROM metrics.%4$I WHERE "time" >= %9$L AND "time" < %10$L',
         inner_cols, p_name || '_hourly', p_name || '_minutely', p_name,
         p_from, least(b1, p_to),
         greatest(p_from, b1), least(b2, p_to),
@@ -315,5 +334,5 @@ END $$;
 -- pg_cron schedules (cron.schedule upserts by job name).
 ------------------------------------------------------------------------------
 
-SELECT cron.schedule('geph5-metrics-rollup', '*/10 * * * *', $$SELECT metrics_rollup()$$);
-SELECT cron.schedule('geph5-metrics-retention', '20 4 * * *', $$SELECT metrics_retention()$$);
+SELECT cron.schedule('geph5-metrics-rollup', '*/10 * * * *', $$SELECT metrics.rollup()$$);
+SELECT cron.schedule('geph5-metrics-retention', '20 4 * * *', $$SELECT metrics.retention()$$);
