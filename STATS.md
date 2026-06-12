@@ -155,10 +155,9 @@ SELECT "time", tags->>'exit' AS exit, value * 8000 AS bps
 FROM metric('kbps', $__timeFrom(), $__timeTo(), interval '$__interval')
 ORDER BY 1;
 
--- bridged traffic by pool, as bits/s
-SELECT "time", tags->>'pool' AS pool,
-       sum(value) * 8 / extract(epoch from interval '$__interval') AS bps
-FROM metric('bridge_bytes', $__timeFrom(), $__timeTo(), interval '$__interval', 'sum')
+-- bridged traffic by pool, as bits/s (see "Rates" below for why metric_rate)
+SELECT "time", tags->>'pool' AS pool, sum(value) * 8 AS bps
+FROM metric_rate('bridge_bytes', $__timeFrom(), $__timeTo(), interval '$__interval')
 GROUP BY 1, 2 ORDER BY 1;
 
 -- RPC request rate from the timer table
@@ -178,6 +177,13 @@ fraction for the current (and clipped leading) bucket. Dividing by the
 nominal width instead makes the trailing point read spuriously low, because
 the latest bucket has only partly elapsed and holds proportionally fewer
 events. Returns value-per-second; multiply by 8 for bytes→bits.
+
+`metric_rate()` returns one row per bucket **per full tag combination**, like
+`metric()`. For a coarser grouping (e.g. per-pool throughput from
+`bridge_bytes`, tagged pool+asn+country) re-aggregate with
+`sum(value) ... GROUP BY 1, tag` — per-second rates are additive, so summing
+them within the coarser key is correct. Forgetting this `GROUP BY` yields
+many overlapping rows per (time, pool) and a garbled graph.
 
 Whole-range aggregations (pie charts) can hit `metrics.*_hourly` directly; with
 table-format SQL, set the pie panel's `reduceOptions` to "All values".
