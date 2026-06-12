@@ -331,6 +331,37 @@ BEGIN
 END $$;
 
 ------------------------------------------------------------------------------
+-- metric_rate(): per-second rate of a counter, normalized by each bucket's
+-- ACTUAL elapsed wall-clock seconds rather than the nominal bucket width.
+--
+-- This is the systematic fix for the "spuriously low last data point" on
+-- rate panels: the trailing bucket is only partly elapsed (and the leading
+-- bucket may be clipped by the range start), so sum(value)/nominal_width
+-- under-reports those edges. Dividing by the real covered span
+-- (min(bucket_end, to, now) - max(bucket_start, from)) gives the correct
+-- average rate for interior AND edge buckets, so the freshest point stays
+-- both present and accurate.
+--
+--   SELECT "time", tags->>'pool' AS pool, value * 8 AS bps   -- bytes/s -> bits/s
+--   FROM metric_rate('bridge_bytes', $__timeFrom(), $__timeTo(), interval '$__interval')
+------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.metric_rate(
+    p_name text,
+    p_from timestamptz,
+    p_to timestamptz,
+    p_bucket interval,
+    p_field text DEFAULT 'value'
+) RETURNS TABLE ("time" timestamptz, tags jsonb, value double precision)
+LANGUAGE sql STABLE AS $$
+    SELECT m."time", m.tags,
+           m.value / nullif(extract(epoch from
+               least(m."time" + p_bucket, p_to, now()) - greatest(m."time", p_from)
+           ), 0)
+    FROM metric(p_name, p_from, p_to, p_bucket, 'sum', p_field) m
+$$;
+
+------------------------------------------------------------------------------
 -- pg_cron schedules (cron.schedule upserts by job name).
 ------------------------------------------------------------------------------
 

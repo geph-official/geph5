@@ -161,12 +161,23 @@ SELECT "time", tags->>'pool' AS pool,
 FROM metric('bridge_bytes', $__timeFrom(), $__timeTo(), interval '$__interval', 'sum')
 GROUP BY 1, 2 ORDER BY 1;
 
--- RPC rate and latency from the timer table
-SELECT "time", tags->>'method' AS method,
-       value / extract(epoch from interval '$__interval') AS rps
-FROM metric('broker_rpc_calls', $__timeFrom(), $__timeTo(), interval '$__interval', 'sum', 'count')
+-- RPC request rate from the timer table
+SELECT "time", tags->>'method' AS method, value AS rps
+FROM metric_rate('broker_rpc_calls', $__timeFrom(), $__timeTo(), interval '$__interval', 'count')
 ORDER BY 1;
 ```
+
+### Rates: always use `metric_rate()`, never `sum / interval`
+
+For any per-second rate (throughput, RPS), use `metric_rate(name, from, to,
+bucket, field)` instead of dividing a `metric(..., 'sum')` by the nominal
+interval. `metric_rate` divides each bucket's sum by its *actual* elapsed
+wall-clock span — `min(bucket_end, to, now()) - max(bucket_start, from)` —
+which is the full bucket width for interior buckets but the real elapsed
+fraction for the current (and clipped leading) bucket. Dividing by the
+nominal width instead makes the trailing point read spuriously low, because
+the latest bucket has only partly elapsed and holds proportionally fewer
+events. Returns value-per-second; multiply by 8 for bytes→bits.
 
 Whole-range aggregations (pie charts) can hit `metrics.*_hourly` directly; with
 table-format SQL, set the pie panel's `reduceOptions` to "All values".
