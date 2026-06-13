@@ -169,14 +169,18 @@ ORDER BY 1;
 ### Rates: always use `metric_rate()`, never `sum / interval`
 
 For any per-second rate (throughput, RPS), use `metric_rate(name, from, to,
-bucket, field)` instead of dividing a `metric(..., 'sum')` by the nominal
-interval. `metric_rate` divides each bucket's sum by its *actual* elapsed
-wall-clock span — `min(bucket_end, to, now()) - max(bucket_start, from)` —
-which is the full bucket width for interior buckets but the real elapsed
-fraction for the current (and clipped leading) bucket. Dividing by the
-nominal width instead makes the trailing point read spuriously low, because
-the latest bucket has only partly elapsed and holds proportionally fewer
-events. Returns value-per-second; multiply by 8 for bytes→bits.
+bucket, field)` instead of dividing a `metric(..., 'sum')` by the interval
+yourself. `metric_rate` divides each bucket's sum by its full width and
+returns **only complete buckets** — those lying entirely within
+`[from, min(to, now())]`. The still-filling trailing bucket (and a
+range-clipped leading bucket) are dropped, because neither divisor renders
+them correctly: the nominal width under-reports a partial bucket (full
+divisor, partial data), while dividing by elapsed wall-clock over-reports it
+(the raw tier is quantized into ~10s chunks and the minutely tier into 1-min
+chunks, so early in a bucket a whole quantum of data is present but only
+seconds have elapsed). Dropping them is the only artifact-free option; the
+trailing point therefore lags by up to one bucket. Returns value-per-second;
+multiply by 8 for bytes→bits.
 
 `metric_rate()` returns one row per bucket **per full tag combination**, like
 `metric()`. For a coarser grouping (e.g. per-pool throughput from

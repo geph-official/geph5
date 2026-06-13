@@ -331,16 +331,18 @@ BEGIN
 END $$;
 
 ------------------------------------------------------------------------------
--- metric_rate(): per-second rate of a counter, normalized by each bucket's
--- ACTUAL elapsed wall-clock seconds rather than the nominal bucket width.
+-- metric_rate(): per-second rate of a counter. Every returned bucket is
+-- divided by its FULL width (exact), and incomplete edge buckets are dropped.
 --
--- This is the systematic fix for the "spuriously low last data point" on
--- rate panels: the trailing bucket is only partly elapsed (and the leading
--- bucket may be clipped by the range start), so sum(value)/nominal_width
--- under-reports those edges. Dividing by the real covered span
--- (min(bucket_end, to, now) - max(bucket_start, from)) gives the correct
--- average rate for interior AND edge buckets, so the freshest point stays
--- both present and accurate.
+-- Why drop instead of normalize: a still-filling bucket cannot be rendered
+-- accurately by any divisor. Dividing by the nominal width under-reports it
+-- (full divisor, partial data); dividing by elapsed wall-clock over-reports
+-- it (the raw tier is quantized into ~10s chunks and the minutely tier into
+-- 1-min chunks, so when now() lands early in the bucket a whole data quantum
+-- is already present but only a few seconds have "elapsed"). The only
+-- artifact-free option is to show complete buckets only. A bucket is complete
+-- when it lies fully within [p_from, min(p_to, now())]; the trailing point
+-- therefore lags by up to one bucket, which is the standard honest behavior.
 --
 --   SELECT "time", tags->>'pool' AS pool, value * 8 AS bps   -- bytes/s -> bits/s
 --   FROM metric_rate('bridge_bytes', $__timeFrom(), $__timeTo(), interval '$__interval')
@@ -354,11 +356,11 @@ CREATE OR REPLACE FUNCTION public.metric_rate(
     p_field text DEFAULT 'value'
 ) RETURNS TABLE ("time" timestamptz, tags jsonb, value double precision)
 LANGUAGE sql STABLE AS $$
-    SELECT m."time", m.tags,
-           m.value / nullif(extract(epoch from
-               least(m."time" + p_bucket, p_to, now()) - greatest(m."time", p_from)
-           ), 0)
+    SELECT m."time", m.tags, m.value / extract(epoch from p_bucket)
     FROM metric(p_name, p_from, p_to, p_bucket, 'sum', p_field) m
+    -- keep only buckets fully covered by the requested (and elapsed) range
+    WHERE m."time" >= p_from
+      AND m."time" + p_bucket <= least(p_to, now())
 $$;
 
 ------------------------------------------------------------------------------
