@@ -20,6 +20,7 @@ use mizaru2::{
 use moka::future::Cache;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport, ServerError};
 use once_cell::sync::Lazy;
+use smol_timeout2::TimeoutExt;
 
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -310,6 +311,40 @@ fn exit_rendezvous_score(rendezvous_key: blake3::Hash, exit: &ExitDescriptor) ->
         u64::from_be_bytes(hash.as_bytes()[..8].try_into().unwrap()) as f64 / u64::MAX as f64;
     let weight = (1.0 - (exit.load as f64)).powi(2);
     -hash.ln() / weight
+}
+
+/// How long the broker waits for a TCP connection when sanity-checking an exit's listeners.
+const EXIT_SANITY_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Minimally sanity-check that an exit is actually reachable before adding it to the list, by
+/// opening a plain TCP connection to each of its advertised listening ports. Returns an error if
+/// any of them cannot be connected to, so a broken or unreachable exit never makes it into the DB.
+async fn sanity_check_exit(descriptor: &ExitDescriptor) -> Result<(), GenericError> {
+    for (label, addr) in [
+        ("c2e_listen", descriptor.c2e_listen),
+        ("b2e_listen", descriptor.b2e_listen),
+    ] {
+        match smol::net::TcpStream::connect(addr)
+            .timeout(EXIT_SANITY_CHECK_TIMEOUT)
+            .await
+        {
+            Some(Ok(_stream)) => {
+                tracing::debug!(%addr, "exit {label} passed sanity check");
+            }
+            Some(Err(err)) => {
+                return Err(GenericError(format!(
+                    "exit {label} at {addr} refused TCP connection: {err}"
+                )));
+            }
+            None => {
+                return Err(GenericError(format!(
+                    "exit {label} at {addr} did not accept a TCP connection within {}s",
+                    EXIT_SANITY_CHECK_TIMEOUT.as_secs()
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn find_exit_by_b2e(exit_b2e: SocketAddr) -> Result<ExitDescriptor, GenericError> {
@@ -710,6 +745,8 @@ impl BrokerProtocol for BrokerImpl {
             ));
         }
 
+        sanity_check_exit(&descriptor).await?;
+
         let exit = ExitRow {
             pubkey: pubkey.to_bytes(),
             c2e_listen: descriptor.c2e_listen.to_string(),
@@ -741,6 +778,8 @@ impl BrokerProtocol for BrokerImpl {
                 "Exit info timestamp is before current time (potential replay attack)".to_string(),
             ));
         }
+
+        sanity_check_exit(&descriptor).await?;
 
         let exit = ExitRow {
             pubkey: pubkey.to_bytes(),
