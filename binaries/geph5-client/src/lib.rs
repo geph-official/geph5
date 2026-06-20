@@ -47,11 +47,16 @@ mod vpn;
 static CLIENT: OnceCell<Client> = OnceCell::new();
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn start_client(cfg: *const c_char) -> libc::c_int {
+pub unsafe extern "C" fn start_client(cfg: *const c_char, vpn_fd: c_int) -> libc::c_int {
     let cfg_str = unsafe { CStr::from_ptr(cfg) }.to_str().unwrap();
     let cfg: Config = serde_json::from_str(cfg_str).unwrap();
 
-    CLIENT.get_or_init(|| Client::start(cfg));
+    #[cfg(unix)]
+    let vpn_fd = if vpn_fd >= 0 { Some(vpn_fd) } else { None };
+    #[cfg(not(unix))]
+    let _ = vpn_fd;
+
+    CLIENT.get_or_init(|| Client::start_with_vpn_fd(cfg, vpn_fd));
 
     0
 }
@@ -153,7 +158,6 @@ mod tests {
             allow_direct: false,
             port_forward: vec![],
             cache: None,
-            vpn_fd: None,
             broker: Some(BrokerSource::Race(vec![
                 BrokerSource::Fronted {
                     front: "https://www.cdn77.com/".into(),
@@ -176,7 +180,6 @@ mod tests {
                 mizaru_bw: "".to_string(),
             }),
             // Values that can be overridden by `args`:
-            vpn: false,
             spoof_dns: false,
             passthrough_china: false,
             dry_run: false,
@@ -188,7 +191,7 @@ mod tests {
         let cfg_str = CString::new(serde_json::to_string(&cfg).unwrap()).unwrap();
         let cfg_ptr = cfg_str.as_ptr();
 
-        let start_client_ret = unsafe { start_client(cfg_ptr) };
+        let start_client_ret = unsafe { start_client(cfg_ptr, -1) };
         assert!(start_client_ret == 0);
 
         // call daemon_rpc;

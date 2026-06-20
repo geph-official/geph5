@@ -45,7 +45,6 @@ use crate::{
     spoof_dns::fake_dns_backtranslate,
     stats::{stat_incr_num, stat_set_num},
     traffcount::TRAFF_COUNT,
-    vpn::smart_vpn_whitelist,
 };
 
 use super::Config;
@@ -106,9 +105,6 @@ pub async fn open_conn(
         && whitelist_host(ctx, dest_host)
     {
         let addrs = smol::net::resolve(&dest_addr).await?;
-        for addr in addrs.iter() {
-            smart_vpn_whitelist(ctx, addr.ip());
-        }
         tracing::debug!(
             dest_addr = debug(dest_addr),
             "passing through whitelisted address"
@@ -392,12 +388,6 @@ async fn run_session_once(
     proxy_loop(ctx.clone(), session, accounting_loop)
         .await
         .context(format!("inner connection to {addr} failed"))
-}
-
-pub async fn wait_until_tunnel_ready(ctx: &AnyCtx<Config>) {
-    while ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty() {
-        smol::Timer::after(Duration::from_millis(100)).await;
-    }
 }
 
 fn start_mux(authed_pipe: impl Pipe) -> Arc<PicoMux> {

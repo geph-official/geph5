@@ -18,6 +18,12 @@ struct CliArgs {
     #[arg(long)]
     /// Use stdin/stdout as a VPN interface with 16-bit big-endian length prefixes
     stdio_vpn: bool,
+
+    #[arg(long)]
+    /// Wire an already-open platform-VPN file descriptor into the daemon.
+    /// The fd is taken over by the daemon (do not close it on the caller side).
+    #[cfg(unix)]
+    vpn_fd: Option<i32>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -26,6 +32,9 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
     let config: Config = serde_json::from_value(config)?;
+    #[cfg(unix)]
+    let client = Client::start_with_vpn_fd(config, args.vpn_fd);
+    #[cfg(not(unix))]
     let client = Client::start(config);
 
     if args.stdio_vpn {

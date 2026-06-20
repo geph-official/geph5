@@ -53,10 +53,6 @@ pub struct Config {
     pub port_forward: Vec<PortForwardCfg>,
 
     #[serde(default)]
-    pub vpn: bool,
-    #[serde(default)]
-    pub vpn_fd: Option<i32>,
-    #[serde(default)]
     pub spoof_dns: bool,
     #[serde(default)]
     pub passthrough_china: bool,
@@ -108,6 +104,13 @@ pub struct Client {
 impl Client {
     /// Starts the client logic in the loop, returning the handle.
     pub fn start(cfg: Config) -> Self {
+        Self::start_with_vpn_fd(cfg, None)
+    }
+
+    /// Starts the client logic in the loop with an optional platform-VPN file
+    /// descriptor wired into the VPN channels. The fd is consumed by this call.
+    #[cfg(unix)]
+    pub fn start_with_vpn_fd(cfg: Config, vpn_fd: Option<i32>) -> Self {
         let ctx = AnyCtx::new(cfg.clone());
         // Initialize logging once we have context so JSON logs go to SQLite
         let _ = logging::init_logging(&ctx);
@@ -120,8 +123,7 @@ impl Client {
         });
         tracing::info!("raised file descriptor limit to {}", fd_limit);
 
-        #[cfg(unix)]
-        if let Some(fd) = cfg.vpn_fd {
+        if let Some(fd) = vpn_fd {
             let ctx_clone = ctx.clone();
             smolscale::spawn(async move {
                 // Create an async file descriptor from the raw fd
@@ -186,6 +188,27 @@ impl Client {
             })
             .detach();
         }
+        let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
+        Client {
+            task: task.shared(),
+            ctx,
+        }
+    }
+
+    /// Starts the client logic in the loop. Non-Unix targets never get a VPN fd.
+    #[cfg(not(unix))]
+    pub fn start_with_vpn_fd(cfg: Config, _vpn_fd: Option<i32>) -> Self {
+        let ctx = AnyCtx::new(cfg.clone());
+        let _ = logging::init_logging(&ctx);
+        let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
+            if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
+                binary_search::Direction::Low(())
+            } else {
+                binary_search::Direction::High(())
+            }
+        });
+        tracing::info!("raised file descriptor limit to {}", fd_limit);
+
         let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
             task: task.shared(),

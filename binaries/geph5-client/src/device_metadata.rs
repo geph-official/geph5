@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use smol::lock::Semaphore;
 
 use crate::client::Config;
-use crate::control_prot::CURRENT_CONNECTED_INFOS;
 use crate::database;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,10 +20,6 @@ pub struct DeviceMetadata {
 /// Get device metadata information including package version and IP address.
 /// The IP address is fetched from checkip.amazonaws.com and cached for 24 hours.
 pub async fn get_device_metadata(ctx: &AnyCtx<Config>) -> anyhow::Result<DeviceMetadata> {
-    if ctx.init().vpn && !ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty() {
-        anyhow::bail!("cannot get device metadata if VPN is on")
-    }
-
     // Get the version from Cargo package
     let version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -68,7 +63,7 @@ async fn fetch_ip_from_service() -> anyhow::Result<String> {
 
     let ip_str = response.trim();
     if ip_str.is_empty() {
-        return Err(anyhow::anyhow!("Failed to parse IP address from response"));
+        return Err(anyhow::anyhow!("Failed to parse IP address from service"));
     }
 
     // Parse as IPv4, zero the last octet, and return

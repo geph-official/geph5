@@ -96,8 +96,6 @@ mod tests {
             tunneled_broker: None,
             broker_keys: None,
             port_forward: vec![],
-            vpn: false,
-            vpn_fd: None,
             spoof_dns: false,
             passthrough_china: false,
             dry_run: true,
