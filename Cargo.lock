@@ -2691,8 +2691,6 @@ dependencies = [
  "sillad",
  "smol 2.0.2",
  "smolscale",
- "tap",
- "tempfile",
  "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",
