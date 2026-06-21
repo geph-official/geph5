@@ -182,6 +182,7 @@ mod tests {
             // Values that can be overridden by `args`:
             spoof_dns: false,
             passthrough_china: false,
+            allow_lan: true,
             dry_run: false,
             credentials: geph5_broker_protocol::Credential::Secret(String::new()),
             sess_metadata: Default::default(),

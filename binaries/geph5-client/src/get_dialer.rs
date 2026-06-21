@@ -360,6 +360,7 @@ mod tests {
             port_forward: vec![],
             spoof_dns: false,
             passthrough_china: false,
+            allow_lan: true,
             dry_run: true,
             credentials: Default::default(),
             sess_metadata: serde_json::Value::Null,

@@ -56,6 +56,10 @@ pub struct Config {
     pub spoof_dns: bool,
     #[serde(default)]
     pub passthrough_china: bool,
+    /// Whether to let connections to private/LAN addresses bypass the tunnel
+    /// (connect directly). Defaults to true. Set false for a strict full tunnel.
+    #[serde(default = "default_allow_lan")]
+    pub allow_lan: bool,
     #[serde(default)]
     pub dry_run: bool,
     #[serde(default)]
@@ -64,6 +68,10 @@ pub struct Config {
     #[serde(default)]
     pub sess_metadata: serde_json::Value,
     pub task_limit: Option<u32>,
+}
+
+fn default_allow_lan() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize, Clone)]

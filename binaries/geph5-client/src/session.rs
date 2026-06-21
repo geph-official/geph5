@@ -306,14 +306,27 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if ctx.init().passthrough_china && is_chinese_host(host) {
         return true;
     }
-    if let Ok(ip) = IpAddr::from_str(host) {
-        match ip {
+    // Let local/LAN addresses bypass the tunnel and connect directly, unless the
+    // user opted into a strict full tunnel.
+    if ctx.init().allow_lan
+        && let Ok(ip) = IpAddr::from_str(host)
+    {
+        return match ip {
             IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-            IpAddr::V6(v6) => v6.is_loopback(),
-        }
-    } else {
-        false
+            // IPv6 private ranges: loopback (::1), unique-local (fc00::/7),
+            // link-local (fe80::/10).
+            IpAddr::V6(v6) => {
+                v6.is_loopback() || is_unique_local(v6) || (v6.segments()[0] & 0xffc0) == 0xfe80
+            }
+        };
     }
+    false
+}
+
+/// IPv6 unique-local address (fc00::/7). `Ipv6Addr::is_unique_local` is unstable,
+/// so check the prefix directly.
+fn is_unique_local(addr: std::net::Ipv6Addr) -> bool {
+    (addr.segments()[0] & 0xfe00) == 0xfc00
 }
 
 async fn run_session_once(
