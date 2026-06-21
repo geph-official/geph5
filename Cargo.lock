@@ -2672,6 +2672,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "geph5-client-cli"
+version = "0.2.102"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "geph5-broker-protocol",
+ "geph5-client",
+ "geph5-misc-rpc",
+ "isocountry",
+ "libc",
+ "nanorpc",
+ "nanorpc-sillad",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sillad",
+ "smol 2.0.2",
+ "smolscale",
+ "tap",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "geph5-exit"
 version = "0.1.0"
 dependencies = [
