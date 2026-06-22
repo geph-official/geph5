@@ -38,6 +38,10 @@ pub struct Config {
     pub control_listen: Option<SocketAddr>,
     #[serde(default)]
     pub control_listen_unix: Option<PathBuf>,
+    /// Windows named pipe (e.g. `\\.\pipe\geph-engine-control`) to serve the
+    /// control protocol on. The Windows analogue of `control_listen_unix`.
+    #[serde(default)]
+    pub control_listen_pipe: Option<String>,
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
     pub allow_direct: bool,
@@ -99,6 +103,7 @@ impl Config {
         this.pac_listen = None;
         this.control_listen = None;
         this.control_listen_unix = None;
+        this.control_listen_pipe = None;
         this
     }
 }
@@ -307,7 +312,19 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         }
         smol::future::pending().await
     };
-    let rpc_serve = tcp_rpc_serve.race(unix_rpc_serve);
+    let pipe_rpc_serve = async {
+        #[cfg(windows)]
+        if let Some(name) = ctx.init().control_listen_pipe.as_ref() {
+            nanorpc_sillad::rpc_serve(
+                sillad::windows_pipe::NamedPipeListener::bind(name, None)?,
+                ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
+            )
+            .await?;
+            return anyhow::Ok(());
+        }
+        smol::future::pending().await
+    };
+    let rpc_serve = tcp_rpc_serve.race(unix_rpc_serve).race(pipe_rpc_serve);
     if ctx.init().dry_run {
         rpc_serve.await
     } else {

@@ -19,3 +19,18 @@ rand = "0.8.6"
 smol-timeout2 = "0.6.1"
 socket2 = "0.5.10"
 tracing = "0.1.44"
+
+# Windows named pipes: there is no mature smol-native async named-pipe API, so we
+# bridge tokio's named-pipe support onto our futures-io world via async-compat
+# (which runs a hidden tokio reactor and enters it on poll). windows-sys is used
+# for the raw CreateNamedPipeW + security-descriptor setup tokio doesn't expose.
+[target.'cfg(windows)'.dependencies]
+tokio = { version = "1", features = ["net", "rt", "io-util"] }
+async-compat = "0.2.4"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+] }

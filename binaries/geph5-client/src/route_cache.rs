@@ -89,6 +89,7 @@ mod tests {
             pac_listen: None,
             control_listen: None,
             control_listen_unix: None,
+            control_listen_pipe: None,
             exit_constraint: ExitConstraint::Auto,
             allow_direct: false,
             cache: Some(temp_db_path()),

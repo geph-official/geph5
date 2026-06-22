@@ -8,6 +8,8 @@ pub mod listener;
 pub mod tcp;
 #[cfg(unix)]
 pub mod unix;
+#[cfg(windows)]
+pub mod windows_pipe;
 
 /// Sillad overall is based on returning connection-like items that implement AsyncRead and AsyncWrite, as well as a few other things. This is called a Pipe.
 pub trait Pipe: AsyncRead + AsyncWrite + Send + Unpin + 'static {

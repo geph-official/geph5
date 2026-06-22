@@ -30,10 +30,11 @@ const CONFIG_TEMPLATE: &str = include_str!("../default-config.yaml");
 
 // ---- control-plane endpoints ----
 //
-// On unix the daemon<->CLI/GUI and daemon<->engine channels are unix domain
-// sockets: no port to squat, and access is filesystem-permissioned. On other
-// platforms (Windows) they currently fall back to loopback TCP; named pipes are
-// the planned replacement there.
+// The daemon<->CLI/GUI and daemon<->engine channels are namespaced, local-only,
+// access-controlled streams: unix domain sockets on unix, Windows named pipes on
+// Windows. Neither squats a TCP port, and both are permissioned (filesystem mode
+// / pipe security descriptor) rather than reachable by anything that can open a
+// loopback socket.
 
 /// Socket the daemon serves the CLI/GUI control protocol on.
 #[cfg(unix)]
@@ -57,17 +58,18 @@ pub fn daemon_control_dialer() -> sillad::unix::UnixDialer {
     }
 }
 
-#[cfg(not(unix))]
-pub const DAEMON_CONTROL_ADDR: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 28080);
-#[cfg(not(unix))]
-pub const CHILD_CONTROL_ADDR: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 28081);
+/// Named pipe the daemon serves the CLI/GUI control protocol on.
+#[cfg(windows)]
+pub const DAEMON_CONTROL_PIPE: &str = r"\\.\pipe\geph-daemon-control";
+/// Named pipe the engine child serves its control protocol on (daemon-only).
+#[cfg(windows)]
+pub const ENGINE_CONTROL_PIPE: &str = r"\\.\pipe\geph-engine-control";
 
-#[cfg(not(unix))]
-pub fn daemon_control_dialer() -> sillad::tcp::TcpDialer {
-    sillad::tcp::TcpDialer {
-        dest_addr: DAEMON_CONTROL_ADDR,
+/// Dialer for the daemon's control endpoint (used by the CLI client).
+#[cfg(windows)]
+pub fn daemon_control_dialer() -> sillad::windows_pipe::NamedPipeDialer {
+    sillad::windows_pipe::NamedPipeDialer {
+        name: DAEMON_CONTROL_PIPE.to_string(),
     }
 }
 
@@ -166,10 +168,11 @@ fn build_child_config(settings: &Settings) -> anyhow::Result<String> {
         cfg.control_listen = None;
         cfg.control_listen_unix = Some(engine_control_path());
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        cfg.control_listen = Some(CHILD_CONTROL_ADDR);
+        cfg.control_listen = None;
         cfg.control_listen_unix = None;
+        cfg.control_listen_pipe = Some(ENGINE_CONTROL_PIPE.to_string());
     }
     cfg.socks5_listen = Some(SOCKS5_ADDR);
     cfg.http_proxy_listen = Some(HTTP_ADDR);
@@ -336,9 +339,9 @@ pub fn child_control() -> ControlClient {
     let dialer = nanorpc_sillad::DialerTransport(sillad::unix::UnixDialer {
         path: engine_control_path(),
     });
-    #[cfg(not(unix))]
-    let dialer = nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
-        dest_addr: CHILD_CONTROL_ADDR,
+    #[cfg(windows)]
+    let dialer = nanorpc_sillad::DialerTransport(sillad::windows_pipe::NamedPipeDialer {
+        name: ENGINE_CONTROL_PIPE.to_string(),
     });
     ControlClient::from(dialer)
 }

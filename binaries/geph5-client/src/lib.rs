@@ -154,6 +154,7 @@ mod tests {
             http_proxy_listen: Some(HTTP_ADDR),
             control_listen: Some(CONTROL_ADDR),
             control_listen_unix: None,
+            control_listen_pipe: None,
             exit_constraint: super::ExitConstraint::Auto,
             allow_direct: false,
             port_forward: vec![],

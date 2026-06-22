@@ -421,11 +421,16 @@ pub async fn run_daemon() -> anyhow::Result<()> {
         tracing::info!(path = %path.display(), "geph daemon listening for clients");
         nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        let addr = supervisor::DAEMON_CONTROL_ADDR;
-        tracing::info!(%addr, "geph daemon listening for clients");
-        let listener = sillad::tcp::TcpListener::bind(addr).await?;
+        // The CLI/GUI run unprivileged but the daemon may run as a service; the
+        // SDDL grants authenticated users access (the pipe analogue of chmod 0666).
+        let name = supervisor::DAEMON_CONTROL_PIPE;
+        let listener = sillad::windows_pipe::NamedPipeListener::bind(
+            name,
+            Some(sillad::windows_pipe::SDDL_ALLOW_AUTHENTICATED),
+        )?;
+        tracing::info!(name, "geph daemon listening for clients");
         nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
     }
     Ok(())

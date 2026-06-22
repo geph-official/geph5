@@ -5365,6 +5365,7 @@ name = "sillad"
 version = "0.2.10"
 dependencies = [
  "anyhow",
+ "async-compat",
  "async-io 2.6.0",
  "async-trait",
  "futures-concurrency",
@@ -5375,7 +5376,9 @@ dependencies = [
  "rand 0.8.6",
  "smol-timeout2",
  "socket2 0.5.10",
+ "tokio",
  "tracing",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
