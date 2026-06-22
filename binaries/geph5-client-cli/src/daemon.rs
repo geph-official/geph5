@@ -61,13 +61,18 @@ impl DaemonImpl {
         Ok(this)
     }
 
-    /// Reconcile the VPN tunnel/kill-switch with desired state, then kill &
-    /// respawn the child (as the service user, with the tun fd in VPN mode).
+    /// Kill the old child, reconcile the VPN tunnel/kill-switch with desired
+    /// state, then spawn a fresh child (as the service user, with the tun fd in
+    /// VPN mode).
     async fn restart_child(&self, inner: &mut Inner) -> Result<(), String> {
-        let service_user = reconcile_vpn(inner)?;
+        // Kill the child FIRST, before reconcile_vpn possibly tears the tun
+        // device down. Otherwise the still-running child's read on the tun fd
+        // fails with EBADFD ("File descriptor in bad state") as the device
+        // vanishes, logging a spurious error on every disconnect.
         if let Some(child) = inner.child.take() {
             supervisor::kill_child(child);
         }
+        let service_user = reconcile_vpn(inner)?;
         let vpn_fd = inner.vpn.as_ref().map(|h| h.tun_fd());
         let child = supervisor::spawn_child(&inner.settings, service_user, vpn_fd)
             .map_err(|e| format!("{e:?}"))?;
