@@ -36,18 +36,22 @@ const CONFIG_TEMPLATE: &str = include_str!("../default-config.yaml");
 // / pipe security descriptor) rather than reachable by anything that can open a
 // loopback socket.
 
-/// Socket the daemon serves the CLI/GUI control protocol on.
+/// Socket the daemon serves the CLI/GUI control protocol on. Lives directly in
+/// the (root-owned) runtime dir; chmod'd 0666 so unprivileged clients can reach
+/// the root daemon.
 #[cfg(unix)]
 pub fn daemon_control_path() -> std::path::PathBuf {
-    paths::state_dir().join("control.sock")
+    paths::runtime_dir().join("control.sock")
 }
 
 /// Socket the engine child serves its control protocol on (daemon-only). It
-/// lives in the cache dir, which is owned by the unprivileged service user so
-/// the child can create it.
+/// lives in a `engine/` subdir of the runtime dir, which the daemon chowns to
+/// the unprivileged service user so the child can bind here — without giving the
+/// service user write access to the runtime root (which holds the daemon's own,
+/// root-owned, control socket).
 #[cfg(unix)]
 pub fn engine_control_path() -> std::path::PathBuf {
-    paths::cache_dir().join("engine.sock")
+    paths::runtime_dir().join("engine").join("engine.sock")
 }
 
 /// Dialer for the daemon's control endpoint (used by the CLI client).
@@ -222,16 +226,29 @@ pub fn spawn_child(
     }
     std::fs::create_dir_all(&cache_dir)?;
 
+    // Runtime dir for the engine's control socket: a tmpfs-backed transient
+    // location, in a subdir the service user owns so the unprivileged child can
+    // bind here.
+    #[cfg(unix)]
+    let engine_sock_dir = engine_control_path()
+        .parent()
+        .expect("engine socket path has a parent")
+        .to_path_buf();
+    #[cfg(unix)]
+    std::fs::create_dir_all(&engine_sock_dir)?;
+
     let config_yaml = build_child_config(settings)?;
     let config_path = paths::state_dir().join("child-config.yaml");
     std::fs::write(&config_path, config_yaml)
         .with_context(|| format!("could not write {}", config_path.display()))?;
 
-    // Make the config + cache dir readable/writable by the unprivileged child.
+    // Make the config + cache dir + engine-socket dir owned by the unprivileged
+    // child so it can read its config and bind its control socket.
     #[cfg(unix)]
     if let Some((uid, gid)) = service_user {
         let _ = chown_path(&config_path, uid, gid);
         let _ = chown_recursive(&cache_dir, uid, gid);
+        let _ = chown_path(&engine_sock_dir, uid, gid);
     }
 
     let mut cmd = geph5_client_command();
