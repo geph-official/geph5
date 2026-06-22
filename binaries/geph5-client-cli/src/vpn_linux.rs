@@ -32,8 +32,10 @@ mod imp {
     const FWMARK_MASK: &str = "0x6765/0xffff";
     const RULE_PRIO: &str = "100";
 
-    // From <linux/if_tun.h>: TUNSETIFF = _IOW('T', 202, int).
-    const TUNSETIFF: libc::c_ulong = 0x4004_54ca;
+    // From <linux/if_tun.h>: TUNSETIFF = _IOW('T', 202, int). Kept as a plain
+    // integer and cast with `as _` at the call site, because `libc::ioctl`'s
+    // request argument is `c_ulong` on glibc but `c_int` on musl.
+    const TUNSETIFF: u64 = 0x4004_54ca;
     const IFF_TUN: libc::c_short = 0x0001;
     const IFF_NO_PI: libc::c_short = 0x1000;
 
@@ -138,7 +140,7 @@ mod imp {
         for (i, b) in TUN_IFACE.bytes().enumerate() {
             req.name[i] = b as libc::c_char;
         }
-        let rc = unsafe { libc::ioctl(owned.as_raw_fd(), TUNSETIFF, &mut req as *mut IfReq) };
+        let rc = unsafe { libc::ioctl(owned.as_raw_fd(), TUNSETIFF as _, &mut req as *mut IfReq) };
         if rc < 0 {
             return Err(std::io::Error::last_os_error()).context("ioctl(TUNSETIFF)");
         }
