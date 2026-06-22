@@ -411,9 +411,22 @@ impl GephCtlProtocol for DaemonImpl {
 /// Run the daemon forever: spawn the child and serve the CLI control protocol.
 pub async fn run_daemon() -> anyhow::Result<()> {
     let daemon = DaemonImpl::start().await?;
-    let addr = supervisor::daemon_control_addr();
-    tracing::info!(%addr, "geph daemon listening for CLI connections");
-    let listener = sillad::tcp::TcpListener::bind(addr).await?;
-    nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = supervisor::daemon_control_path();
+        let listener = sillad::unix::UnixListener::bind(&path).await?; // unlinks any stale socket
+        // The CLI/GUI run unprivileged; let them connect to the root daemon's socket.
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
+        tracing::info!(path = %path.display(), "geph daemon listening for clients");
+        nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
+    }
+    #[cfg(not(unix))]
+    {
+        let addr = supervisor::DAEMON_CONTROL_ADDR;
+        tracing::info!(%addr, "geph daemon listening for clients");
+        let listener = sillad::tcp::TcpListener::bind(addr).await?;
+        nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
+    }
     Ok(())
 }

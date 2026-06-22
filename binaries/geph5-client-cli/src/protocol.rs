@@ -1,5 +1,6 @@
 //! The control protocol spoken between the `geph` CLI (client) and the
-//! `geph daemon` supervisor (server), over loopback TCP.
+//! `geph daemon` supervisor (server), over a unix domain socket (loopback TCP on
+//! Windows).
 //!
 //! This is deliberately a *small, stable* surface of its own, distinct from
 //! `geph5-client`'s `ControlProtocol`: it adds connect/disconnect/login/settings
@@ -11,13 +12,6 @@ use async_trait::async_trait;
 use geph5_broker_protocol::ExitConstraint;
 use nanorpc::nanorpc_derive;
 use serde::{Deserialize, Serialize};
-
-/// Default fixed loopback port for the daemon <-> CLI control channel.
-pub const DAEMON_CONTROL_PORT: u16 = 28080;
-
-/// Default fixed loopback port the child geph5-client listens on for its own
-/// control protocol; only the supervisor talks to it.
-pub const CHILD_CONTROL_PORT: u16 = 28081;
 
 /// High-level connection state, mirrored from the child's `ConnInfo`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

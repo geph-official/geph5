@@ -16,10 +16,7 @@ use geph5_broker_protocol::{Credential, ExitConstraint};
 use geph5_misc_rpc::client_control::ControlClient;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    paths,
-    protocol::{CHILD_CONTROL_PORT, DAEMON_CONTROL_PORT},
-};
+use crate::paths;
 
 /// SOCKS5 proxy the connected child exposes.
 pub const SOCKS5_ADDR: SocketAddr =
@@ -31,18 +28,47 @@ pub const PAC_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0
 
 const CONFIG_TEMPLATE: &str = include_str!("../default-config.yaml");
 
-fn loopback(port: u16) -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
+// ---- control-plane endpoints ----
+//
+// On unix the daemon<->CLI/GUI and daemon<->engine channels are unix domain
+// sockets: no port to squat, and access is filesystem-permissioned. On other
+// platforms (Windows) they currently fall back to loopback TCP; named pipes are
+// the planned replacement there.
+
+/// Socket the daemon serves the CLI/GUI control protocol on.
+#[cfg(unix)]
+pub fn daemon_control_path() -> std::path::PathBuf {
+    paths::state_dir().join("control.sock")
 }
 
-/// Address of the child's control protocol.
-pub fn child_control_addr() -> SocketAddr {
-    loopback(CHILD_CONTROL_PORT)
+/// Socket the engine child serves its control protocol on (daemon-only). It
+/// lives in the cache dir, which is owned by the unprivileged service user so
+/// the child can create it.
+#[cfg(unix)]
+pub fn engine_control_path() -> std::path::PathBuf {
+    paths::cache_dir().join("engine.sock")
 }
 
-/// Address the daemon listens on for the CLI.
-pub fn daemon_control_addr() -> SocketAddr {
-    loopback(DAEMON_CONTROL_PORT)
+/// Dialer for the daemon's control endpoint (used by the CLI client).
+#[cfg(unix)]
+pub fn daemon_control_dialer() -> sillad::unix::UnixDialer {
+    sillad::unix::UnixDialer {
+        path: daemon_control_path(),
+    }
+}
+
+#[cfg(not(unix))]
+pub const DAEMON_CONTROL_ADDR: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 28080);
+#[cfg(not(unix))]
+pub const CHILD_CONTROL_ADDR: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 28081);
+
+#[cfg(not(unix))]
+pub fn daemon_control_dialer() -> sillad::tcp::TcpDialer {
+    sillad::tcp::TcpDialer {
+        dest_addr: DAEMON_CONTROL_ADDR,
+    }
 }
 
 /// Persisted daemon settings.
@@ -135,12 +161,26 @@ fn build_child_config(settings: &Settings) -> anyhow::Result<String> {
     // Disconnected == dry-run child: it still serves the control protocol and
     // broker RPCs (login/account/exit-list), but brings up no tunnel or proxies.
     cfg.dry_run = !settings.connected;
-    cfg.control_listen = Some(child_control_addr());
-    cfg.control_listen_unix = None;
+    #[cfg(unix)]
+    {
+        cfg.control_listen = None;
+        cfg.control_listen_unix = Some(engine_control_path());
+    }
+    #[cfg(not(unix))]
+    {
+        cfg.control_listen = Some(CHILD_CONTROL_ADDR);
+        cfg.control_listen_unix = None;
+    }
     cfg.socks5_listen = Some(SOCKS5_ADDR);
     cfg.http_proxy_listen = Some(HTTP_ADDR);
     cfg.pac_listen = Some(PAC_ADDR);
-    cfg.cache = Some(paths::cache_dir().join("db"));
+    // Key the cache by the secret so different accounts never share auth tokens
+    // (the engine stores its auth_token under a fixed key, so a shared cache
+    // would let account B reuse account A's token). Mirrors geph5-client's own
+    // default of hashing the credential into the cache path.
+    let secret = settings.secret.as_deref().unwrap_or_default();
+    let cache_tag = blake3::hash(secret.as_bytes()).to_hex();
+    cfg.cache = Some(paths::cache_dir().join(format!("db-{cache_tag}")));
     let val = serde_json::to_value(&cfg).context("could not serialize child config")?;
     serde_yaml::to_string(&val).context("could not serialize child config")
 }
@@ -205,36 +245,10 @@ pub fn spawn_child(
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::process::CommandExt;
-        let vpn_fd = vpn_fd;
-        let service_user = service_user;
-        // SAFETY: only async-signal-safe syscalls; no allocation. Order matters:
-        // drop privileges first, then dup the tun fd, then set PDEATHSIG LAST
-        // (setuid() clears a pending parent-death signal).
+        // SAFETY: child_pre_exec uses only async-signal-safe syscalls and no
+        // allocation, as required for a post-fork/pre-exec hook.
         unsafe {
-            cmd.pre_exec(move || {
-                if let Some((uid, gid)) = service_user {
-                    if libc::setgroups(0, std::ptr::null()) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    if libc::setgid(gid) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    if libc::setuid(uid) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                }
-                if let Some(fd) = vpn_fd {
-                    // dup onto fd 3 (the dup clears CLOEXEC, so it survives exec).
-                    if libc::dup2(fd, 3) < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                }
-                // PR_SET_PDEATHSIG == 1: die with the supervisor instead of orphaning.
-                if libc::prctl(1, libc::SIGTERM, 0, 0, 0) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+            cmd.pre_exec(move || child_pre_exec(service_user, vpn_fd));
         }
     }
     let child = cmd.spawn().context(
@@ -271,6 +285,43 @@ fn chown_recursive(path: &std::path::Path, uid: u32, gid: u32) -> std::io::Resul
     Ok(())
 }
 
+/// `pre_exec` hook for the child. Drops to the unprivileged service user, hands
+/// the tun fd over at a known number, and arms parent-death. The ordering is
+/// load-bearing:
+///   1. `setgroups` before `setuid` (it needs root) to drop root's supplementary
+///      groups — and `CommandExt::groups` is still unstable, so we do it by hand;
+///   2. `setgid`/`setuid` to the service user;
+///   3. `dup2` the tun fd onto fd 3 (the dup clears CLOEXEC so it survives exec);
+///   4. `PR_SET_PDEATHSIG` LAST — `setuid` clears any pending parent-death signal.
+///
+/// SAFETY: runs post-fork/pre-exec, so it must use only async-signal-safe
+/// syscalls and perform no allocation.
+#[cfg(target_os = "linux")]
+fn child_pre_exec(service_user: Option<(u32, u32)>, vpn_fd: Option<i32>) -> std::io::Result<()> {
+    let err = std::io::Error::last_os_error;
+    if let Some((uid, gid)) = service_user {
+        if unsafe { libc::setgroups(0, std::ptr::null()) } != 0 {
+            return Err(err());
+        }
+        if unsafe { libc::setgid(gid) } != 0 {
+            return Err(err());
+        }
+        if unsafe { libc::setuid(uid) } != 0 {
+            return Err(err());
+        }
+    }
+    if let Some(fd) = vpn_fd
+        && unsafe { libc::dup2(fd, 3) } < 0
+    {
+        return Err(err());
+    }
+    // PR_SET_PDEATHSIG == 1.
+    if unsafe { libc::prctl(1, libc::SIGTERM, 0, 0, 0) } != 0 {
+        return Err(err());
+    }
+    Ok(())
+}
+
 /// Kill a child process and reap it.
 pub fn kill_child(mut child: Child) {
     let pid = child.id();
@@ -279,11 +330,17 @@ pub fn kill_child(mut child: Child) {
     tracing::info!(pid, "killed child geph5-client");
 }
 
-/// A control-protocol client pointed at the child.
+/// A control-protocol client pointed at the engine child.
 pub fn child_control() -> ControlClient {
-    ControlClient::from(nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
-        dest_addr: child_control_addr(),
-    }))
+    #[cfg(unix)]
+    let dialer = nanorpc_sillad::DialerTransport(sillad::unix::UnixDialer {
+        path: engine_control_path(),
+    });
+    #[cfg(not(unix))]
+    let dialer = nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
+        dest_addr: CHILD_CONTROL_ADDR,
+    });
+    ControlClient::from(dialer)
 }
 
 /// Wait until the child's control protocol answers, up to `timeout`.

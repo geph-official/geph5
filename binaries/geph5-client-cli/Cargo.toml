@@ -21,6 +21,7 @@ sillad = { version = "0.2.10", path = "../../libraries/sillad" }
 
 anyhow = "1.0.102"
 async-trait = "0.1.89"
+blake3 = "1.8.5"
 clap = { version = "4.6.1", features = ["derive"] }
 isocountry = "0.3.2"
 serde = { version = "1", features = ["derive"] }

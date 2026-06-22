@@ -2677,6 +2677,7 @@ version = "0.2.102"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blake3",
  "clap",
  "geph5-broker-protocol",
  "geph5-client",

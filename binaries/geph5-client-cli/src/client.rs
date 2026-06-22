@@ -1,6 +1,8 @@
 //! CLI-side: connect to the `geph daemon`, issue one `GephCtlProtocol` call, and
 //! render the result for a human.
 
+use std::sync::LazyLock;
+
 use anyhow::Context as _;
 use geph5_broker_protocol::ExitConstraint;
 use isocountry::CountryCode;
@@ -8,14 +10,19 @@ use isocountry::CountryCode;
 use crate::{
     cli::{Command, ExitConstraintCmd, ExitConstraintSet},
     protocol::{AccountInfo, ConnState, GephCtlClient, GephCtlError, SessionContext, Status},
-    supervisor::daemon_control_addr,
+    supervisor,
 };
 
-/// Build a client pointed at the running daemon.
-fn daemon_client() -> GephCtlClient {
-    GephCtlClient::from(nanorpc_sillad::DialerTransport(sillad::tcp::TcpDialer {
-        dest_addr: daemon_control_addr(),
-    }))
+/// A shared client pointed at the running daemon. Each call still dials a fresh
+/// connection (DialerTransport has no pooling); this just avoids rebuilding the
+/// wrapper, matching the workspace's `LazyLock` idiom.
+fn daemon_client() -> &'static GephCtlClient {
+    static CLIENT: LazyLock<GephCtlClient> = LazyLock::new(|| {
+        GephCtlClient::from(nanorpc_sillad::DialerTransport(
+            supervisor::daemon_control_dialer(),
+        ))
+    });
+    &CLIENT
 }
 
 /// Flatten the double-Result that RPC methods return, turning a transport-level
