@@ -54,6 +54,13 @@ pub fn engine_control_path() -> std::path::PathBuf {
     paths::runtime_dir().join("engine").join("engine.sock")
 }
 
+/// Socket the permanent, secret-less *query* engine serves its control protocol
+/// on (daemon-only). Same service-user-owned-subdir scheme as the engine socket.
+#[cfg(unix)]
+pub fn query_control_path() -> std::path::PathBuf {
+    paths::runtime_dir().join("query").join("query.sock")
+}
+
 /// Dialer for the daemon's control endpoint (used by the CLI client).
 #[cfg(unix)]
 pub fn daemon_control_dialer() -> sillad::unix::UnixDialer {
@@ -68,6 +75,9 @@ pub const DAEMON_CONTROL_PIPE: &str = r"\\.\pipe\geph-daemon-control";
 /// Named pipe the engine child serves its control protocol on (daemon-only).
 #[cfg(windows)]
 pub const ENGINE_CONTROL_PIPE: &str = r"\\.\pipe\geph-engine-control";
+/// Named pipe the permanent, secret-less query engine serves on (daemon-only).
+#[cfg(windows)]
+pub const QUERY_CONTROL_PIPE: &str = r"\\.\pipe\geph-query-control";
 
 /// Dialer for the daemon's control endpoint (used by the CLI client).
 #[cfg(windows)]
@@ -155,17 +165,20 @@ impl Settings {
 /// (see `geph5-client/src/bin/geph5-client.rs`), where external tags are plain
 /// maps. So we deserialize and serialize through `serde_json::Value` to match,
 /// exactly like gephgui-wry does.
-fn build_child_config(settings: &Settings) -> anyhow::Result<String> {
+fn config_from_template() -> anyhow::Result<geph5_client::Config> {
     let template_val: serde_json::Value =
         serde_yaml::from_str(CONFIG_TEMPLATE).context("bad embedded config template")?;
-    let mut cfg: geph5_client::Config =
-        serde_json::from_value(template_val).context("bad embedded config template")?;
+    serde_json::from_value(template_val).context("bad embedded config template")
+}
+
+/// Config for the **tunnel** engine: the real, credentialed engine that brings up
+/// the proxy/tunnel. Only ever spawned while connected.
+fn build_tunnel_config(settings: &Settings) -> anyhow::Result<String> {
+    let mut cfg = config_from_template()?;
     cfg.credentials = Credential::Secret(settings.secret.clone().unwrap_or_default());
     cfg.exit_constraint = settings.exit_constraint.clone();
     cfg.allow_lan = settings.allow_lan;
     cfg.allow_direct = settings.allow_direct;
-    // Disconnected == dry-run child: it still serves the control protocol and
-    // broker RPCs (login/account/exit-list), but brings up no tunnel or proxies.
     cfg.dry_run = !settings.connected;
     #[cfg(unix)]
     {
@@ -192,6 +205,40 @@ fn build_child_config(settings: &Settings) -> anyhow::Result<String> {
     serde_yaml::to_string(&val).context("could not serialize child config")
 }
 
+/// Config for the **query** engine: a permanent, secret-less, dry-run engine that
+/// answers broker RPCs (exit list, account-by-cred, login validation) regardless
+/// of connection state. Because it has no secret it runs no auth/bandwidth loops,
+/// writes no auth token, and shares no cache/session with the tunnel engine — so
+/// it never needs restarting (not on connect/disconnect, not on login/logout) and
+/// broker queries it serves never gap.
+fn build_query_config() -> anyhow::Result<String> {
+    let mut cfg = config_from_template()?;
+    // No credential: broker queries pass the credential as a per-call parameter,
+    // so the query engine needs none of its own.
+    cfg.credentials = Credential::Secret(String::new());
+    cfg.dry_run = true;
+    // It tunnels nothing, so it binds no proxy ports (those belong to the tunnel
+    // engine and must not be double-bound).
+    cfg.socks5_listen = None;
+    cfg.http_proxy_listen = None;
+    cfg.pac_listen = None;
+    #[cfg(unix)]
+    {
+        cfg.control_listen = None;
+        cfg.control_listen_unix = Some(query_control_path());
+    }
+    #[cfg(windows)]
+    {
+        cfg.control_listen = None;
+        cfg.control_listen_unix = None;
+        cfg.control_listen_pipe = Some(QUERY_CONTROL_PIPE.to_string());
+    }
+    // Its own cache; with no secret there is no auth token in it to contend over.
+    cfg.cache = Some(paths::cache_dir().join("query-db"));
+    let val = serde_json::to_value(&cfg).context("could not serialize query config")?;
+    serde_yaml::to_string(&val).context("could not serialize query config")
+}
+
 /// Locate the `geph5-client` binary: prefer one next to the current executable,
 /// otherwise rely on `PATH`.
 fn geph5_client_command() -> Command {
@@ -204,15 +251,68 @@ fn geph5_client_command() -> Command {
     }
 }
 
-/// Spawn a fresh child process.
-///
-/// `service_user` (uid, gid), when set, drops the child to that user — the child
-/// always runs unprivileged in both proxy and VPN modes. `vpn_fd`, when set, is
-/// dup'd onto fd 3 in the child and passed via `--vpn-fd 3` for full-tunnel mode.
-pub fn spawn_child(
+/// Spawn the **tunnel** engine: the real, credentialed engine. Only spawned while
+/// connected. `service_user`, when set, drops it to that user (it always runs
+/// unprivileged); `vpn_fd`, when set, is dup'd onto fd 3 and passed via
+/// `--vpn-fd 3` for full-tunnel mode.
+pub fn spawn_tunnel(
     settings: &Settings,
     service_user: Option<(u32, u32)>,
     vpn_fd: Option<i32>,
+) -> anyhow::Result<Child> {
+    let config_yaml = build_tunnel_config(settings)?;
+    #[cfg(unix)]
+    let sock_dir = Some(
+        engine_control_path()
+            .parent()
+            .expect("engine socket path has a parent")
+            .to_path_buf(),
+    );
+    spawn_engine("tunnel", "child-config.yaml", config_yaml, service_user, vpn_fd, {
+        #[cfg(unix)]
+        {
+            sock_dir
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    })
+}
+
+/// Spawn the permanent **query** engine: secret-less, dry-run, never given a tun
+/// fd. Runs unprivileged like the tunnel engine so its broker traffic is unmarked
+/// (and thus allowed out by the VPN kill switch).
+pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<Child> {
+    let config_yaml = build_query_config()?;
+    #[cfg(unix)]
+    let sock_dir = Some(
+        query_control_path()
+            .parent()
+            .expect("query socket path has a parent")
+            .to_path_buf(),
+    );
+    spawn_engine("query", "query-config.yaml", config_yaml, service_user, None, {
+        #[cfg(unix)]
+        {
+            sock_dir
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    })
+}
+
+/// Lower-level: write `config_yaml`, make state/cache/socket dirs owned by the
+/// service user, and spawn a `geph5-client` against the config.
+fn spawn_engine(
+    role: &str,
+    config_name: &str,
+    config_yaml: String,
+    service_user: Option<(u32, u32)>,
+    vpn_fd: Option<i32>,
+    _sock_dir: Option<std::path::PathBuf>,
 ) -> anyhow::Result<Child> {
     std::fs::create_dir_all(paths::state_dir())?;
     // The cache is a directory the unprivileged child writes its SQLite into.
@@ -226,29 +326,25 @@ pub fn spawn_child(
     }
     std::fs::create_dir_all(&cache_dir)?;
 
-    // Runtime dir for the engine's control socket: a tmpfs-backed transient
-    // location, in a subdir the service user owns so the unprivileged child can
-    // bind here.
+    // The engine binds its control socket in a service-user-owned runtime subdir.
     #[cfg(unix)]
-    let engine_sock_dir = engine_control_path()
-        .parent()
-        .expect("engine socket path has a parent")
-        .to_path_buf();
-    #[cfg(unix)]
-    std::fs::create_dir_all(&engine_sock_dir)?;
+    if let Some(dir) = _sock_dir.as_ref() {
+        std::fs::create_dir_all(dir)?;
+    }
 
-    let config_yaml = build_child_config(settings)?;
-    let config_path = paths::state_dir().join("child-config.yaml");
+    let config_path = paths::state_dir().join(config_name);
     std::fs::write(&config_path, config_yaml)
         .with_context(|| format!("could not write {}", config_path.display()))?;
 
-    // Make the config + cache dir + engine-socket dir owned by the unprivileged
-    // child so it can read its config and bind its control socket.
+    // Make the config + cache dir + socket dir owned by the unprivileged child so
+    // it can read its config and bind its control socket.
     #[cfg(unix)]
     if let Some((uid, gid)) = service_user {
         let _ = chown_path(&config_path, uid, gid);
         let _ = chown_recursive(&cache_dir, uid, gid);
-        let _ = chown_path(&engine_sock_dir, uid, gid);
+        if let Some(dir) = _sock_dir.as_ref() {
+            let _ = chown_path(dir, uid, gid);
+        }
     }
 
     let mut cmd = geph5_client_command();
@@ -276,9 +372,9 @@ pub fn spawn_child(
     )?;
     tracing::info!(
         pid = child.id(),
-        dry_run = !settings.connected,
+        role,
         vpn = vpn_fd.is_some(),
-        "spawned child geph5-client"
+        "spawned geph5-client engine"
     );
     Ok(child)
 }
@@ -350,8 +446,9 @@ pub fn kill_child(mut child: Child) {
     tracing::info!(pid, "killed child geph5-client");
 }
 
-/// A control-protocol client pointed at the engine child.
-pub fn child_control() -> ControlClient {
+/// A control-protocol client pointed at the **tunnel** engine (only reachable
+/// while connected).
+pub fn live_control() -> ControlClient {
     #[cfg(unix)]
     let dialer = nanorpc_sillad::DialerTransport(sillad::unix::UnixDialer {
         path: engine_control_path(),
@@ -363,9 +460,21 @@ pub fn child_control() -> ControlClient {
     ControlClient::from(dialer)
 }
 
-/// Wait until the child's control protocol answers, up to `timeout`.
-pub async fn wait_child_ready(timeout: Duration) -> anyhow::Result<()> {
-    let client = child_control();
+/// A control-protocol client pointed at the permanent **query** engine.
+pub fn query_control() -> ControlClient {
+    #[cfg(unix)]
+    let dialer = nanorpc_sillad::DialerTransport(sillad::unix::UnixDialer {
+        path: query_control_path(),
+    });
+    #[cfg(windows)]
+    let dialer = nanorpc_sillad::DialerTransport(sillad::windows_pipe::NamedPipeDialer {
+        name: QUERY_CONTROL_PIPE.to_string(),
+    });
+    ControlClient::from(dialer)
+}
+
+/// Wait until the given engine's control protocol answers, up to `timeout`.
+pub async fn wait_control_ready(client: &ControlClient, timeout: Duration) -> anyhow::Result<()> {
     let deadline = Duration::from_millis(100);
     let start = std::time::Instant::now();
     loop {
@@ -375,7 +484,7 @@ pub async fn wait_child_ready(timeout: Duration) -> anyhow::Result<()> {
             Err(_) if start.elapsed() < timeout => {
                 smol::Timer::after(deadline).await;
             }
-            Err(e) => anyhow::bail!("child never became reachable: {e:?}"),
+            Err(e) => anyhow::bail!("engine never became reachable: {e:?}"),
         }
     }
 }
