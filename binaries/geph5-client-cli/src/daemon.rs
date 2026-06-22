@@ -277,6 +277,7 @@ impl GephCtlProtocol for DaemonImpl {
             auto_proxy: inner.settings.auto_proxy,
             vpn: inner.settings.vpn,
             allow_lan: inner.settings.allow_lan,
+            allow_direct: inner.settings.allow_direct,
         })
     }
 
@@ -324,6 +325,16 @@ impl GephCtlProtocol for DaemonImpl {
     async fn set_allow_lan(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         inner.settings.allow_lan = enabled;
+        inner.settings.save().map_err(|e| format!("{e:?}"))?;
+        if inner.settings.connected {
+            self.restart_child(&mut inner).await?;
+        }
+        Ok(())
+    }
+
+    async fn set_allow_direct(&self, enabled: bool) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        inner.settings.allow_direct = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         if inner.settings.connected {
             self.restart_child(&mut inner).await?;

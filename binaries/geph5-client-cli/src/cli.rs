@@ -56,6 +56,12 @@ pub enum Command {
         state: Option<String>,
     },
 
+    /// Show or set whether direct (non-bridge) connections to exits are allowed.
+    AllowDirect {
+        /// `on` or `off`. Omit to show the current setting.
+        state: Option<String>,
+    },
+
     /// Show recent daemon logs.
     Logs {
         /// Number of log lines to show.

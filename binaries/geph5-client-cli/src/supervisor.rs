@@ -66,6 +66,10 @@ pub struct Settings {
     /// Let connections to private/LAN addresses bypass the tunnel.
     #[serde(default = "default_true")]
     pub allow_lan: bool,
+    /// Allow direct (non-bridge) connections to exits. Faster but less
+    /// censorship-resistant; off by default.
+    #[serde(default)]
+    pub allow_direct: bool,
 }
 
 fn default_exit_constraint() -> ExitConstraint {
@@ -85,6 +89,7 @@ impl Default for Settings {
             auto_proxy: true,
             vpn: false,
             allow_lan: true,
+            allow_direct: false,
         }
     }
 }
@@ -126,6 +131,7 @@ fn build_child_config(settings: &Settings) -> anyhow::Result<String> {
     cfg.credentials = Credential::Secret(settings.secret.clone().unwrap_or_default());
     cfg.exit_constraint = settings.exit_constraint.clone();
     cfg.allow_lan = settings.allow_lan;
+    cfg.allow_direct = settings.allow_direct;
     // Disconnected == dry-run child: it still serves the control protocol and
     // broker RPCs (login/account/exit-list), but brings up no tunnel or proxies.
     cfg.dry_run = !settings.connected;

@@ -101,6 +101,8 @@ pub struct SettingsView {
     pub vpn: bool,
     /// Whether private/LAN addresses bypass the tunnel.
     pub allow_lan: bool,
+    /// Whether direct (non-bridge) connections to exits are allowed.
+    pub allow_direct: bool,
 }
 
 #[nanorpc_derive]
@@ -138,6 +140,10 @@ pub trait GephCtlProtocol {
 
     /// Enable or disable LAN passthrough. Restarts the tunnel if connected.
     async fn set_allow_lan(&self, enabled: bool) -> Result<(), String>;
+
+    /// Allow or forbid direct (non-bridge) connections to exits. Restarts the
+    /// tunnel if connected.
+    async fn set_allow_direct(&self, enabled: bool) -> Result<(), String>;
 
     /// List available exits from the broker.
     async fn list_exits(&self) -> Result<Vec<ExitInfo>, String>;

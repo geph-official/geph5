@@ -74,9 +74,10 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             print_status(&status);
             let settings = flatten(client.get_settings().await)?;
             println!(
-                "Mode:  {} | lan-access {} | auto-proxy {}",
+                "Mode:  {} | lan-access {} | allow-direct {} | auto-proxy {}",
                 if settings.vpn { "vpn" } else { "proxy" },
                 on_off(settings.allow_lan),
+                on_off(settings.allow_direct),
                 on_off(settings.auto_proxy),
             );
         }
@@ -141,6 +142,18 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
                 let enabled = parse_on_off(&s)?;
                 flatten(client.set_allow_lan(enabled).await)?;
                 println!("lan-access set to {}", on_off(enabled));
+            }
+        },
+
+        Command::AllowDirect { state } => match state {
+            None => {
+                let settings = flatten(client.get_settings().await)?;
+                println!("allow-direct is {}", on_off(settings.allow_direct));
+            }
+            Some(s) => {
+                let enabled = parse_on_off(&s)?;
+                flatten(client.set_allow_direct(enabled).await)?;
+                println!("allow-direct set to {}", on_off(enabled));
             }
         },
 
