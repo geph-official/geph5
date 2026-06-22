@@ -229,6 +229,17 @@ impl GephCtlProtocol for DaemonImpl {
         Ok(())
     }
 
+    async fn reconnect(&self) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        if !inner.settings.connected {
+            return Err("not connected".to_string());
+        }
+        // restart_child keeps the VPN tun + kill switch up across the restart
+        // (reconcile_vpn leaves the handle in place while connected), so there is
+        // no leak window — only the engine child is swapped.
+        self.restart_child(&mut inner).await
+    }
+
     async fn disconnect(&self, session: SessionContext) -> Result<(), String> {
         let auto_proxy = {
             let mut inner = self.inner.lock().await;

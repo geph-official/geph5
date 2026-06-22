@@ -28,6 +28,8 @@ pub enum Command {
     Connect,
     /// Tear the tunnel down.
     Disconnect,
+    /// Re-establish the tunnel with current settings, without a leak window.
+    Reconnect,
     /// Show connection status.
     Status,
 

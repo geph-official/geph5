@@ -69,6 +69,10 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             flatten(client.disconnect(current_session()).await)?;
             println!("Disconnected.");
         }
+        Command::Reconnect => {
+            flatten(client.reconnect().await)?;
+            println!("Reconnecting…");
+        }
         Command::Status => {
             let status = flatten(client.status().await)?;
             print_status(&status);

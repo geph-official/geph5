@@ -122,6 +122,12 @@ pub trait GephCtlProtocol {
     /// Tear the tunnel down and, if auto-proxy is on, clear `session`'s proxy.
     async fn disconnect(&self, session: SessionContext) -> Result<(), String>;
 
+    /// Re-establish the tunnel with the current settings WITHOUT a leak window:
+    /// in VPN mode the tun device and kill switch stay up the whole time while
+    /// only the engine child is restarted. Used for "reconnect" and for applying
+    /// a new exit while connected. Errors if not currently connected.
+    async fn reconnect(&self) -> Result<(), String>;
+
     /// Current connection status.
     async fn status(&self) -> Result<Status, String>;
 
