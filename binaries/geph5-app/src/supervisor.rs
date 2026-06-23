@@ -159,13 +159,14 @@ impl Settings {
 
 /// Build the child's config YAML from current settings.
 ///
-/// `geph5_client::Config` contains externally-tagged enums (`BrokerSource`,
-/// `ExitConstraint`). `serde_yaml` renders those with YAML `!tags`, but the
-/// child parses its config by going YAML -> `serde_json::Value` -> `Config`
-/// (see `geph5-client/src/bin/geph5-client.rs`), where external tags are plain
-/// maps. So we deserialize and serialize through `serde_json::Value` to match,
-/// exactly like gephgui-wry does.
-fn config_from_template() -> anyhow::Result<geph5_client::Config> {
+/// `Config` (from `geph5-misc-rpc`, the engine's lightweight config/RPC crate)
+/// contains externally-tagged enums (`BrokerSource`, `ExitConstraint`).
+/// `serde_yaml` renders those with YAML `!tags`, but the child parses its config
+/// by going YAML -> `serde_json::Value` -> `Config` (see
+/// `geph5-client/src/bin/geph5-client.rs`), where external tags are plain maps.
+/// So we deserialize and serialize through `serde_json::Value` to match, exactly
+/// like gephgui-wry does.
+fn config_from_template() -> anyhow::Result<geph5_misc_rpc::client_config::Config> {
     let template_val: serde_json::Value =
         serde_yaml::from_str(CONFIG_TEMPLATE).context("bad embedded config template")?;
     serde_json::from_value(template_val).context("bad embedded config template")

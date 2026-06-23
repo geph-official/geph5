@@ -5,19 +5,18 @@ use bytes::Bytes;
 use futures_util::{
     AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt, future::Shared, task::noop_waker,
 };
-use geph5_broker_protocol::{Credential, ExitConstraint, UserInfo};
+use geph5_broker_protocol::UserInfo;
 use geph5_misc_rpc::client_control::{ControlClient, ControlService};
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use smol::future::FutureExt as _;
-use std::{fs::File, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{fs::File, sync::Arc};
 
-use serde::{Deserialize, Serialize};
 use smolscale::immortal::Immortal;
 
 use crate::{
     auth::{auth_loop, get_auth_token},
-    broker::{BrokerSource, TunneledBrokerSource, broker_client},
+    broker::broker_client,
     bw_token::bw_token_refresh_loop,
     control_prot::{ControlProtocolImpl, DummyControlProtocolTransport},
     http_proxy::http_proxy_serve,
@@ -29,84 +28,12 @@ use crate::{
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Config {
-    pub socks5_listen: Option<SocketAddr>,
-    pub http_proxy_listen: Option<SocketAddr>,
-    pub pac_listen: Option<SocketAddr>,
-
-    pub control_listen: Option<SocketAddr>,
-    #[serde(default)]
-    pub control_listen_unix: Option<PathBuf>,
-    /// Windows named pipe (e.g. `\\.\pipe\geph-engine-control`) to serve the
-    /// control protocol on. The Windows analogue of `control_listen_unix`.
-    #[serde(default)]
-    pub control_listen_pipe: Option<String>,
-    pub exit_constraint: ExitConstraint,
-    #[serde(default)]
-    pub allow_direct: bool,
-
-    pub cache: Option<PathBuf>,
-
-    pub broker: Option<BrokerSource>,
-    #[serde(alias = "tunneled_broker_source")]
-    pub tunneled_broker: Option<TunneledBrokerSource>,
-    pub broker_keys: Option<BrokerKeys>,
-
-    #[serde(default)]
-    pub port_forward: Vec<PortForwardCfg>,
-
-    #[serde(default)]
-    pub spoof_dns: bool,
-    #[serde(default)]
-    pub passthrough_china: bool,
-    /// Whether to let connections to private/LAN addresses bypass the tunnel
-    /// (connect directly). Defaults to true. Set false for a strict full tunnel.
-    #[serde(default = "default_allow_lan")]
-    pub allow_lan: bool,
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default)]
-    pub credentials: Credential,
-
-    #[serde(default)]
-    pub sess_metadata: serde_json::Value,
-    pub task_limit: Option<u32>,
-}
-
-fn default_allow_lan() -> bool {
-    true
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PortForwardCfg {
-    pub listen: SocketAddr,
-    pub connect: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-/// Broker keys, in hexadecimal format.
-pub struct BrokerKeys {
-    pub master: String,
-    pub mizaru_free: String,
-    pub mizaru_plus: String,
-    pub mizaru_bw: String,
-}
-
-impl Config {
-    /// Create an "inert" version of this config that does not start any processes.
-    pub fn inert(&self) -> Self {
-        let mut this = self.clone();
-        this.dry_run = true;
-        this.socks5_listen = None;
-        this.http_proxy_listen = None;
-        this.pac_listen = None;
-        this.control_listen = None;
-        this.control_listen_unix = None;
-        this.control_listen_pipe = None;
-        this
-    }
-}
+// `Config` and its broker-source descriptors live in `geph5-misc-rpc` so that
+// tools which only configure or drive an engine (the `geph` daemon/CLI) can
+// depend on that lightweight crate instead of this whole engine. Re-exported
+// here so `geph5_client::Config` etc. keep working. The behavior over
+// `BrokerSource` lives in `broker.rs` as extension traits.
+pub use geph5_misc_rpc::client_config::{BrokerKeys, Config};
 
 #[derive(Clone)]
 pub struct Client {

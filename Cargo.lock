@@ -2450,6 +2450,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "geph5-app"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "blake3",
+ "clap",
+ "geph5-broker-protocol",
+ "geph5-misc-rpc",
+ "isocountry",
+ "libc",
+ "nanorpc",
+ "nanorpc-sillad",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sillad",
+ "smol 2.0.2",
+ "smolscale",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "geph5-bridge"
 version = "0.1.0"
 dependencies = [
@@ -2546,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.102"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2572,7 +2597,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.102"
+version = "0.3.0"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2672,32 +2697,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geph5-client-cli"
-version = "0.2.102"
-dependencies = [
- "anyhow",
- "async-trait",
- "blake3",
- "clap",
- "geph5-broker-protocol",
- "geph5-client",
- "geph5-misc-rpc",
- "isocountry",
- "libc",
- "nanorpc",
- "nanorpc-sillad",
- "serde",
- "serde_json",
- "serde_yaml",
- "sillad",
- "smol 2.0.2",
- "smolscale",
- "thiserror 1.0.69",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "geph5-exit"
 version = "0.1.0"
 dependencies = [
@@ -2772,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-ip-to-asn"
-version = "0.2.102"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2782,7 +2781,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.102"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-task",

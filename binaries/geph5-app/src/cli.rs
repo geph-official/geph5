@@ -3,7 +3,7 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "geph", version, about = "Geph5 command-line client")]
+#[command(name = "geph5", version, about = "Geph5 command-line client")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

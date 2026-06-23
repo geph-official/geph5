@@ -52,8 +52,8 @@ event-listener = "5.4.1"
 futures-concurrency = "7.7.1"
 futures-intrusive = "0.5.0"
 futures-util = "0.3.32"
-geph5-broker-protocol = { version = "0.2", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.2", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.3", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.3", path = "../../libraries/geph5-misc-rpc" }
 # geph5-ip-to-asn = { version = "0.2", path = "../../libraries/geph5-ip-to-asn"}
 hex = "0.4.3"
 http = "1.4.0"

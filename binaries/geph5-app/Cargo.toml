@@ -1,19 +1,18 @@
 [package]
-name = "geph5-client-cli"
+name = "geph5-app"
 edition = "2024"
 license = "MPL-2.0"
-description = "Mullvad-like command-line client and supervising daemon for Geph5"
+description = "The Geph5 desktop app: the `geph` CLI and its supervising daemon"
 version.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "geph"
+name = "geph5"
 path = "src/main.rs"
 
 [dependencies]
-geph5-client = { version = "0.2", path = "../geph5-client" }
-geph5-broker-protocol = { version = "0.2", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.2", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.3", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.3", path = "../../libraries/geph5-misc-rpc" }
 
 nanorpc = "0.1.13"
 nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }

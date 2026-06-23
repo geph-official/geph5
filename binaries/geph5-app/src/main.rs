@@ -49,7 +49,7 @@ fn require_root() {
     // SAFETY: geteuid is always safe to call.
     let euid = unsafe { libc::geteuid() };
     if euid != 0 {
-        eprintln!("geph daemon must be run as root (try: sudo geph daemon)");
+        eprintln!("geph5 daemon must be run as root (try: sudo geph5 daemon)");
         std::process::exit(1);
     }
 }

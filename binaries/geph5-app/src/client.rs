@@ -32,7 +32,7 @@ fn flatten<T>(r: Result<Result<T, String>, GephCtlError<anyhow::Error>>) -> anyh
         Ok(Ok(v)) => Ok(v),
         Ok(Err(msg)) => Err(anyhow::anyhow!(msg)),
         Err(GephCtlError::Transport(_)) => Err(anyhow::anyhow!(
-            "could not reach the geph daemon — is it running? start it with `sudo geph daemon`"
+            "could not reach the geph daemon — is it running? start it with `sudo geph5 daemon`"
         )),
         Err(e) => Err(anyhow::anyhow!("rpc error: {e:?}")),
     }

@@ -19,45 +19,31 @@ use priority_race::PriorityRaceTransport;
 use race::RaceTransport;
 use tunneled_http::TunneledHttpTransport;
 
-use serde::{Deserialize, Serialize};
 use sillad::tcp::TcpDialer;
-use std::{collections::BTreeMap, net::SocketAddr};
 
 use crate::{
-    client::{Config, CtxField},
+    client::CtxField,
     control_prot::CURRENT_CONNECTED_INFOS,
     timeout::{BROKER_RPC_TIMEOUT, RpcTransportExt},
 };
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum BrokerSource {
-    Direct(String),
-    Fronted {
-        front: String,
-        host: String,
-        #[serde(default)]
-        override_dns: Option<Vec<SocketAddr>>,
-    },
-    DirectTcp(SocketAddr),
-    AwsLambda {
-        function_name: String,
-        region: String,
-        obfs_key: String,
-    },
-    Race(Vec<BrokerSource>),
-    PriorityRace(BTreeMap<u64, BrokerSource>),
+// The descriptor *types* live in geph5-misc-rpc (so the daemon/CLI can configure
+// an engine without depending on it); the behavior that turns them into live
+// transports stays here on the `ConfigHelperExt` extension trait. Re-exported so
+// `geph5_client::broker` paths keep working.
+pub use geph5_misc_rpc::client_config::{BrokerSource, TunneledBrokerSource};
+use geph5_misc_rpc::client_config::Config;
+
+/// Engine-side behavior bolted onto the plain config descriptors that live in
+/// `geph5-misc-rpc`: turning a broker source into a live RPC transport.
+pub(crate) trait ConfigHelperExt {
+    /// Build a broker RPC transport from this source. `ctx` is used by sources
+    /// that tunnel through the engine; direct sources ignore it.
+    fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport;
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum TunneledBrokerSource {
-    Direct(String),
-}
-
-impl BrokerSource {
-    /// Converts to a RpcTransport.
-    pub fn rpc_transport(&self) -> DynRpcTransport {
+impl ConfigHelperExt for BrokerSource {
+    fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
         match self {
             BrokerSource::Direct(s) => DynRpcTransport::new(
                 FrontedHttpTransport {
@@ -105,19 +91,22 @@ impl BrokerSource {
             BrokerSource::Race(race_between) => {
                 let transports = race_between
                     .iter()
-                    .map(|bs| bs.rpc_transport())
+                    .map(|bs| bs.rpc_transport(ctx))
                     .collect_vec();
                 DynRpcTransport::new(RaceTransport::new(transports))
             }
             BrokerSource::PriorityRace(inner) => {
-                let inner = inner.iter().map(|(k, v)| (*k, v.rpc_transport())).collect();
+                let inner = inner
+                    .iter()
+                    .map(|(k, v)| (*k, v.rpc_transport(ctx)))
+                    .collect();
                 DynRpcTransport::new(PriorityRaceTransport::new(inner))
             }
         }
     }
 }
 
-impl TunneledBrokerSource {
+impl ConfigHelperExt for TunneledBrokerSource {
     fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
         match self {
             TunneledBrokerSource::Direct(url) => DynRpcTransport::new(
@@ -152,7 +141,7 @@ pub fn broker_client(ctx: &AnyCtx<Config>) -> anyhow::Result<&BrokerClient> {
 
 static BROKER_CLIENT: CtxField<Option<BrokerClient>> = |ctx| {
     ctx.init().broker.as_ref().map(|src| {
-        let normal = src.rpc_transport();
+        let normal = src.rpc_transport(ctx);
         let tunneled = ctx
             .init()
             .tunneled_broker
