@@ -32,6 +32,13 @@ mod imp {
     const FWMARK_MASK: &str = "0x6765/0xffff";
     const RULE_PRIO: &str = "100";
 
+    // IPv6 policy-routing rule priorities (see `setup_ipv6`). Lower = evaluated
+    // first. The engine's own v6 is matched (and made direct/unreachable) before
+    // the catch-all that sends everything else into the tun.
+    const V6_PRIO_GEPH_DIRECT: &str = "90";
+    const V6_PRIO_GEPH_GUARD: &str = "95";
+    const V6_PRIO_TUN_ALL: &str = "120";
+
     // From <linux/if_tun.h>: TUNSETIFF = _IOW('T', 202, int). Kept as a plain
     // integer and cast with `as _` at the call site, because `libc::ioctl`'s
     // request argument is `c_ulong` on glibc but `c_int` on musl.
@@ -94,24 +101,55 @@ mod imp {
         run("ip", &["link", "set", TUN_IFACE, "up"])?;
         run("ip", &["link", "set", TUN_IFACE, "mtu", TUN_MTU])?;
         run("ip", &["addr", "replace", TUN_V4, "dev", TUN_IFACE])?;
-        // IPv6 is best-effort: if it fails (v6 disabled) the kill switch still
-        // drops any non-tunneled v6 (fail-closed), so there's no v6 leak.
-        let _ = run("ip", &["-6", "addr", "replace", TUN_V6, "dev", TUN_IFACE]);
-
         run("ip", &["route", "replace", "default", "dev", TUN_IFACE, "table", RT_TABLE])?;
-        let _ = run("ip", &["-6", "route", "replace", "default", "dev", TUN_IFACE, "table", RT_TABLE]);
         run("ip", &["rule", "add", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO])?;
-        let _ = run("ip", &["-6", "rule", "add", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO]);
+
+        // IPv6 needs a different mechanism than v4 — best-effort (see setup_ipv6).
+        setup_ipv6(geph_uid);
 
         firewall_install(geph_uid).context("installing nft kill switch")?;
         Ok(VpnHandle { tun })
+    }
+
+    /// Route IPv6 into the tunnel.
+    ///
+    /// v4 works by letting the host's main table emit the packet (every host has
+    /// a v4 default route) and then having the nft marker re-route non-engine
+    /// packets into the tun. v6 can't rely on that: hosts frequently have no v6
+    /// default route, so an app's `connect()` to a v6 address fails at route
+    /// lookup *before* any packet exists to mark — so v6 is silently dead even
+    /// though the exit can egress it. So for v6 we route by uid directly: send
+    /// every *non-engine* v6 packet into the tun, while keeping the engine's own
+    /// v6 on the physical NIC — or unreachable, if the host has no native v6 — so
+    /// it can never loop back through the tunnel into itself.
+    ///
+    /// All best-effort: on failure we leave v6 alone (the kill switch still drops
+    /// any non-tunneled v6, so there's no leak), and the catch-all that funnels
+    /// everything into the tun is installed only once the engine is safely
+    /// excluded above it.
+    fn setup_ipv6(geph_uid: u32) {
+        let _ = run("ip", &["-6", "addr", "replace", TUN_V6, "dev", TUN_IFACE]);
+        let _ = run("ip", &["-6", "route", "replace", "default", "dev", TUN_IFACE, "table", RT_TABLE]);
+
+        let uids = format!("{geph_uid}-{geph_uid}");
+        // Engine's own v6: physical NIC if the host has v6, else unreachable.
+        let direct = run("ip", &["-6", "rule", "add", "uidrange", &uids, "table", "main", "priority", V6_PRIO_GEPH_DIRECT]).is_ok();
+        let guard = run("ip", &["-6", "rule", "add", "uidrange", &uids, "type", "unreachable", "priority", V6_PRIO_GEPH_GUARD]).is_ok();
+        // Everything else: into the tun.
+        if direct && guard {
+            let _ = run("ip", &["-6", "rule", "add", "table", RT_TABLE, "priority", V6_PRIO_TUN_ALL]);
+        }
     }
 
     /// Remove all VPN routing/firewall state. Error-tolerant / idempotent.
     pub fn teardown() {
         firewall_remove();
         let _ = run("ip", &["rule", "del", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO]);
+        // v6 policy rules by priority (plus the legacy v6 fwmark rule, for upgrades).
         let _ = run("ip", &["-6", "rule", "del", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO]);
+        for prio in [V6_PRIO_GEPH_DIRECT, V6_PRIO_GEPH_GUARD, V6_PRIO_TUN_ALL] {
+            let _ = run("ip", &["-6", "rule", "del", "priority", prio]);
+        }
         let _ = run("ip", &["route", "flush", "table", RT_TABLE]);
         let _ = run("ip", &["-6", "route", "flush", "table", RT_TABLE]);
         let _ = run("ip", &["link", "del", TUN_IFACE]);
