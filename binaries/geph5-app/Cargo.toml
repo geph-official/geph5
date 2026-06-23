@@ -30,7 +30,7 @@ smol = "2.0.2"
 smolscale = "0.4.16"
 thiserror = "1.0.69"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["json"] }
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
