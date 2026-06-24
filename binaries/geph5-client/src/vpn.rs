@@ -1,8 +1,8 @@
 //! This module provides functionality for setting up a system-level VPN.
 #[cfg(target_os = "linux")]
 mod linux;
+use async_channel::{Receiver, Sender};
 use bytes::Bytes;
-use smol::channel::{Receiver, Sender};
 
 use ipstack_geph::{IpStack, IpStackConfig};
 #[cfg(target_os = "linux")]
@@ -18,14 +18,14 @@ use std::{net::IpAddr, time::Instant};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
-use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt as _};
+use futures_concurrency::future::Race as _;
+use futures_util::TryFutureExt as _;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
 use windows::*;
-
-use smol::future::FutureExt;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -64,14 +64,14 @@ pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
 }
 
 static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, Instant)>)> =
-    |_| smol::channel::bounded(100);
+    |_| async_channel::bounded(100);
 
 static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> =
-    |_| smol::channel::bounded(100);
+    |_| async_channel::bounded(100);
 
 pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    let (send_captured, recv_captured) = smol::channel::bounded(100);
-    let (send_injected, recv_injected) = smol::channel::bounded(100);
+    let (send_captured, recv_captured) = async_channel::bounded(100);
+    let (send_injected, recv_injected) = async_channel::bounded(100);
 
     let ipstack = IpStack::new(
         #[cfg(target_os = "ios")]
@@ -90,13 +90,13 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         send_injected,
     );
     let _shuffle = if ctx.init().vpn {
-        smolscale::spawn(
+        geph5_rt::spawn(
             packet_shuffle(ctx.clone(), send_captured, recv_injected)
                 .inspect_err(|e| tracing::warn!(e = debug(e), "packet_shuffle stopped")),
         )
     } else {
         let ctx = ctx.clone();
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             let up_loop = async {
                 loop {
                     let (bts, time) = ctx.get(VPN_CAPTURE_CHAN).1.recv().await?;
@@ -118,7 +118,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     let _ = ctx.get(VPN_INJECT_CHAN).0.send(bts).await;
                 }
             };
-            up_loop.race(dn_loop).await
+            (up_loop, dn_loop).race().await
         })
     };
     loop {
@@ -136,13 +136,16 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                 );
                 let ctx_clone = ctx.clone();
 
-                let task = smolscale::spawn(async move {
+                let task = geph5_rt::spawn(async move {
                     let tunneled = open_conn(&ctx_clone, "tcp", &peer_addr.to_string()).await?;
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
-                    let (read_tunneled, write_tunneled) = tunneled.split();
-                    let (read_captured, write_captured) = captured.split();
-                    litecopy(read_tunneled, write_captured)
-                        .race(litecopy(read_captured, write_tunneled))
+                    let (read_tunneled, write_tunneled) = tokio::io::split(tunneled);
+                    let (read_captured, write_captured) = tokio::io::split(captured);
+                    (
+                        litecopy(read_tunneled, write_captured),
+                        litecopy(read_captured, write_tunneled),
+                    )
+                        .race()
                         .await?;
                     anyhow::Ok(())
                 });
@@ -170,7 +173,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     peer_addr
                 };
                 let ctx_clone = ctx.clone();
-                let task = smolscale::spawn::<anyhow::Result<()>>(async move {
+                let task = geph5_rt::spawn(async move {
                     if peer_addr.port() == 53 && ctx_clone.init().spoof_dns {
                         // fakedns handling
                         loop {
@@ -179,7 +182,7 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         }
                     } else {
                         let tunneled = open_conn(&ctx_clone, "udp", &peer_addr.to_string()).await?;
-                        let (mut read_tunneled, mut write_tunneled) = tunneled.split();
+                        let (mut read_tunneled, mut write_tunneled) = tokio::io::split(tunneled);
                         let up_loop = async {
                             loop {
                                 let to_up = captured.recv().await?;
@@ -189,6 +192,8 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                                 write_tunneled.write_all(&to_up).await?;
                                 write_tunneled.flush().await?;
                             }
+                            #[allow(unreachable_code)]
+                            anyhow::Ok(())
                         };
                         let dn_loop = async {
                             loop {
@@ -199,8 +204,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                                 read_tunneled.read_exact(&mut buf).await?;
                                 captured.send(&buf).await?;
                             }
+                            #[allow(unreachable_code)]
+                            anyhow::Ok(())
                         };
-                        up_loop.race(dn_loop).await
+                        (up_loop, dn_loop).race().await
                     }
                 });
                 if let Some(task_limit) = ctx.init().task_limit {

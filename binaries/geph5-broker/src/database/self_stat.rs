@@ -84,6 +84,6 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
 
             sink.send_many(&events);
         }
-        async_io::Timer::after(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }

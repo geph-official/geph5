@@ -1,19 +1,21 @@
-use async_task::Task;
 use async_trait::async_trait;
-use bipe::{BipeReader, BipeWriter};
-use futures_util::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use geph5_rt::{Task, spawn};
 use pin_project::pin_project;
 use sillad::{Pipe, dialer::Dialer, listener::Listener};
-use smolscale::spawn;
-use std::{io, pin::Pin};
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 
 #[pin_project]
 pub struct SubstitutionPipe {
     #[pin]
-    read_incoming: BipeReader,
+    read_incoming: DuplexStream,
     _read_task: Task<()>,
     #[pin]
-    write_outgoing: BipeWriter,
+    write_outgoing: DuplexStream,
     _write_task: Task<()>,
     addr: Option<String>,
 }
@@ -28,9 +30,9 @@ impl SubstitutionPipe {
         }
 
         let addr = pipe.remote_addr().map(|s| s.to_string());
-        let (mut read_half, mut write_half) = pipe.split();
-        let (mut write_incoming, read_incoming) = bipe::bipe(32768);
-        let (write_outgoing, mut read_outgoing) = bipe::bipe(32768);
+        let (mut read_half, mut write_half) = tokio::io::split(pipe);
+        let (mut write_incoming, read_incoming) = tokio::io::duplex(32768);
+        let (write_outgoing, mut read_outgoing) = tokio::io::duplex(32768);
 
         // Task: read encrypted bytes, decode, feed into read_incoming
         let inv_map_task = inv_map;
@@ -90,9 +92,9 @@ impl SubstitutionPipe {
 impl AsyncRead for SubstitutionPipe {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<io::Result<usize>> {
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         self.project().read_incoming.poll_read(cx, buf)
     }
 }
@@ -100,24 +102,18 @@ impl AsyncRead for SubstitutionPipe {
 impl AsyncWrite for SubstitutionPipe {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         self.project().write_outgoing.poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.project().write_outgoing.poll_flush(cx)
     }
 
-    fn poll_close(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
-        self.project().write_outgoing.poll_close(cx)
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.project().write_outgoing.poll_shutdown(cx)
     }
 }
 

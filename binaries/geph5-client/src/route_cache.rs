@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn cached_exit_route_round_trips_and_overwrites() {
-        smolscale::block_on(async {
+        geph5_rt::block_on(async {
             let ctx = AnyCtx::new(test_config());
             let constraint = ExitConstraint::Country(CountryCode::CAN);
             let initial = sample_route(9000);
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn corrupt_cached_exit_route_is_deleted() {
-        smolscale::block_on(async {
+        geph5_rt::block_on(async {
             let ctx = AnyCtx::new(test_config());
             let constraint = ExitConstraint::Hostname("example.com".into());
             let cache_key = serde_json::to_string(&constraint).unwrap();

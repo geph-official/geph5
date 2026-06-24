@@ -3,8 +3,8 @@ use anyhow::Context;
 use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
+use futures_concurrency::future::Race as _;
 use futures_intrusive::sync::ManualResetEvent;
-use futures_util::AsyncReadExt as _;
 use geph5_misc_rpc::{
     client_control::ConnectedInfo,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
@@ -13,12 +13,11 @@ use geph5_misc_rpc::{
     write_prepend_length,
 };
 
+use geph5_rt::TimeoutExt;
 use picomux::{LivenessConfig, PicoMux};
 use rand::Rng;
 use sillad::{EitherPipe, Pipe, dialer::Dialer as _};
 use slab::Slab;
-use smol::future::FutureExt as _;
-use smol_timeout2::TimeoutExt;
 use std::{
     convert::Infallible,
     net::{IpAddr, SocketAddr},
@@ -105,7 +104,7 @@ pub async fn open_conn(
     if let Some((dest_host, _)) = dest_addr.rsplit_once(":")
         && whitelist_host(ctx, dest_host)
     {
-        let addrs = smol::net::resolve(&dest_addr).await?;
+        let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&dest_addr).await?.collect();
         for addr in addrs.iter() {
             smart_vpn_whitelist(ctx, addr.ip());
         }
@@ -151,7 +150,7 @@ async fn wait_for_session(ctx: &AnyCtx<Config>) -> Arc<ConnectedSession> {
         if let Some(session) = select_session(ctx) {
             return session;
         }
-        smol::Timer::after(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -256,10 +255,10 @@ pub async fn run_session(ctx: AnyCtx<Config>) -> Infallible {
 
     let _refresh = {
         let ctx = ctx.clone();
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             loop {
                 let sleep_secs = rand::thread_rng().gen_range(300..3600);
-                smol::Timer::after(Duration::from_secs(sleep_secs)).await;
+                tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
                 let _ = get_dialer(&ctx).await;
             }
         })
@@ -267,9 +266,9 @@ pub async fn run_session(ctx: AnyCtx<Config>) -> Infallible {
 
     for worker_id in 0..TARGET_SESSION_COUNT {
         let ctx = ctx.clone();
-        smolscale::spawn(session_worker(ctx, worker_id)).detach();
+        geph5_rt::spawn(session_worker(ctx, worker_id)).detach();
     }
-    smol::future::pending().await
+    std::future::pending().await
 }
 
 #[tracing::instrument(skip(ctx))]
@@ -277,7 +276,7 @@ async fn session_worker(ctx: AnyCtx<Config>, worker_id: usize) -> Infallible {
     let mut failures = 0.0f64;
     if worker_id > 0 {
         let jitter = rand::thread_rng().gen_range(0.0..120.0);
-        smol::Timer::after(Duration::from_secs_f64(jitter)).await;
+        tokio::time::sleep(Duration::from_secs_f64(jitter)).await;
     }
 
     loop {
@@ -295,7 +294,7 @@ async fn session_worker(ctx: AnyCtx<Config>, worker_id: usize) -> Infallible {
                 wait_time = debug(wait_time),
                 "individual client session failed..."
             );
-            smol::Timer::after(wait_time).await;
+            tokio::time::sleep(wait_time).await;
             tracing::warn!(worker_id, wait_time = debug(wait_time), "retrying now!");
         } else {
             failures = 0.0;
@@ -396,12 +395,12 @@ async fn run_session_once(
 
 pub async fn wait_until_tunnel_ready(ctx: &AnyCtx<Config>) {
     while ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty() {
-        smol::Timer::after(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
 fn start_mux(authed_pipe: impl Pipe) -> Arc<PicoMux> {
-    let (read, write) = authed_pipe.split();
+    let (read, write) = tokio::io::split(authed_pipe);
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
         ping_interval: Duration::from_secs(1200),
@@ -417,10 +416,9 @@ async fn proxy_loop(
     session: Arc<ConnectedSession>,
     accounting_loop: BwAccountingLoop,
 ) -> anyhow::Result<()> {
-    session
-        .mux
-        .wait_until_dead()
-        .or(async {
+    (
+        session.mux.wait_until_dead(),
+        async {
             if ctx.get(IS_PLUS).load(Ordering::SeqCst) {
                 bw_accounting_client_loop(
                     ctx.clone(),
@@ -429,14 +427,16 @@ async fn proxy_loop(
                 )
                 .await
             } else {
-                smol::future::pending().await
+                std::future::pending().await
             }
-        })
-        .or(async {
+        },
+        async {
             session.early_dead.wait().await;
             tracing::warn!("dying due to an early-dead signal");
             anyhow::bail!("early dead")
-        })
+        },
+    )
+        .race()
         .await
 }
 
@@ -552,7 +552,10 @@ mod tests {
     fn bridged_session_reports_bridge() {
         let exit = sample_exit();
         let bridge_addr = SocketAddr::from((Ipv4Addr::new(203, 0, 113, 7), 9000));
-        assert_eq!(bridge_addr_for_session(Some(bridge_addr), &exit), Some(bridge_addr));
+        assert_eq!(
+            bridge_addr_for_session(Some(bridge_addr), &exit),
+            Some(bridge_addr)
+        );
     }
 
     #[test]

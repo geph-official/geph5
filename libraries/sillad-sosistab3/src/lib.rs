@@ -2,11 +2,11 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     io::{ErrorKind, Read, Write},
-    task::Poll,
+    task::{Poll, ready},
 };
 
-use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use serde::{Deserialize, Serialize};
 use sillad::Pipe;
@@ -123,7 +123,7 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
         }
         loop {
             tracing::trace!(bytes_to_write = this.to_write_buf.len(), "polling write");
-            let res = futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf));
+            let res = ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf));
             match res {
                 Ok(n) => {
                     tracing::trace!(
@@ -153,7 +153,7 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
     ) -> Poll<std::io::Result<()>> {
         let mut this = self.project();
         if !this.to_write_buf.is_empty() {
-            match futures_util::ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf)) {
+            match ready!(this.lower.as_mut().poll_write(cx, this.to_write_buf)) {
                 Ok(n) => {
                     this.to_write_buf.drain(..n);
                     if !this.to_write_buf.is_empty() {
@@ -168,11 +168,11 @@ impl<P: Pipe> AsyncWrite for SosistabPipe<P> {
         this.lower.poll_flush(cx)
     }
 
-    fn poll_close(
+    fn poll_shutdown(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        self.project().lower.poll_close(cx)
+        self.project().lower.poll_shutdown(cx)
     }
 }
 
@@ -181,24 +181,38 @@ impl<P: Pipe> AsyncRead for SosistabPipe<P> {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         let mut this = self.project();
         loop {
             if !this.read_buf.is_empty() || *this.read_closed {
                 tracing::trace!(buf_len = this.read_buf.len(), "reading from the read_buf");
-                return Poll::Ready(this.read_buf.read(buf));
+                // Drain as many decrypted bytes as the caller's buffer can hold.
+                // (When read_buf is empty and the stream is closed, this copies
+                // nothing, signaling EOF.)
+                let to_copy = this.read_buf.len().min(buf.remaining());
+                if to_copy > 0 {
+                    let dst = buf.initialize_unfilled_to(to_copy);
+                    // Reading from a VecDeque<u8> is infallible.
+                    let n = this.read_buf.read(&mut dst[..to_copy]).unwrap_or(0);
+                    buf.advance(n);
+                }
+                return Poll::Ready(Ok(()));
             } else {
-                // we reuse buf as a temporary buffer
-                let n = futures_util::ready!(this.lower.as_mut().poll_read(cx, buf));
-                match n {
+                // Read raw ciphertext from the lower pipe into a scratch buffer.
+                let mut scratch = [0u8; 16384];
+                let mut scratch_buf = ReadBuf::new(&mut scratch);
+                let res = ready!(this.lower.as_mut().poll_read(cx, &mut scratch_buf));
+                match res {
                     Err(e) => return Poll::Ready(Err(e)),
-                    Ok(n) => {
+                    Ok(()) => {
+                        let filled = scratch_buf.filled();
+                        let n = filled.len();
                         if n == 0 {
                             *this.read_closed = true;
                             continue;
                         }
-                        this.raw_read_buf.write_all(&buf[..n]).unwrap();
+                        this.raw_read_buf.write_all(filled).unwrap();
                         tracing::trace!(
                             n,
                             raw_buf_len = this.raw_read_buf.len(),

@@ -12,7 +12,7 @@ pub async fn pac_serve(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(if let Some(listen) = ctx.init().pac_listen {
         listen
     } else {
-        smol::future::pending().await
+        std::future::pending().await
     })
     .await?;
 

@@ -1,20 +1,18 @@
 use anyctx::AnyCtx;
 use anyhow::Context;
+use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures_util::{AsyncReadExt, AsyncWriteExt};
+use futures_concurrency::future::Race as _;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UdpSocket;
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use smol::{
-    channel::{Receiver, Sender},
-    future::FutureExt as _,
-    net::UdpSocket,
-};
 use std::{
     net::{IpAddr, Ipv4Addr},
     process::Command,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use crate::{
@@ -77,12 +75,12 @@ pub(super) async fn packet_shuffle(
     send_captured: Sender<Bytes>,
     recv_injected: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
-    let dns_proxy = UdpSocket::bind("127.0.0.1:0").await?;
+    let dns_proxy = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
     *GEPH_DNS.lock() = dns_proxy.local_addr()?.to_string();
     let dns_proxy_v6 = match UdpSocket::bind("[::1]:0").await {
         Ok(sock) => {
             *GEPH_DNS_IPV6.lock() = sock.local_addr()?.to_string();
-            Some(sock)
+            Some(Arc::new(sock))
         }
         Err(err) => {
             *GEPH_DNS_IPV6.lock() = String::new();
@@ -107,7 +105,7 @@ pub(super) async fn packet_shuffle(
             } else {
                 let dns_proxy = dns_proxy.clone();
                 let ctx = ctx.clone();
-                smolscale::spawn(async move {
+                geph5_rt::spawn(async move {
                     let buf = &buf[..n];
                     let mut conn = open_conn(&ctx, "udp", "1.1.1.1:53").await?;
                     conn.write_all(&(buf.len() as u16).to_le_bytes()).await?;
@@ -123,10 +121,12 @@ pub(super) async fn packet_shuffle(
                 .detach();
             }
         }
+        #[allow(unreachable_code)]
+        anyhow::Ok(())
     };
     if let Some(dns_proxy_v6) = dns_proxy_v6 {
         let ctx = ctx.clone();
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             let dns_proxy_loop_v6 = async move {
                 tracing::info!(
                     addr = display(dns_proxy_v6.local_addr().unwrap()),
@@ -143,7 +143,7 @@ pub(super) async fn packet_shuffle(
                     } else {
                         let dns_proxy_v6 = dns_proxy_v6.clone();
                         let ctx = ctx.clone();
-                        smolscale::spawn(async move {
+                        geph5_rt::spawn(async move {
                             let buf = &buf[..n];
                             let mut conn =
                                 open_conn(&ctx, "udp", "[2606:4700:4700::1111]:53").await?;
@@ -173,19 +173,22 @@ pub(super) async fn packet_shuffle(
     use std::os::fd::{AsRawFd, FromRawFd};
     let tun_device = configure_tun_device();
     let fd_num = tun_device.as_raw_fd();
-    let up_file = smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd_num) })
-        .context("cannot init up_file")?;
+    let up_file =
+        geph5_rt::asyncfd::AsyncFdStream::new(unsafe { std::fs::File::from_raw_fd(fd_num) })
+            .context("cannot init up_file")?;
 
     wait_until_tunnel_ready(&ctx).await;
     setup_routing().unwrap();
     scopeguard::defer!(teardown_routing());
-    let (mut read, mut write) = up_file.split();
+    let (mut read, mut write) = tokio::io::split(up_file);
     let inject = async {
         loop {
             let injected = recv_injected.recv().await?;
             tracing::trace!(n = injected.len(), "going to inject into the TUN");
             let _ = write.write(&injected).await?;
         }
+        #[allow(unreachable_code)]
+        anyhow::Ok(())
     };
     let capture = async {
         let mut buf = vec![0u8; 65536];
@@ -195,8 +198,10 @@ pub(super) async fn packet_shuffle(
             tracing::trace!(n, "captured packet from TUN");
             send_captured.send(Bytes::copy_from_slice(buf)).await?;
         }
+        #[allow(unreachable_code)]
+        anyhow::Ok(())
     };
-    inject.race(capture).race(dns_proxy_loop).await
+    (inject, capture, dns_proxy_loop).race().await
 }
 
 #[cfg(target_os = "linux")]

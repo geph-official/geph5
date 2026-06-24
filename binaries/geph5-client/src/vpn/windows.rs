@@ -9,9 +9,9 @@ use bytes::Bytes;
 
 use dashmap::DashSet;
 
+use async_channel::{Receiver, Sender};
 use once_cell::sync::Lazy;
 use pnet_packet::{ipv4::Ipv4Packet, ipv6::Ipv6Packet};
-use smol::channel::{Receiver, Sender};
 
 use crate::{Config, session::wait_until_tunnel_ready};
 
@@ -31,7 +31,7 @@ pub(super) async fn packet_shuffle(
         let ctx = ctx.clone();
         move || dn_shuffle(ctx, recv_injected)
     });
-    smol::future::pending().await
+    std::future::pending().await
 }
 
 #[cfg(feature = "windivert")]

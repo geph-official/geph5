@@ -1,12 +1,11 @@
 use std::time::{Duration, Instant};
 
-use async_io::Timer;
-use async_task::Task;
 use async_trait::async_trait;
-use futures_lite::FutureExt as _;
-use futures_util::{AsyncReadExt, AsyncWriteExt};
+use futures_concurrency::future::Race;
+use geph5_rt::{Task, spawn};
 use rand::{Rng, RngCore};
 use sillad::{Pipe, dialer::Dialer, listener::Listener};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Wraps an underlying dialer with a connection quality test.
 pub struct ConnTestDialer<D: Dialer> {
@@ -65,20 +64,20 @@ impl<L: Listener> ConnTestListener<L> {
         // Create a channel for passing successfully tested connections.
         let (send_conn, recv_conn) = tachyonix::channel(1);
         // Spawn a background task that loops over accepted connections.
-        let task = smolscale::spawn(async move {
+        let task = spawn(async move {
             loop {
                 // Accept a new connection from the underlying listener.
                 let mut conn = match listener.accept().await {
                     Ok(c) => c,
                     Err(e) => {
                         tracing::warn!("Failed to accept connection: {:?}", e);
-                        async_io::Timer::after(Duration::from_secs(1)).await;
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                         continue;
                     }
                 };
                 let send_conn = send_conn.clone();
                 // For each accepted connection, spawn a task to perform the ping test.
-                smolscale::spawn::<std::io::Result<()>>(async move {
+                spawn(async move {
                     let inner = async {
                         loop {
                             let mut size_buf = [0u8; 2];
@@ -94,12 +93,11 @@ impl<L: Listener> ConnTestListener<L> {
                             conn.write_all(&payload).await?;
                         }
                     };
-                    inner
-                        .or(async {
-                            Timer::after(Duration::from_secs(30)).await;
-                            Ok(())
-                        })
-                        .await
+                    let timeout = async {
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        std::io::Result::<()>::Ok(())
+                    };
+                    (inner, timeout).race().await
                 })
                 .detach();
             }
@@ -127,16 +125,11 @@ impl<L: Listener> Listener for ConnTestListener<L> {
 mod tests {
     use super::*;
 
-    use futures_lite::{AsyncReadExt, AsyncWriteExt};
-
+    use geph5_rt::{block_on, spawn};
     use sillad::tcp::{TcpDialer, TcpListener};
-    use smolscale::spawn;
     use std::io;
     use std::net::SocketAddr;
-
-    // If your TCP types are defined in another module, adjust these imports accordingly.
-    // For example:
-    // use crate::{TcpListener, TcpDialer};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// This unit test creates a TCP listener (wrapped by `ConnTestListener`) that
     /// echoes incoming data. The client uses `ConnTestDialer` to perform several
@@ -144,7 +137,7 @@ mod tests {
     /// message is echoed back correctly.
     #[test]
     fn test_successful_ping() -> io::Result<()> {
-        async_io::block_on(async {
+        block_on(async {
             // Bind a TCP listener to an ephemeral port on localhost.
             let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
             let tcp_listener = TcpListener::bind(addr).await?;
@@ -204,7 +197,7 @@ mod tests {
     /// As a result, the `ConnTestDialer` should detect the invalid data and fail.
     #[test]
     fn test_failed_ping() -> io::Result<()> {
-        async_io::block_on(async {
+        block_on(async {
             // Bind a TCP listener to an ephemeral port.
             let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
             let mut tcp_listener = TcpListener::bind(addr).await?;

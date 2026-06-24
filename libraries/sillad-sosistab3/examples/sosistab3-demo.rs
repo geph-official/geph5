@@ -2,14 +2,14 @@ use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
-use futures::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use futures_util::future;
+use futures_concurrency::future::TryJoin;
 use sillad::{
     dialer::Dialer,
     listener::Listener,
     tcp::{TcpDialer, TcpListener, TcpPipe},
 };
 use sillad_sosistab3::{Cookie, SosistabPipe, dialer::SosistabDialer, listener::SosistabListener};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 /// A simple CLI demo that tunnels TCP traffic through sosistab3.
 #[derive(Parser, Debug)]
@@ -54,9 +54,8 @@ struct ClientArgs {
 }
 
 fn main() -> Result<()> {
-    smolscale::permanently_single_threaded();
     let cli = Cli::parse();
-    smolscale::block_on(async move {
+    geph5_rt::block_on(async move {
         match cli.command {
             Commands::Server(args) => server_main(args).await,
             Commands::Client(args) => client_main(args).await,
@@ -82,7 +81,7 @@ async fn server_main(args: ServerArgs) -> Result<()> {
     let mut listener = SosistabListener::new(tcp_listener, cookie);
     loop {
         let pipe = listener.accept().await?;
-        smolscale::spawn(handle_server_pipe(pipe, connect)).detach();
+        geph5_rt::spawn(handle_server_pipe(pipe, connect)).detach();
     }
 }
 
@@ -111,7 +110,7 @@ async fn client_main(args: ClientArgs) -> Result<()> {
     );
     loop {
         let conn = local_listener.accept().await?;
-        smolscale::spawn(handle_client_pipe(conn, connect, cookie)).detach();
+        geph5_rt::spawn(handle_client_pipe(conn, connect, cookie)).detach();
     }
 }
 
@@ -132,20 +131,20 @@ where
     L: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     R: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    let (mut left_read, mut left_write) = left.split();
-    let (mut right_read, mut right_write) = right.split();
+    let (mut left_read, mut left_write) = tokio::io::split(left);
+    let (mut right_read, mut right_write) = tokio::io::split(right);
 
     let left_to_right = async {
-        io::copy(&mut left_read, &mut right_write).await?;
-        right_write.close().await?;
+        tokio::io::copy(&mut left_read, &mut right_write).await?;
+        right_write.shutdown().await?;
         Ok::<_, std::io::Error>(())
     };
     let right_to_left = async {
-        io::copy(&mut right_read, &mut left_write).await?;
-        left_write.close().await?;
+        tokio::io::copy(&mut right_read, &mut left_write).await?;
+        left_write.shutdown().await?;
         Ok::<_, std::io::Error>(())
     };
 
-    future::try_join(left_to_right, right_to_left).await?;
+    (left_to_right, right_to_left).try_join().await?;
     Ok(())
 }

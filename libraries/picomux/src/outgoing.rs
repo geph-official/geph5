@@ -4,7 +4,8 @@ use std::sync::{
 };
 
 use crossbeam_queue::SegQueue;
-use futures_lite::{AsyncWrite, AsyncWriteExt};
+use geph5_rt::{Task, spawn};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::frame::Frame;
 
@@ -13,7 +14,7 @@ use crate::frame::Frame;
 pub struct Outgoing {
     inner: Arc<Inner>,
     err: Arc<OnceLock<anyhow::Error>>,
-    _task: Arc<async_task::Task<()>>,
+    _task: Arc<Task<()>>,
 }
 
 impl Outgoing {
@@ -24,11 +25,11 @@ impl Outgoing {
         // DIAG watchdog: detect an outgoing_loop parked while frames are queued.
         {
             let weak = Arc::downgrade(&inner);
-            smolscale::spawn(async move {
+            spawn(async move {
                 let mut last_written = 0u64;
                 let mut stuck_ticks = 0u32;
                 loop {
-                    async_io::Timer::after(std::time::Duration::from_secs(2)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     let Some(inner) = weak.upgrade() else { return };
                     let q = inner.queue.len();
                     let w = inner.written.load(Ordering::Relaxed);
@@ -52,7 +53,7 @@ impl Outgoing {
         Self {
             inner: inner.clone(),
             err: err_cell.clone(),
-            _task: Arc::new(smolscale::spawn(async move {
+            _task: Arc::new(spawn(async move {
                 if let Err(err) = outgoing_loop(write, inner).await {
                     err_cell.set(err).unwrap();
                 }

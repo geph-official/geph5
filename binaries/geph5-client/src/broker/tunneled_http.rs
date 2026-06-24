@@ -4,7 +4,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, Uri, client::conn::http1};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
-use smol::lock::Mutex;
+use tokio::sync::Mutex;
 
 use crate::{
     Config,
@@ -56,17 +56,22 @@ impl TunneledHttpTransport {
         let remote = format!("{host}:{port}");
         let conn = crate::session::open_conn(&self.ctx, "tcp", &remote).await?;
         let io = if let Some(tls_host) = &self.tls_host {
-            let tls = async_native_tls::TlsConnector::new()
+            let connector = tokio_native_tls::TlsConnector::from(
+                native_tls::TlsConnector::builder()
+                    .build()
+                    .context("cannot build TLS connector")?,
+            );
+            let tls = connector
                 .connect(tls_host, conn)
                 .await
                 .context("cannot establish tunneled TLS session")?;
-            Io::Tls(HyperRtCompat::new(async_compat::Compat::new(tls)))
+            Io::Tls(HyperRtCompat::new(tls))
         } else {
             Io::Plain(HyperRtCompat::new(TunneledConnection::new(conn)))
         };
 
         let (sender, connection) = http1::handshake(io).await?;
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             if let Err(err) = connection.await {
                 tracing::debug!(err = debug(err), "tunneled broker HTTP connection ended");
             }
@@ -131,7 +136,7 @@ impl RpcTransport for TunneledHttpTransport {
 
 enum Io {
     Plain(HyperRtCompat<TunneledConnection>),
-    Tls(HyperRtCompat<async_compat::Compat<async_native_tls::TlsStream<Box<dyn sillad::Pipe>>>>),
+    Tls(HyperRtCompat<tokio_native_tls::TlsStream<Box<dyn sillad::Pipe>>>),
 }
 
 impl hyper::rt::Read for Io {

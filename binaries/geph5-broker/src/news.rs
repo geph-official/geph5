@@ -4,8 +4,8 @@ use anyhow::Context;
 use geph5_broker_protocol::LegacyNewsItem;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use smol::lock::Mutex;
 use sqlx::types::chrono::NaiveDate;
+use tokio::sync::Mutex;
 
 use crate::CONFIG_FILE;
 
@@ -24,13 +24,13 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<LegacyNewsItem>> 
     let cache_path = format!("/tmp/geph5_news_{lang_code}.json");
 
     // First, try to read the cached data regardless of age
-    let cached_news = match smol::fs::read_to_string(&cache_path).await {
+    let cached_news = match tokio::fs::read_to_string(&cache_path).await {
         Ok(cached_data) => serde_json::from_str::<Vec<LegacyNewsItem>>(&cached_data).ok(),
         Err(_) => None,
     };
 
     // Check if we need to refresh the data
-    let needs_refresh = match smol::fs::metadata(&cache_path).await {
+    let needs_refresh = match tokio::fs::metadata(&cache_path).await {
         Ok(metadata) => match metadata.modified() {
             Ok(modified) => match SystemTime::now().duration_since(modified) {
                 Ok(elapsed) => elapsed >= Duration::from_secs(3600),
@@ -50,11 +50,11 @@ pub async fn fetch_news(lang_code: &str) -> anyhow::Result<Vec<LegacyNewsItem>> 
             let lang_code_clone = lang_code.to_string();
 
             // Use a static mutex to prevent multiple simultaneous refreshes for the same language
-            static REFRESH_MUTEX: Mutex<()> = Mutex::new(());
+            static REFRESH_MUTEX: Mutex<()> = Mutex::const_new(());
 
-            smolscale::spawn(async move {
+            geph5_rt::spawn(async move {
                 // Try to acquire the lock. If we can't, it means another refresh is in progress
-                if let Some(guard) = REFRESH_MUTEX.try_lock() {
+                if let Ok(guard) = REFRESH_MUTEX.try_lock() {
                     if let Err(e) = refresh_news_cache(&lang_code_clone, &cache_path_clone).await {
                         // Log the error but don't propagate it
                         tracing::warn!("Background news refresh failed: {}", e);
@@ -145,7 +145,7 @@ async fn refresh_news_cache(
 
     // Write to cache (overwrite if it exists or create if it doesn't)
     let serialized = serde_json::to_string(&news_items)?;
-    smol::fs::write(cache_path, serialized).await?;
+    tokio::fs::write(cache_path, serialized).await?;
 
     Ok(news_items)
 }

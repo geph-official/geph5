@@ -2,7 +2,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyctx::AnyCtx;
 use anyhow::Context;
-use async_native_tls::{Protocol, TlsConnector};
 use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
     DOMAIN_EXIT_ROUTE, ExitConstraint, ExitDescriptor, ExitRouteDescriptor, GetExitRouteArgs,
@@ -48,8 +47,9 @@ pub async fn get_dialer(
                 .try_into()
                 .context("pubkey wrong length")?,
         )?;
-        let dest_addr = *smol::net::resolve(dir)
+        let dest_addr = *tokio::net::lookup_host(dir)
             .await?
+            .collect::<Vec<_>>()
             .choose(&mut rand::thread_rng())
             .context("could not resolve destination for direct exit connection")?;
         let direct_route = RouteDescriptor::ConnTest {
@@ -307,17 +307,22 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
         RouteDescriptor::Other(_) => FailingDialer.dynamic(),
         RouteDescriptor::PlainTls { sni_domain, lower } => {
             let lower = route_to_dialer(ctx, lower);
+            let mut builder = native_tls::TlsConnector::builder();
+            builder
+                .use_sni(sni_domain.is_some())
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .min_protocol_version(None)
+                .max_protocol_version(Some(native_tls::Protocol::Tlsv12));
+            let connector = tokio_native_tls::TlsConnector::from(
+                builder.build().expect("could not build TLS connector"),
+            );
             logged(
                 "tls",
                 route_subtree_json(route),
                 TlsDialer::new(
                     lower,
-                    TlsConnector::new()
-                        .use_sni(sni_domain.is_some())
-                        .danger_accept_invalid_certs(true)
-                        .danger_accept_invalid_hostnames(true)
-                        .min_protocol_version(None)
-                        .max_protocol_version(Some(Protocol::Tlsv12)),
+                    connector,
                     sni_domain
                         .clone()
                         .unwrap_or_else(|| "example.com".to_string()),

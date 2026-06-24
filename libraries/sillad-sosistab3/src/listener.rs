@@ -3,24 +3,21 @@ use std::{
     io::ErrorKind,
     mem::size_of,
     sync::{
-        Mutex, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use async_executor::Executor;
-
-use async_task::Task;
 use async_trait::async_trait;
 use blake3::Hash;
 use futures_concurrency::future::Race;
-use futures_util::{AsyncReadExt, AsyncWriteExt};
-
+use geph5_rt::{Task, TaskReaper, spawn};
 use rand::{Rng, RngCore};
 use sillad::{Pipe, listener::Listener};
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{Cookie, SosistabPipe, dedup::Dedup, handshake::Handshake, state::State};
 
@@ -64,7 +61,7 @@ impl<P: Pipe> SosistabListener<P> {
         let pipe_size = size_of::<SosistabPipe<P>>();
         let queue_payload_bytes = LISTENER_QUEUE_CAPACITY.saturating_mul(pipe_size);
         let (send_pipe, recv_pipe) = tachyonix::channel(LISTENER_QUEUE_CAPACITY);
-        let _task = smolscale::spawn(listen_loop(listener, send_pipe, cookie));
+        let _task = spawn(listen_loop(listener, send_pipe, cookie));
         LIVE_LISTENERS.fetch_add(1, Ordering::Relaxed);
         LISTENER_QUEUE_SLOTS.fetch_add(LISTENER_QUEUE_CAPACITY, Ordering::Relaxed);
         LISTENER_QUEUE_PAYLOAD_BYTES.fetch_add(queue_payload_bytes, Ordering::Relaxed);
@@ -102,43 +99,39 @@ async fn listen_loop<P: Pipe>(
     cookie: Cookie,
 ) -> std::io::Result<()> {
     if std::env::var("SOSISTAB3_WAIT").is_ok() {
-        async_io::Timer::after(WAIT_INTERVAL).await;
+        tokio::time::sleep(WAIT_INTERVAL).await;
     }
 
-    let dedup = Mutex::new(Dedup::new(WAIT_INTERVAL * 2));
-    let dedup = &dedup;
-    let lexec = Executor::new();
-    lexec
-        .run(async {
-            loop {
-                let mut lower = listener.accept().await?;
-                let send_pipe = send_pipe.clone();
-                lexec
-                    .spawn(async move {
-                        let deadline = Instant::now()
-                            + Duration::from_secs_f64(rand::random::<f64>() * 10.0 + 10.0);
-                        let left = async {
-                            let state = listener_handshake(&mut lower, cookie, dedup).await;
-                            match state {
-                                Ok(state) => {
-                                    let pipe = SosistabPipe::new(lower, state);
-                                    let _ = send_pipe.try_send(pipe);
-                                }
-                                Err(err) => {
-                                    tracing::warn!(err = debug(err), "listener handshake failed");
-                                    async_io::Timer::at(deadline).await;
-                                }
-                            }
-                        };
-                        let right = async {
-                            async_io::Timer::at(deadline).await;
-                        };
-                        (left, right).race().await
-                    })
-                    .detach()
-            }
-        })
-        .await
+    let dedup = Arc::new(Mutex::new(Dedup::new(WAIT_INTERVAL * 2)));
+    // Per-connection handshake tasks are owned by a reaper, so they are all
+    // cancelled when this loop (and thus the listener) is dropped.
+    let reaper: TaskReaper<()> = TaskReaper::new();
+    loop {
+        let mut lower = listener.accept().await?;
+        let send_pipe = send_pipe.clone();
+        let dedup = dedup.clone();
+        reaper.attach(spawn(async move {
+            let deadline = tokio::time::Instant::now()
+                + Duration::from_secs_f64(rand::random::<f64>() * 10.0 + 10.0);
+            let left = async {
+                let state = listener_handshake(&mut lower, cookie, &dedup).await;
+                match state {
+                    Ok(state) => {
+                        let pipe = SosistabPipe::new(lower, state);
+                        let _ = send_pipe.try_send(pipe);
+                    }
+                    Err(err) => {
+                        tracing::warn!(err = debug(err), "listener handshake failed");
+                        tokio::time::sleep_until(deadline).await;
+                    }
+                }
+            };
+            let right = async {
+                tokio::time::sleep_until(deadline).await;
+            };
+            (left, right).race().await
+        }));
+    }
 }
 
 async fn listener_handshake<P: Pipe>(

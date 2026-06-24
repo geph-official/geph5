@@ -27,7 +27,7 @@ impl RpcTransport for PriorityRaceTransport {
                 let delay = Duration::from_millis(*delay);
                 let req = req.clone();
                 async move {
-                    smol::Timer::after(delay).await;
+                    tokio::time::sleep(delay).await;
                     rpc.call_raw(req).await
                 }
             })

@@ -40,25 +40,27 @@ pub static DATABASE: CtxField<SqlitePool> = |ctx| {
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
 
-    smol::future::block_on(async move {
-        // this prevents any SQLITE_BUSY unless we have concurrent apps
-        let pool = PoolOptions::new()
-            .min_connections(1)
-            .max_connections(1)
-            .connect_lazy_with(options);
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS misc (
-                key TEXT PRIMARY KEY,
-                value BLOB NOT NULL
-            );",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        pool
-    })
+    // `connect_lazy_with` builds the pool synchronously (no `block_on`, so this
+    // works from inside the tokio runtime); the schema is created on the single
+    // connection's first use via `after_connect`.
+    // (min/max == 1 prevents SQLITE_BUSY unless we have concurrent apps.)
+    PoolOptions::new()
+        .min_connections(1)
+        .max_connections(1)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS misc (
+                        key TEXT PRIMARY KEY,
+                        value BLOB NOT NULL
+                    );",
+                )
+                .execute(&mut *conn)
+                .await?;
+                Ok(())
+            })
+        })
+        .connect_lazy_with(options)
 };
 
 static EVENT: CtxField<Event> = |_| Event::new();

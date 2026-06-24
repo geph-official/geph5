@@ -286,7 +286,7 @@ fn main() -> anyhow::Result<()> {
     CONFIG_FILE.set(config).ok().unwrap();
 
     std::thread::spawn(instrumentation_report_loop);
-    smol::future::block_on(smolscale::spawn(listen_main()))
+    geph5_rt::block_on(listen_main())
 }
 
 #[cfg(test)]

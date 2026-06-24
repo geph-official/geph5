@@ -1,9 +1,8 @@
-use std::{pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::{EitherPipe, Pipe};
 use async_trait::async_trait;
-use futures_lite::{Future, FutureExt};
-use smol_timeout2::TimeoutExt;
+use futures_util::FutureExt as _;
 
 #[async_trait]
 /// Dialers create pipes by initiating a connection to some sort of "other side". Failures are indicated by the standard I/O error type.
@@ -147,14 +146,13 @@ impl<D: Dialer> Dialer for TimeoutDialer<D> {
     type P = D::P;
 
     async fn dial(&self) -> std::io::Result<Self::P> {
-        self.dialer
-            .dial()
-            .timeout(self.timeout)
-            .await
-            .ok_or(std::io::Error::new(
+        match tokio::time::timeout(self.timeout, self.dialer.dial()).await {
+            Ok(res) => res,
+            Err(_elapsed) => Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 format!("dial timed out after {:?}", self.timeout),
-            ))?
+            )),
+        }
     }
 }
 
@@ -188,7 +186,7 @@ impl<D: Dialer> Dialer for DelayDialer<D> {
     type P = D::P;
 
     async fn dial(&self) -> std::io::Result<Self::P> {
-        async_io::Timer::after(self.delay).await;
+        tokio::time::sleep(self.delay).await;
         self.dialer.dial().await
     }
 }
@@ -203,7 +201,7 @@ impl<D: Dialer> Dialer for DynDelayDialer<D> {
     type P = D::P;
 
     async fn dial(&self) -> std::io::Result<Self::P> {
-        async_io::Timer::after((self.delay)()).await;
+        tokio::time::sleep((self.delay)()).await;
         self.dialer.dial().await
     }
 }

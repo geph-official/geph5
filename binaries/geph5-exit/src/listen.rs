@@ -1,6 +1,7 @@
 use anyhow::Context;
 use ed25519_dalek::Signer;
-use futures_util::{AsyncReadExt, TryFutureExt};
+use futures_concurrency::future::Race;
+use futures_util::TryFutureExt;
 use geph5_broker_protocol::AccountLevel;
 use geph5_ip_to_asn::ip_to_asn_country;
 use geph5_misc_rpc::{
@@ -13,7 +14,6 @@ use moka::future::Cache;
 use picomux::{LivenessConfig, PicoMux};
 
 use sillad::{EitherPipe, Pipe, listener::Listener, tcp::TcpListener};
-use smol::future::FutureExt as _;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use stdcode::StdcodeSerializeExt;
 use tachyonix::Sender;
@@ -39,7 +39,7 @@ pub async fn listen_main() -> anyhow::Result<()> {
     let c2e = c2e_loop();
     let b2e = b2e_loop();
     let broker = broker_loop();
-    c2e.race(broker).race(b2e).await
+    (c2e, broker, b2e).race().await
 }
 
 async fn c2e_loop() -> anyhow::Result<()> {
@@ -69,7 +69,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
             tracing::warn!(err = debug(err), "rejected a direct connection");
             continue;
         }
-        smolscale::spawn(handle_client(c2e_raw)).detach()
+        geph5_rt::spawn(handle_client(c2e_raw)).detach()
     }
 }
 
@@ -79,9 +79,9 @@ async fn b2e_loop() -> anyhow::Result<()> {
         .time_to_idle(Duration::from_secs(1200))
         .build();
     let b2e_table_report = b2e_table.clone();
-    smolscale::spawn(async move {
+    geph5_rt::spawn(async move {
         loop {
-            smol::Timer::after(Duration::from_secs(60)).await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
             tracing::info!(
                 b2e_table_entries = b2e_table_report.entry_count(),
                 "b2e table snapshot"
@@ -101,14 +101,14 @@ async fn b2e_loop() -> anyhow::Result<()> {
             .remote_addr()
             .map(|s| s.to_string())
             .unwrap_or_default();
-        let (read, write) = b2e_raw.split();
+        let (read, write) = tokio::io::split(b2e_raw);
         let mut b2e_mux = PicoMux::new(read, write);
         b2e_mux.set_liveness(LivenessConfig {
             ping_interval: Duration::from_secs(3600),
             timeout: Duration::from_secs(3600),
         });
         let b2e_table = b2e_table.clone();
-        smolscale::spawn::<anyhow::Result<()>>(async move {
+        geph5_rt::spawn(async move {
             loop {
                 let lala = b2e_mux.accept().await?;
                 let b2e_metadata: B2eMetadata = stdcode::deserialize(lala.metadata())?;
@@ -126,12 +126,14 @@ async fn b2e_loop() -> anyhow::Result<()> {
                             "creating new b2e metadata"
                         );
                         let (send, recv) = tachyonix::channel(1);
-                        smolscale::spawn(b2e_process::b2e_process(protocol, recv)).detach();
+                        geph5_rt::spawn(b2e_process::b2e_process(protocol, recv)).detach();
                         send
                     })
                     .await;
                 send.send(lala).await.ok().context("could not accept")?;
             }
+            #[allow(unreachable_code)]
+            anyhow::Ok(())
         })
         .detach()
     }
@@ -192,7 +194,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         EitherPipe::Right(client)
     };
 
-    let (client_read, client_write) = client.split();
+    let (client_read, client_write) = tokio::io::split(client);
     let mux = PicoMux::new(client_read, client_write);
     mux.set_debloat(true);
 
@@ -216,7 +218,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
 
         // the legacy one is "dummy" and does not enforce, due to client  bugs
         if metadata == "!bw-accounting" {
-            smolscale::spawn(
+            geph5_rt::spawn(
                 bw_accounting_loop(ratelimit.bw_account(), stream)
                     .inspect_err(|e| tracing::warn!(err = debug(e), "bw_accounting_loop died")),
             )
@@ -225,7 +227,7 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
         }
         if metadata == "!bw-accounting-2" {
             ratelimit.enable_bw();
-            smolscale::spawn(
+            geph5_rt::spawn(
                 bw_accounting_loop(ratelimit.bw_account(), stream)
                     .inspect_err(|e| tracing::warn!(err = debug(e), "bw_accounting_loop died")),
             )
@@ -237,16 +239,19 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| Arc::new(serde_json::Value::Null));
         let dialer = dialer.clone();
-        smolscale::spawn(
-            proxy_stream(
-                dialer,
-                sess_metadata.clone(),
-                ratelimit.clone(),
-                stream,
-                is_free,
+        geph5_rt::spawn(
+            (
+                proxy_stream(
+                    dialer,
+                    sess_metadata.clone(),
+                    ratelimit.clone(),
+                    stream,
+                    is_free,
+                ),
+                new_task_until_death(Duration::from_secs(1)),
             )
-            .race(new_task_until_death(Duration::from_secs(1)))
-            .map_err(|e| tracing::trace!(err = debug(e), "stream died with")),
+                .race()
+                .map_err(|e| tracing::trace!(err = debug(e), "stream died with")),
         )
         .detach();
     }

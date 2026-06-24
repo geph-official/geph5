@@ -21,8 +21,6 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    smolscale::permanently_single_threaded();
-
     let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
     let config: Config = serde_json::from_value(config)?;
@@ -33,7 +31,7 @@ fn main() -> anyhow::Result<()> {
         run_stdio_vpn(client.clone())?;
     }
 
-    smolscale::block_on(client.wait_until_dead())?;
+    geph5_rt::block_on(client.wait_until_dead())?;
     Ok(())
 }
 
@@ -57,7 +55,7 @@ fn run_stdio_vpn(client: Client) -> anyhow::Result<()> {
                     stdin.read_exact(&mut packet_buf)?;
 
                     // Send the packet to the VPN
-                    smol::future::block_on(client_clone.send_vpn_packet(Bytes::from(packet_buf)))?;
+                    geph5_rt::block_on(client_clone.send_vpn_packet(Bytes::from(packet_buf)))?;
                 }
                 Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     // End of input stream
@@ -76,7 +74,7 @@ fn run_stdio_vpn(client: Client) -> anyhow::Result<()> {
         let mut stdout = stdout().lock();
         loop {
             // Receive a packet from the VPN
-            let packet = smol::future::block_on(client.recv_vpn_packet())?;
+            let packet = geph5_rt::block_on(client.recv_vpn_packet())?;
 
             // Get the length as a 16-bit value, capping at u16::MAX if larger
             let length = std::cmp::min(packet.len(), u16::MAX as usize) as u16;

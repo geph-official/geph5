@@ -5,7 +5,7 @@ use nanorpc::{DynRpcTransport, JrpcRequest, JrpcResponse, RpcTransport};
 
 pub struct RaceTransport {
     choices: Vec<DynRpcTransport>,
-    selected: smol::lock::Mutex<Option<usize>>,
+    selected: tokio::sync::Mutex<Option<usize>>,
 }
 
 impl RaceTransport {

@@ -34,7 +34,6 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
     Ok(proto)
 }
 
-use async_native_tls::{TlsAcceptor, TlsConnector};
 use sillad::{
     dialer::{DialerExt, DynDialer},
     listener::{DynListener, Listener, ListenerExt},
@@ -47,6 +46,7 @@ use sillad_native_tls::{TlsDialer, TlsListener};
 use sillad_sosistab3::{Cookie, dialer::SosistabDialer, listener::SosistabListener};
 use time::Duration as TimeDuration;
 use time::OffsetDateTime;
+use tokio_native_tls::{TlsAcceptor, TlsConnector};
 
 /// Recursively wrap a listener according to the protocol stack.
 pub fn listener_from_stack<L: Listener>(
@@ -105,12 +105,14 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
             }
             ObfsProtocol::PlainTls(sub) => {
                 let lower = inner(sub, lower);
-                let connector = TlsConnector::new()
+                let mut cbuilder = native_tls::TlsConnector::builder();
+                cbuilder
                     .use_sni(true)
                     .danger_accept_invalid_certs(true)
                     .danger_accept_invalid_hostnames(true)
                     .min_protocol_version(None)
                     .max_protocol_version(Some(native_tls::Protocol::Tlsv12));
+                let connector = TlsConnector::from(cbuilder.build().unwrap());
                 TlsDialer::new(lower, connector, "lusheeta-toel.yandex.ru".into()).dynamic()
             }
             ObfsProtocol::Hex(sub) => {

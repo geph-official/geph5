@@ -57,7 +57,7 @@ impl BridgeRateLimiter {
                 break;
             }
 
-            smol::Timer::after(Duration::from_secs_f32(delay)).await;
+            tokio::time::sleep(Duration::from_secs_f32(delay)).await;
             delay += rand::random::<f32>() * 0.05;
         }
     }

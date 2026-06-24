@@ -11,6 +11,7 @@ use geph5_broker_protocol::{
     StatEvent, StdcodeSigned, UserInfo, VoucherInfo,
 };
 use geph5_ip_to_asn::ip_to_asn_country;
+use geph5_rt::TimeoutExt;
 use geph5_stats::StatsdUdpSink;
 use isocountry::CountryCode;
 use mizaru2::{
@@ -20,7 +21,6 @@ use mizaru2::{
 use moka::future::Cache;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport, ServerError};
 use once_cell::sync::Lazy;
-use smol_timeout2::TimeoutExt;
 
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -324,7 +324,7 @@ async fn sanity_check_exit(descriptor: &ExitDescriptor) -> Result<(), GenericErr
         ("c2e_listen", descriptor.c2e_listen),
         ("b2e_listen", descriptor.b2e_listen),
     ] {
-        match smol::net::TcpStream::connect(addr)
+        match tokio::net::TcpStream::connect(addr)
             .timeout(EXIT_SANITY_CHECK_TIMEOUT)
             .await
         {
@@ -845,7 +845,7 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn upload_available(&self, data: AvailabilityData) {
-        smolscale::spawn(
+        geph5_rt::spawn(
             async move {
                 let current_timestamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -892,7 +892,7 @@ impl BrokerProtocol for BrokerImpl {
 
     async fn get_news(&self, lang: String) -> Result<Vec<LegacyNewsItem>, GenericError> {
         let (send, recv) = oneshot::channel();
-        smolscale::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
+        geph5_rt::spawn(async move { send.send(fetch_news(&lang).await) }).detach();
         recv.await.unwrap().map_err(|e: anyhow::Error| e.into())
     }
 

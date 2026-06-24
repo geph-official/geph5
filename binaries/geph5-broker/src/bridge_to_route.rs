@@ -5,11 +5,11 @@ use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
 use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
+use geph5_rt::TimeoutExt;
 use rand::RngCore;
 use semver::VersionReq;
 use sillad::tcp::TcpDialer;
 use sillad_sosistab3::{Cookie, dialer::SosistabDialer};
-use smol_timeout2::TimeoutExt;
 use std::{
     net::SocketAddr,
     sync::{Arc, LazyLock},

@@ -10,8 +10,6 @@ license.workspace = true
 hex = "0.4.3"
 async-trait = "0.1.89"
 pin-project = "1.1.11"
-futures-util = { version = "0.3.32", features = ["io"] }
 sillad = { version = "0.2", path = "../sillad" }
-bipe = "0.2.8"
-smolscale = "0.4.16"
-async-task = "4.7.1"
+geph5-rt = { version = "0.1", path = "../geph5-rt" }
+tokio = { version = "1.52", features = ["io-util"] }

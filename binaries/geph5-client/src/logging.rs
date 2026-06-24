@@ -52,7 +52,7 @@ async fn ensure_logs_table(ctx: &AnyCtx<Config>) -> Result<(), sqlx::Error> {
 }
 
 fn spawn_log_consumer(ctx: AnyCtx<Config>, rx: Receiver<Vec<u8>>) {
-    smolscale::spawn(async move {
+    geph5_rt::spawn(async move {
         if ensure_logs_table(&ctx).await.is_err() {
             // If we can't ensure the table, abort consumer silently
             return;

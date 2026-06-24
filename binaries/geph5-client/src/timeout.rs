@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use geph5_rt::TimeoutExt as _;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
-use smol_timeout2::TimeoutExt as _;
 
 pub const BROKER_RPC_TIMEOUT: Duration = Duration::from_secs(15);
 

@@ -1,7 +1,7 @@
 use anyctx::AnyCtx;
+use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 use ipstack_geph::IpStack;
-use smol::channel::{Receiver, Sender};
 use std::net::IpAddr;
 
 use crate::Config;

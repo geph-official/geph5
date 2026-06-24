@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use bytes::Bytes;
-use futures_util::{AsyncRead, AsyncReadExt};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[derive(Clone, Debug)]
 pub struct Frame {
@@ -45,38 +45,26 @@ impl Frame {
         let mut body = vec![0; len];
         // DIAG: a header was parsed, so the body should follow promptly. If it
         // stalls, the read loop is stuck mid-frame (e.g. a desynced/oversized
-        // body_len swallowing subsequent bytes).
+        // body_len swallowing subsequent bytes). We poll the body read against a
+        // 3s timer, warning on each elapse until it completes.
         {
-            let read_fut = rdr.read_exact(&mut body);
-            futures_util::pin_mut!(read_fut);
-            if futures_lite::future::poll_once(read_fut.as_mut())
-                .await
-                .is_none()
-            {
-                let start = std::time::Instant::now();
-                loop {
-                    let tick = async_io::Timer::after(std::time::Duration::from_secs(3));
-                    let done = futures_lite::future::or(
-                        async { Some(read_fut.as_mut().await) },
-                        async {
-                            tick.await;
-                            None
-                        },
-                    )
-                    .await;
-                    match done {
-                        Some(r) => {
-                            r?;
-                            break;
-                        }
-                        None => tracing::warn!(
-                            command = header.command,
-                            stream_id = header.stream_id,
-                            body_len = len,
-                            elapsed = ?start.elapsed(),
-                            "FRAME-READ-STALL: header parsed, body not arriving"
-                        ),
+            let mut read_fut = std::pin::pin!(rdr.read_exact(&mut body));
+            let start = std::time::Instant::now();
+            loop {
+                match tokio::time::timeout(std::time::Duration::from_secs(3), read_fut.as_mut())
+                    .await
+                {
+                    Ok(r) => {
+                        r?;
+                        break;
                     }
+                    Err(_elapsed) => tracing::warn!(
+                        command = header.command,
+                        stream_id = header.stream_id,
+                        body_len = len,
+                        elapsed = ?start.elapsed(),
+                        "FRAME-READ-STALL: header parsed, body not arriving"
+                    ),
                 }
             }
         }

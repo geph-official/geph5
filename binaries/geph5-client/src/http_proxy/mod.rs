@@ -40,7 +40,7 @@ pub async fn http_proxy_serve(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         // while let Some(_) = join_set.join_next().await {}
         // Ok(())
     } else {
-        smol::future::pending().await
+        std::future::pending().await
     }
 }
 type SharedProxyServer = std::sync::Arc<ProxyServer>;
@@ -211,7 +211,6 @@ async fn server_dispatch(
     }
 }
 use anyctx::AnyCtx;
-use async_compat::CompatExt;
 use bytes::Bytes;
 use futures_util::{
     FutureExt,
@@ -235,7 +234,7 @@ async fn establish_connect_tunnel(
     use tokio::io::{copy, split};
 
     let (mut r, mut w) = split(crate::tunneled_http::HyperRtCompat::new(upgraded));
-    let (mut svr_r, mut svr_w) = split(stream.compat());
+    let (mut svr_r, mut svr_w) = split(stream);
 
     let rhalf = copy(&mut r, &mut svr_w);
     let whalf = copy(&mut svr_r, &mut w);

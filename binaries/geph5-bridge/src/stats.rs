@@ -1,9 +1,9 @@
 use std::{net::SocketAddr, sync::LazyLock, time::Duration};
 
 use geph5_broker_protocol::{BrokerClient, Mac};
+use geph5_rt::TimeoutExt;
 use geph5_stats::StatBatcher;
 use sillad::{dialer::DialerExt, tcp::TcpDialer};
-use smol_timeout2::TimeoutExt;
 
 /// Stats accumulated locally, shipped to the broker in periodic batches.
 pub static STAT_BATCHER: LazyLock<StatBatcher> = LazyLock::new(StatBatcher::new);
@@ -21,7 +21,7 @@ pub async fn stats_flush_loop(auth_token: &str, broker_addr: SocketAddr) {
     let mac_key = blake3::hash(auth_token.as_bytes());
 
     loop {
-        async_io::Timer::after(FLUSH_INTERVAL).await;
+        tokio::time::sleep(FLUSH_INTERVAL).await;
         let events = STAT_BATCHER.drain();
         if events.is_empty() {
             continue;

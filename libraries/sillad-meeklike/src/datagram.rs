@@ -4,18 +4,15 @@ use std::{
 };
 
 use async_channel::{Receiver, Sender};
-use async_compat::CompatExt;
-use async_task::Task;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use bytes::Bytes;
 use dashmap::DashMap;
-use futures_lite::FutureExt;
+use geph5_rt::{Task, TimeoutExt, spawn};
 use http_body_util::BodyExt;
 use hyper::{Method, Request, Response, StatusCode, body::Incoming, service::service_fn};
 use hyper_util::rt::TokioIo;
 use rand::Rng;
 use sillad::{dialer::Dialer, listener::Listener};
-use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
@@ -48,7 +45,7 @@ impl DgConnection {
         let (send_up, recv_up) = async_channel::bounded(1000);
         let (send_dn, recv_dn) = async_channel::bounded(1000);
         for _ in 0..cfg.max_inflight {
-            smolscale::spawn(dg_client_backhaul(
+            spawn(dg_client_backhaul(
                 secret.clone(),
                 stream_id,
                 cfg,
@@ -121,53 +118,51 @@ async fn dg_client_backhaul<D: Dialer>(
                 tracing::debug!(inflight, "inflight decr");
             });
             let lower = inner.dial().await?;
-            let io = TokioIo::new(lower.compat());
+            let io = TokioIo::new(lower);
             let (mut sender, conn) =
                 hyper::client::conn::http1::handshake::<_, http_body_util::Full<Bytes>>(io)
                     .await
                     .map_err(std::io::Error::other)?;
 
-            async {
-                conn.await?;
-                anyhow::Ok(())
+            // Drive the connection in the background. This is a cancel-on-drop
+            // task, so the connection is closed when this scope exits.
+            let _conn_task = spawn(async move {
+                let _ = conn.await;
+            });
+            let up_len = to_send.len();
+            let start = Instant::now();
+            let req = Request::post("/")
+                .body(http_body_util::Full::new(Bytes::from(to_send)))
+                .unwrap();
+            let resp = sender.send_request(req).await?;
+            let bytes = resp.into_body().collect().await?.to_bytes();
+            let bytes = if cfg.base64 {
+                Bytes::from(BASE64_STANDARD.decode(bytes)?)
+            } else {
+                bytes
+            };
+            let elapsed = start.elapsed();
+            tracing::debug!(
+                up_len,
+                dn_len = bytes.len(),
+                elapsed = debug(elapsed),
+                "response gotten"
+            );
+            let plain = secret.decrypt_dn(&bytes)?;
+            let plain: Datagram = stdcode::deserialize(&plain)?;
+            check_timestamp(&plain)?;
+            if plain.stream_id != stream_id {
+                anyhow::bail!("got a response with the wrong stream ID")
             }
-            .race(async {
-                let up_len = to_send.len();
-                let start = Instant::now();
-                let req = Request::post("/")
-                    .body(http_body_util::Full::new(Bytes::from(to_send)))
-                    .unwrap();
-                let resp = sender.send_request(req).await?;
-                let bytes = resp.into_body().collect().await?.to_bytes();
-                let bytes = if cfg.base64 {
-                    Bytes::from(BASE64_STANDARD.decode(bytes)?)
-                } else {
-                    bytes
-                };
-                let elapsed = start.elapsed();
-                tracing::debug!(
-                    up_len,
-                    dn_len = bytes.len(),
-                    elapsed = debug(elapsed),
-                    "response gotten"
-                );
-                let plain = secret.decrypt_dn(&bytes)?;
-                let plain: Datagram = stdcode::deserialize(&plain)?;
-                check_timestamp(&plain)?;
-                if plain.stream_id != stream_id {
-                    anyhow::bail!("got a response with the wrong stream ID")
-                }
-                if !plain.inner.is_empty() {
-                    send_dn.try_send(plain.inner)?;
-                    interval = 0.1;
-                } else {
-                    tracing::debug!(interval, "empty, so increasing interval");
-                    interval = rand::thread_rng().gen_range(interval..interval * 2.0);
-                    interval = interval.min(30.0);
-                }
-                anyhow::Ok(())
-            })
-            .await
+            if !plain.inner.is_empty() {
+                send_dn.try_send(plain.inner)?;
+                interval = 0.1;
+            } else {
+                tracing::debug!(interval, "empty, so increasing interval");
+                interval = rand::thread_rng().gen_range(interval..interval * 2.0);
+                interval = interval.min(30.0);
+            }
+            anyhow::Ok(())
         };
         match res.timeout(Duration::from_secs(10)).await {
             None => tracing::warn!("req/resp timed out"),
@@ -190,19 +185,19 @@ impl DgListener {
         mut inner: L,
     ) -> Self {
         let (send_accepted, recv_accepted) = async_channel::unbounded();
-        let _task = smolscale::spawn(async move {
+        let _task = spawn(async move {
             let conns = Arc::new(DashMap::new());
             loop {
                 let lower = inner.accept().await?;
                 let send = send_accepted.clone();
                 let secret = secret.clone();
                 let conns = conns.clone();
-                smolscale::spawn(async move {
+                spawn(async move {
                     let service = service_fn(move |req| {
                         handle_req(cfg, req, conns.clone(), send.clone(), secret.clone())
                     });
                     if let Err(e) = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(TokioIo::new(lower.compat()), service)
+                        .serve_connection(TokioIo::new(lower), service)
                         .await
                     {
                         tracing::warn!(err = ?e, "meeklike connection error");

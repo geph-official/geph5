@@ -7,12 +7,10 @@ use std::{
 use anyhow::Context;
 use geph5_misc_rpc::tunnel_command::{RichTunnelResponse, TunnelCommand};
 
-use futures_util::{AsyncReadExt, AsyncWriteExt, io::BufReader};
-
-use smol::{
-    future::FutureExt as _,
-    net::{TcpStream, UdpSocket},
-};
+use futures_concurrency::future::Race;
+use geph5_rt::TimeoutExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpStream, UdpSocket};
 
 use crate::{
     allow::proxy_allowed,
@@ -20,8 +18,6 @@ use crate::{
     ipv6::EyeballDialer,
     ratelimit::RateLimiter,
 };
-
-use smol_timeout2::TimeoutExt;
 
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(
@@ -139,13 +135,14 @@ async fn proxy_tcp(
     dest_tcp: TcpStream,
     ratelimit: RateLimiter,
 ) -> anyhow::Result<()> {
-    let (read_stream, mut write_stream) = stream.split();
-    let (read_dest, mut write_dest) = dest_tcp.split();
-    smol::future::race(
+    let (read_stream, mut write_stream) = tokio::io::split(stream);
+    let (read_dest, mut write_dest) = tokio::io::split(dest_tcp);
+    (
         ratelimit.io_copy(read_stream, &mut write_dest),
         ratelimit.io_copy(read_dest, &mut write_stream),
     )
-    .await?;
+        .race()
+        .await?;
     Ok(())
 }
 
@@ -154,7 +151,7 @@ async fn proxy_udp(
     udp_socket: UdpSocket,
     ratelimit: RateLimiter,
 ) -> anyhow::Result<()> {
-    let (read_stream, mut write_stream) = stream.split();
+    let (read_stream, mut write_stream) = tokio::io::split(stream);
     let up_loop = async {
         let mut read_stream = BufReader::new(read_stream);
         let mut len_buf = [0; 2];
@@ -194,7 +191,7 @@ async fn proxy_udp(
             write_stream.write_all(&buf[..len + 2]).await?;
         }
     };
-    up_loop.race(dn_loop).await
+    (up_loop, dn_loop).race().await
 }
 
 async fn fail_rich_open(
@@ -218,15 +215,15 @@ async fn fail_rich_open(
 }
 
 async fn proxy_dns(stream: picomux::Stream, filter: FilterOptions) -> anyhow::Result<()> {
-    let (mut read_stream, write_stream) = stream.split();
-    let write_stream = Arc::new(smol::lock::Mutex::new(write_stream));
+    let (mut read_stream, write_stream) = tokio::io::split(stream);
+    let write_stream = Arc::new(tokio::sync::Mutex::new(write_stream));
     let mut len_buf = [0; 2];
     loop {
         read_stream.read_exact(&mut len_buf).await?;
         let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
         read_stream.read_exact(&mut packet_buf).await?;
         let write_stream = write_stream.clone();
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             let response = raw_dns_respond(packet_buf.into(), filter).await?;
             let mut stream = write_stream.lock().await;
             stream

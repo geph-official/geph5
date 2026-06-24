@@ -1,5 +1,4 @@
 use std::{
-    io::ErrorKind,
     net::{Ipv6Addr, SocketAddr},
     time::Duration,
 };
@@ -14,8 +13,8 @@ use futures_util::{
 use ipnet::Ipv6Net;
 use once_cell::sync::OnceCell;
 use rand::{Rng, seq::IteratorRandom};
-use smol::{Async, net::TcpStream, process::Command};
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use tokio::net::{TcpSocket, TcpStream};
+use tokio::process::Command;
 
 use crate::{CONFIG_FILE, session::SessionKey};
 
@@ -76,7 +75,7 @@ async fn connect_dual_stack(
     ipv4: SocketAddr,
 ) -> anyhow::Result<TcpStream> {
     let ipv6_connect = connect_one(my_addr, ipv6);
-    let head_start = smol::Timer::after(IPV6_HEAD_START);
+    let head_start = tokio::time::sleep(IPV6_HEAD_START);
     pin_mut!(ipv6_connect);
     pin_mut!(head_start);
 
@@ -184,28 +183,15 @@ async fn connect_from(from: Ipv6Addr, remote: SocketAddr) -> anyhow::Result<TcpS
         remote = display(remote),
         "connecting from an ephemeral IPv6"
     );
-    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
-    socket.set_reuse_address(true)?;
-    // socket.set_reuse_port(true)?;
+    let socket = TcpSocket::new_v6()?;
+    socket.set_reuseaddr(true)?;
     let local_addr = SocketAddr::new(std::net::IpAddr::V6(from), 0);
-    socket
-        .bind(&SockAddr::from(local_addr))
-        .context("cannot bind")?;
-
-    let async_socket = Async::new(socket).context("cannot build Async")?;
-    let _ = async_socket.get_ref().connect(&SockAddr::from(remote));
-    async_socket
-        .writable()
+    socket.bind(local_addr).context("cannot bind")?;
+    let stream = socket
+        .connect(remote)
         .await
-        .context("cannot wait until socket is writable")?;
-    match async_socket.get_ref().connect(&SockAddr::from(remote)) {
-        Ok(_) => {}
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
-        Err(e) => anyhow::bail!("cannot finish connect: {:?}", e),
-    }
-    let socket: std::net::TcpStream = async_socket.into_inner()?.into();
-    let socket: TcpStream = socket.try_into()?;
-    Ok(socket)
+        .context("cannot finish connect")?;
+    Ok(stream)
 }
 
 pub async fn configure_ipv6_routing() -> anyhow::Result<()> {
@@ -239,7 +225,6 @@ async fn ensure_ipv6_pool(
             .arg(format!("{}/128", candidate))
             .arg("dev")
             .arg(iface)
-            .spawn()?
             .output()
             .await?;
         pool.push(candidate);

@@ -19,7 +19,7 @@ pub async fn bw_token_refresh_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 
     if ctx.init().broker.is_none() || ctx.init().broker_keys.is_none() {
         tracing::warn!("no broker info, so cannot obtain tokens");
-        smol::future::pending::<()>().await;
+        std::future::pending::<()>().await;
     }
 
     loop {
@@ -41,7 +41,7 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         tracing::debug!(missing, "fetching missing tokens from the broker");
         let mut v = vec![];
         for _ in 0..missing {
-            let task = smolscale::spawn({
+            let task = geph5_rt::spawn({
                 let ctx = ctx.clone();
                 let mizaru_bw = mizaru_bw.clone();
                 async move {
@@ -84,7 +84,7 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                                 retry_secs,
                                 "cannot obtain bw token"
                             );
-                            smol::Timer::after(Duration::from_secs_f64(retry_secs)).await;
+                            tokio::time::sleep(Duration::from_secs_f64(retry_secs)).await;
                             retry_secs = rand::thread_rng()
                                 .gen_range(retry_secs..retry_secs * 2.0)
                                 .min(120.0);
@@ -103,7 +103,7 @@ async fn bw_token_refresh_inner(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         // wait for consumption
         BW_TOKEN_CONSUMED.wait().await;
         BW_TOKEN_CONSUMED.reset();
-        smol::Timer::after(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
     Ok(())
 }

@@ -1,11 +1,8 @@
 use crate::Config;
 use anyctx::AnyCtx;
+use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 use ipstack_geph::IpStack;
-use smol::{
-    channel::{Receiver, Sender},
-    future::FutureExt as _,
-};
 use std::net::IpAddr;
 
 pub(super) async fn packet_shuffle(

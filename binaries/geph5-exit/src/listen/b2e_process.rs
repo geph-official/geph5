@@ -54,7 +54,7 @@ fn create_listener(protocol: ObfsProtocol, bottom: ReceiverListener) -> DynListe
 async fn b2e_inner(mut listener: impl sillad::listener::Listener) -> anyhow::Result<()> {
     loop {
         let client = listener.accept().await?;
-        smolscale::spawn(
+        geph5_rt::spawn(
             handle_client(client)
                 .map_err(|e| tracing::trace!(err = debug(e), "client stopped through b2e")),
         )

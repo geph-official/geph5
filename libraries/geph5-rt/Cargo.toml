@@ -1,0 +1,22 @@
+[package]
+name = "geph5-rt"
+version = "0.1.0"
+edition = "2024"
+description = "tokio-based runtime helpers for geph5: cancel-on-drop tasks, immortal/respawn loops, a task reaper, a timeout combinator, and buffer-pooled reads"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { version = "1.52", features = ["rt-multi-thread", "time", "io-util", "net", "sync"] }
+futures-util = "0.3.32"
+futures-concurrency = "7.7.1"
+async-channel = "2.5.0"
+bytes = "1.11.1"
+pin-project-lite = "0.2.16"
+rand = "0.8.6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.186"
+
+[dev-dependencies]
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "time", "io-util", "net", "sync"] }

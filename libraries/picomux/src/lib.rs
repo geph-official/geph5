@@ -19,26 +19,22 @@ use std::{
 
 use anyhow::Context;
 
-use async_task::Task;
+use std::future::Future;
 
 use bdp::BwEstimate;
 use buffer_table::BufferTable;
 use bytes::Bytes;
 use frame::{CMD_FIN, CMD_MORE, CMD_NOP, CMD_PING, CMD_PONG, CMD_PSH, CMD_SYN, Frame};
-use futures_lite::{Future, FutureExt as LiteExt};
-use futures_util::{
-    AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, future::Shared, io::BufReader,
-};
-
-use async_io::Timer;
+use futures_concurrency::future::Race;
+use futures_util::{FutureExt, future::Shared};
+use geph5_rt::{Task, TaskReaper, TimeoutExt, pooled_read, spawn};
 use outgoing::Outgoing;
 use parking_lot::Mutex;
 use pin_project::pin_project;
 use rand::Rng;
-use smol_timeout2::TimeoutExt;
-use smolscale::reaper::TaskReaper;
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 
 use crate::frame::{Header, PingInfo};
 pub use buffer_table::{GlobalBufferTableStats, global_buffer_table_stats};
@@ -88,7 +84,7 @@ impl PicoMux {
         send_liveness.try_send(liveness).unwrap();
         let last_ping = Arc::new(Mutex::new(None));
         let debloat: Arc<AtomicBool> = Arc::new(Default::default());
-        let task = smolscale::spawn(
+        let task = spawn(
             picomux_inner(
                 read,
                 write,
@@ -143,15 +139,14 @@ impl PicoMux {
     /// Accepts a new stream from the peer.
     pub async fn accept(&self) -> std::io::Result<Stream> {
         let err = self.wait_error();
-        async {
+        let recv = async {
             if let Ok(val) = self.recv_accepted.recv().await {
                 Ok(val)
             } else {
                 futures_util::future::pending().await
             }
-        }
-        .race(err)
-        .await
+        };
+        (recv, err).race().await
     }
 
     /// Reads the latency from the last successful ping.
@@ -170,15 +165,14 @@ impl PicoMux {
             .send_open_req
             .send((Bytes::copy_from_slice(metadata), send))
             .await;
-        async {
+        let recv = async {
             if let Ok(val) = recv.await {
                 Ok(val)
             } else {
                 futures_util::future::pending().await
             }
-        }
-        .race(self.wait_error())
-        .await
+        };
+        (recv, self.wait_error()).race().await
     }
 
     fn wait_error<T>(&self) -> impl Future<Output = std::io::Result<T>> + 'static {
@@ -219,8 +213,8 @@ async fn picomux_inner(
 
     let create_stream = |stream_id, metadata: Bytes| {
         let mut buffer_recv = buffer_table.create_entry(stream_id);
-        let (mut write_incoming, read_incoming) = bipe::bipe(MSS * 2);
-        let (write_outgoing, mut read_outgoing) = bipe::bipe(MSS * 2);
+        let (mut write_incoming, read_incoming) = tokio::io::duplex(MSS * 2);
+        let (write_outgoing, mut read_outgoing) = tokio::io::duplex(MSS * 2);
         let stream = Stream {
             write_outgoing,
             read_incoming,
@@ -295,7 +289,7 @@ async fn picomux_inner(
             let outgoing = outgoing.clone();
             async move {
                 loop {
-                    let body = async_io_bufpool::pooled_read(&mut read_outgoing, 8192)
+                    let body = pooled_read(&mut read_outgoing, 8192)
                         .await
                         .context("could not read_outgoing")?
                         .context("EOF on read_outgoing")?;
@@ -322,7 +316,7 @@ async fn picomux_inner(
 
         {
             let outgoing = outgoing.clone();
-            reaper.attach(smolscale::spawn(async move {
+            reaper.attach(spawn(async move {
                 scopeguard::defer!({
                     tracing::debug!(stream_id, "enqueuing FIN to the other side");
                     outgoing.enqueue(Frame {
@@ -335,8 +329,10 @@ async fn picomux_inner(
                         body: Bytes::new(),
                     });
                 });
-                let _: anyhow::Result<()> =
-                    incoming_task.race(outgoing_task).await.inspect_err(|e| {
+                let _: anyhow::Result<()> = (incoming_task, outgoing_task)
+                    .race()
+                    .await
+                    .inspect_err(|e| {
                         tracing::debug!(
                             e = debug(e),
                             "incoming/outgoing task for individual stream stopped"
@@ -373,17 +369,15 @@ async fn picomux_inner(
     let ping_loop = async {
         let mut lc: Option<LivenessConfig> = None;
         loop {
-            if let Ok(info) = async {
+            let tick = async {
                 if let Some(lc) = lc {
-                    Timer::after(lc.ping_interval).await;
+                    tokio::time::sleep(lc.ping_interval).await;
                     Ok(lc)
                 } else {
                     futures_util::future::pending().await
                 }
-            }
-            .or(recv_liveness.recv())
-            .await
-            {
+            };
+            if let Ok(info) = (tick, recv_liveness.recv()).race().await {
                 lc = Some(info);
                 pings_sent.fetch_add(1, Ordering::Relaxed);
                 let ping_body = serde_json::to_vec(&PingInfo {
@@ -429,90 +423,80 @@ async fn picomux_inner(
         }
     };
 
-    let result = open_req_loop
-        .race(ping_loop)
-        .race(async {
-            loop {
-                let frame = Frame::read(&mut inner_read).await?;
-                frames_recv.fetch_add(1, Ordering::Relaxed);
-                let stream_id = frame.header.stream_id;
-                tracing::trace!(
-                    command = frame.header.command,
-                    stream_id,
-                    body_len = frame.header.body_len,
-                    "got incoming frame"
-                );
-                match frame.header.command {
-                    CMD_SYN => {
-                        if buffer_table.is_reserved(stream_id) {
-                            return Err(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "duplicate SYN",
-                            ));
-                        }
-                        let stream = create_stream(stream_id, frame.body.clone());
-                        if let Err(err) = send_accepted.try_send(stream) {
-                            match err {
-                                async_channel::TrySendError::Full(_) => {
-                                    tracing::warn!("receive queue is empty, ignoring SYN");
-                                }
-                                async_channel::TrySendError::Closed(_) => {
-                                    return Err(std::io::Error::new(
-                                        ErrorKind::NotConnected,
-                                        "dead",
-                                    ));
-                                }
+    let read_loop = async {
+        loop {
+            let frame = Frame::read(&mut inner_read).await?;
+            frames_recv.fetch_add(1, Ordering::Relaxed);
+            let stream_id = frame.header.stream_id;
+            tracing::trace!(
+                command = frame.header.command,
+                stream_id,
+                body_len = frame.header.body_len,
+                "got incoming frame"
+            );
+            match frame.header.command {
+                CMD_SYN => {
+                    if buffer_table.is_reserved(stream_id) {
+                        return Err(std::io::Error::new(ErrorKind::InvalidData, "duplicate SYN"));
+                    }
+                    let stream = create_stream(stream_id, frame.body.clone());
+                    if let Err(err) = send_accepted.try_send(stream) {
+                        match err {
+                            async_channel::TrySendError::Full(_) => {
+                                tracing::warn!("receive queue is empty, ignoring SYN");
+                            }
+                            async_channel::TrySendError::Closed(_) => {
+                                return Err(std::io::Error::new(ErrorKind::NotConnected, "dead"));
                             }
                         }
                     }
-                    CMD_MORE => {
-                        let window_increase = u16::from_le_bytes(
-                            (&frame.body[..]).try_into().ok().ok_or_else(|| {
-                                std::io::Error::new(
-                                    ErrorKind::InvalidData,
-                                    "corrupt window increase message",
-                                )
-                            })?,
-                        );
-                        buffer_table.incr_send_window(stream_id, window_increase);
+                }
+                CMD_MORE => {
+                    let window_increase =
+                        u16::from_le_bytes((&frame.body[..]).try_into().ok().ok_or_else(|| {
+                            std::io::Error::new(
+                                ErrorKind::InvalidData,
+                                "corrupt window increase message",
+                            )
+                        })?);
+                    buffer_table.incr_send_window(stream_id, window_increase);
+                }
+                CMD_PSH | CMD_FIN => {
+                    if frame.header.command == CMD_FIN {
+                        tracing::debug!(stream_id, "FIN received");
                     }
-                    CMD_PSH | CMD_FIN => {
-                        if frame.header.command == CMD_FIN {
-                            tracing::debug!(stream_id, "FIN received");
-                        }
-                        buffer_table.send_to(stream_id, frame);
-                    }
+                    buffer_table.send_to(stream_id, frame);
+                }
 
-                    CMD_NOP => {}
-                    CMD_PING => {
-                        let ping_info: PingInfo =
-                            serde_json::from_slice(&frame.body).map_err(|e| {
-                                std::io::Error::new(
-                                    ErrorKind::InvalidData,
-                                    format!("invalid PING data {e}"),
-                                )
-                            })?;
-                        tracing::debug!(
-                            next_ping_in_ms = ping_info.next_ping_in_ms,
-                            "responding to a PING"
-                        );
-
-                        outgoing.enqueue(Frame::new_empty(0, CMD_PONG))
-                    }
-                    CMD_PONG => {
-                        pongs_recv.fetch_add(1, Ordering::Relaxed);
-                        let _ = send_pong.send(()).await;
-                    }
-                    other => {
-                        return Err(std::io::Error::new(
+                CMD_NOP => {}
+                CMD_PING => {
+                    let ping_info: PingInfo = serde_json::from_slice(&frame.body).map_err(|e| {
+                        std::io::Error::new(
                             ErrorKind::InvalidData,
-                            format!("invalid command {other}"),
-                        ));
-                    }
+                            format!("invalid PING data {e}"),
+                        )
+                    })?;
+                    tracing::debug!(
+                        next_ping_in_ms = ping_info.next_ping_in_ms,
+                        "responding to a PING"
+                    );
+
+                    outgoing.enqueue(Frame::new_empty(0, CMD_PONG))
+                }
+                CMD_PONG => {
+                    pongs_recv.fetch_add(1, Ordering::Relaxed);
+                    let _ = send_pong.send(()).await;
+                }
+                other => {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        format!("invalid command {other}"),
+                    ));
                 }
             }
-        })
-        .await;
+        }
+    };
+    let result = (open_req_loop, ping_loop, read_loop).race().await;
     if let Err(e) = &result {
         tracing::warn!(
             err = %e,
@@ -528,9 +512,9 @@ async fn picomux_inner(
 #[pin_project]
 pub struct Stream {
     #[pin]
-    read_incoming: bipe::BipeReader,
+    read_incoming: tokio::io::DuplexStream,
     #[pin]
-    write_outgoing: bipe::BipeWriter,
+    write_outgoing: tokio::io::DuplexStream,
     metadata: Bytes,
     on_write: Box<dyn Fn(usize) + Send + Sync + 'static>,
     on_read: Box<dyn Fn(usize) + Send + Sync + 'static>,
@@ -560,23 +544,20 @@ impl AsyncRead for Stream {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        // if fastrand::f32() < 0.1 {
-        //     cx.waker().wake_by_ref();
-        //     Poll::Pending
-        // } else {
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         let this = self.project();
+        let before = buf.filled().len();
         match this.read_incoming.poll_read(cx, buf) {
-            Poll::Ready(Ok(n)) => {
+            Poll::Ready(Ok(())) => {
+                let n = buf.filled().len() - before;
                 if n > 0 {
                     (this.on_read)(n);
                 }
-                Poll::Ready(Ok(n))
+                Poll::Ready(Ok(()))
             }
             other => other,
         }
-        // }
     }
 }
 
@@ -588,10 +569,6 @@ impl AsyncWrite for Stream {
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
         tracing::trace!(buf_len = buf.len(), "about to poll write");
-        // if fastrand::f32() < 0.1 {
-        //     cx.waker().wake_by_ref();
-        //     Poll::Pending
-        // } else {
         let this = self.project();
         match this.write_outgoing.poll_write(cx, buf) {
             Poll::Ready(Ok(n)) => {
@@ -602,7 +579,6 @@ impl AsyncWrite for Stream {
             }
             other => other,
         }
-        // }
     }
 
     fn poll_flush(
@@ -612,11 +588,11 @@ impl AsyncWrite for Stream {
         self.project().write_outgoing.poll_flush(cx)
     }
 
-    fn poll_close(
+    fn poll_shutdown(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        self.project().write_outgoing.poll_close(cx)
+        self.project().write_outgoing.poll_shutdown(cx)
     }
 }
 
@@ -633,12 +609,13 @@ impl sillad::Pipe for Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_lite::{AsyncReadExt, AsyncWriteExt};
+    use geph5_rt::block_on;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tracing_test::traced_test;
 
     async fn setup_picomux_pair() -> (PicoMux, PicoMux) {
-        let (a_write, b_read) = bipe::bipe(1);
-        let (b_write, a_read) = bipe::bipe(1);
+        let (a_write, b_read) = tokio::io::duplex(1);
+        let (b_write, a_read) = tokio::io::duplex(1);
 
         let picomux_a = PicoMux::new(a_read, a_write);
         let picomux_b = PicoMux::new(b_read, b_write);
@@ -649,7 +626,7 @@ mod tests {
     #[traced_test]
     #[test]
     fn test_picomux_basic() {
-        smolscale::block_on(async move {
+        block_on(async move {
             let (picomux_a, picomux_b) = setup_picomux_pair().await;
 
             let a_proc = async move {
@@ -657,7 +634,7 @@ mod tests {
                 stream_a.write_all(b"Hello, world!").await.unwrap();
                 stream_a.flush().await.unwrap();
                 drop(stream_a);
-                futures_util::future::pending().await
+                futures_util::future::pending::<()>().await
             };
             let b_proc = async move {
                 let mut stream_b = picomux_b.accept().await.unwrap();
@@ -667,7 +644,7 @@ mod tests {
 
                 assert_eq!(buf, b"Hello, world!");
             };
-            a_proc.race(b_proc).await
+            (a_proc, b_proc).race().await
         })
     }
 }

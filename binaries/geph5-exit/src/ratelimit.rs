@@ -7,15 +7,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use async_io_bufpool::pooled_read;
 use atomic_float::AtomicF32;
-use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use geph5_broker_protocol::AccountLevel;
+use geph5_rt::{TimeoutExt, pooled_read};
 use governor::{DefaultDirectRateLimiter, Quota};
 use mizaru2::ClientToken;
 use once_cell::sync::Lazy;
-use smol_timeout2::TimeoutExt;
 use sysinfo::System;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     CONFIG_FILE,
@@ -188,7 +187,7 @@ impl RateLimiter {
                     break;
                 }
 
-                smol::Timer::after(Duration::from_secs_f32(delay)).await;
+                tokio::time::sleep(Duration::from_secs_f32(delay)).await;
                 delay += rand::random::<f32>() * 0.05;
             }
         }

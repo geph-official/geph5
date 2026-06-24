@@ -1,6 +1,6 @@
 use base64::{Engine, prelude::BASE64_STANDARD_NO_PAD};
 use futures_concurrency::future::Race;
-use futures_util::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use stdcode::StdcodeSerializeExt;
 
@@ -18,17 +18,17 @@ const BW_TOKEN_BYTES: u64 = 10_000_000;
 
 #[derive(Clone)]
 pub struct BwAccountingHandle {
-    force_refresh: smol::channel::Sender<()>,
+    force_refresh: async_channel::Sender<()>,
     accounted_bytes: Arc<AtomicU64>,
 }
 
 pub struct BwAccountingLoop {
     handle: BwAccountingHandle,
-    force_refresh: smol::channel::Receiver<()>,
+    force_refresh: async_channel::Receiver<()>,
 }
 
 pub fn bw_accounting_pair() -> (BwAccountingHandle, BwAccountingLoop) {
-    let (send, recv) = smol::channel::unbounded();
+    let (send, recv) = async_channel::unbounded();
     let handle = BwAccountingHandle {
         force_refresh: send,
         accounted_bytes: Arc::new(AtomicU64::new(0)),
@@ -69,7 +69,7 @@ pub async fn bw_accounting_client_loop(
 ) -> anyhow::Result<()> {
     tracing::info!("starting bandwidth accounting");
 
-    let (mut read, mut write) = stream.split();
+    let (mut read, mut write) = tokio::io::split(stream);
 
     let read_fut = {
         async {

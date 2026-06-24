@@ -10,23 +10,20 @@ use std::{
 
 use anyhow::Context;
 use async_channel::{Receiver, Sender};
-use async_io_bufpool::pooled_read;
 use async_trait::async_trait;
-
-use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite};
+use futures_concurrency::future::Race;
 use geph5_misc_rpc::bridge::{
     B2eMetadata, BridgeControlProtocol, BridgeControlService, ObfsProtocol,
 };
+use geph5_rt::{TimeoutExt, pooled_read};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use picomux::{LivenessConfig, PicoMux, Stream};
 use rand::Rng;
 use sillad::{Pipe, dialer::Dialer, listener::Listener, tcp::TcpListener};
-use smol::future::FutureExt as _;
-use smol::io::AsyncWriteExt;
-use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use tap::Tap;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     asn_count::{self, incr_bytes_asn},
@@ -62,7 +59,7 @@ impl BridgeControlProtocol for State {
         static MAPPING: LazyLock<
             Cache<
                 (IpAddr, SocketAddr, ObfsProtocol),
-                (SocketAddr, Arc<smol::Task<anyhow::Result<()>>>),
+                (SocketAddr, Arc<geph5_rt::Task<anyhow::Result<()>>>),
             >,
         > = LazyLock::new(|| {
             Cache::builder()
@@ -78,7 +75,7 @@ impl BridgeControlProtocol for State {
                     .local_addr()
                     .await
                     .tap_mut(|s| s.set_ip(self.my_ip));
-                let task = smolscale::spawn(handle_one_listener(
+                let task = geph5_rt::spawn(handle_one_listener(
                     listener,
                     b2e_dest,
                     protocol,
@@ -105,7 +102,7 @@ async fn random_tcp_listener(my_ip: IpAddr) -> TcpListener {
         match TcpListener::bind_with_v6_only(bind_addr, my_ip.is_ipv6()).await {
             Ok(listener) => return listener,
             Err(err) => {
-                smol::Timer::after(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
                 tracing::warn!(
                     rando,
                     bind_addr = display(bind_addr),
@@ -136,7 +133,7 @@ async fn handle_one_listener(
         let protocol = protocol.clone();
         let pool = pool.clone();
         let rate_limiter = rate_limiter.clone();
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             let remote_asn = asn_count::ip_to_asn(remote_ip).await.unwrap_or(0);
             tracing::trace!(
                 count,
@@ -156,25 +153,28 @@ async fn handle_one_listener(
             let exit_conn = dial_pooled(b2e_dest, &protocol)
                 .await
                 .inspect_err(|e| tracing::warn!("cannot dial pooled: {:?}", e))?;
-            let (client_read, client_write) = client_conn.split();
-            let (exit_read, exit_write) = exit_conn.split();
-            io_copy_with_timeout(
-                exit_read,
-                client_write,
-                rate_limiter.clone(),
-                &pool,
-                remote_asn,
-                Duration::from_secs(1800),
+            let (client_read, client_write) = tokio::io::split(client_conn);
+            let (exit_read, exit_write) = tokio::io::split(exit_conn);
+            (
+                io_copy_with_timeout(
+                    exit_read,
+                    client_write,
+                    rate_limiter.clone(),
+                    &pool,
+                    remote_asn,
+                    Duration::from_secs(1800),
+                ),
+                io_copy_with_timeout(
+                    client_read,
+                    exit_write,
+                    rate_limiter,
+                    &pool,
+                    remote_asn,
+                    Duration::from_secs(1800),
+                ),
             )
-            .race(io_copy_with_timeout(
-                client_read,
-                exit_write,
-                rate_limiter,
-                &pool,
-                remote_asn,
-                Duration::from_secs(1800),
-            ))
-            .await?;
+                .race()
+                .await?;
             anyhow::Ok(())
         })
         .detach();
@@ -251,7 +251,7 @@ async fn dial_pooled(
 struct SinglePool {
     send: Sender<(Vec<u8>, oneshot::Sender<Stream>)>,
     live_count: Arc<AtomicUsize>,
-    _tasks: Vec<smol::Task<()>>,
+    _tasks: Vec<geph5_rt::Task<()>>,
 }
 
 impl SinglePool {
@@ -262,11 +262,11 @@ impl SinglePool {
         for _ in 0..16 {
             let recv = recv.clone();
             let live_count = live_count.clone();
-            let task = smolscale::spawn(async move {
+            let task = geph5_rt::spawn(async move {
                 loop {
                     let conn = sillad::tcp::TcpDialer { dest_addr: dest }.dial().await;
                     if let Ok(conn) = conn {
-                        let (read, write) = conn.split();
+                        let (read, write) = tokio::io::split(conn);
                         let mut mux = PicoMux::new(read, write);
                         mux.set_liveness(LivenessConfig {
                             ping_interval: Duration::from_secs(10),
@@ -281,7 +281,7 @@ impl SinglePool {
                             tracing::error!(dest = display(dest), "remote_once error: {}", err);
                         }
                     }
-                    smol::Timer::after(Duration::from_secs(1)).await;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             });
             tasks.push(task);
@@ -312,16 +312,16 @@ async fn remote_once(
     mux: &PicoMux,
 ) -> anyhow::Result<()> {
     loop {
-        let (metadata, back) = async {
+        let recv = async {
             req.recv()
                 .await
                 .map_err(|_| anyhow::anyhow!("request channel closed"))
-        }
-        .or(async {
+        };
+        let dead = async {
             mux.wait_until_dead().await?;
             anyhow::bail!("b2e mux died")
-        })
-        .await?;
+        };
+        let (metadata, back) = (recv, dead).race().await?;
         let stream = mux.open(&metadata).await?;
         back.send(stream).ok();
     }
