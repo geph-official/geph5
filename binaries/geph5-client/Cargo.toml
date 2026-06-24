@@ -60,7 +60,7 @@ hyper = { version = "1.9.0", features = ["http1", "client", "server"] }
 hyper-rustls = { version = "0.24.2", features = ["webpki-roots"] }
 hyper-util = { version = "0.1.20" }
 ipnet = "2.12.0"
-ipstack-geph = "0.3"
+ipstack-geph = "0.3.1"
 isocountry = "0.3.2"
 itertools = "0.13.0"
 libc = "0.2.186"
