@@ -334,6 +334,7 @@ dependencies = [
  "blocking",
  "futures-lite 2.6.1",
  "once_cell",
+ "tokio",
 ]
 
 [[package]]
@@ -372,17 +373,6 @@ dependencies = [
  "rustix 1.1.4",
  "slab",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "async-io-bufpool"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fb99affd84dd315d0f240048fb960db6d09bc8ccbe4721f9d771b89836a6f5b"
-dependencies = [
- "bytes",
- "crossbeam-queue",
- "futures-util",
 ]
 
 [[package]]
@@ -2475,8 +2465,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
+ "async-global-executor",
  "async-io 2.6.0",
- "async-io-bufpool 0.1.2",
+ "async-io-bufpool",
  "async-trait",
  "blake3",
  "clap",
@@ -2603,7 +2594,7 @@ dependencies = [
  "async-compat",
  "async-dup",
  "async-event 0.2.1",
- "async-io-bufpool 0.1.2",
+ "async-io-bufpool",
  "async-native-tls",
  "async-trait",
  "atomic_float",
@@ -2700,8 +2691,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-event 0.2.1",
+ "async-global-executor",
  "async-io 2.6.0",
- "async-io-bufpool 0.2.0",
+ "async-io-bufpool",
  "async-native-tls",
  "async-trait",
  "atomic_float",
@@ -2815,7 +2807,7 @@ dependencies = [
  "argh",
  "async-event 0.2.1",
  "async-io 2.6.0",
- "async-io-bufpool 0.2.0",
+ "async-io-bufpool",
  "async-native-tls",
  "async-trait",
  "atomic_float",
@@ -4236,7 +4228,7 @@ dependencies = [
  "async-dup",
  "async-event 0.2.1",
  "async-io 2.6.0",
- "async-io-bufpool 0.2.0",
+ "async-io-bufpool",
  "async-lock 3.4.2",
  "async-task",
  "async_io_stream",

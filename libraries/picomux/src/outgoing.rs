@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
 use crossbeam_queue::SegQueue;
 use futures_lite::{AsyncWrite, AsyncWriteExt};
@@ -18,6 +21,34 @@ impl Outgoing {
     pub fn new(write: impl AsyncWrite + Send + Unpin + 'static) -> Self {
         let inner = Arc::new(Inner::default());
         let err_cell = Arc::new(OnceLock::new());
+        // DIAG watchdog: detect an outgoing_loop parked while frames are queued.
+        {
+            let weak = Arc::downgrade(&inner);
+            smolscale::spawn(async move {
+                let mut last_written = 0u64;
+                let mut stuck_ticks = 0u32;
+                loop {
+                    async_io::Timer::after(std::time::Duration::from_secs(2)).await;
+                    let Some(inner) = weak.upgrade() else { return };
+                    let q = inner.queue.len();
+                    let w = inner.written.load(Ordering::Relaxed);
+                    let iw = inner.in_write.load(Ordering::Relaxed);
+                    if q > 0 && w == last_written && !iw {
+                        stuck_ticks += 1;
+                        tracing::warn!(
+                            queue_len = q,
+                            written = w,
+                            stuck_secs = stuck_ticks * 2,
+                            "OUTGOING-STUCK: frames queued but loop not writing"
+                        );
+                    } else {
+                        stuck_ticks = 0;
+                    }
+                    last_written = w;
+                }
+            })
+            .detach();
+        }
         Self {
             inner: inner.clone(),
             err: err_cell.clone(),
@@ -49,6 +80,21 @@ impl Outgoing {
         Ok(())
     }
 
+    /// Number of frames currently queued but not yet written to the wire.
+    pub fn queue_len(&self) -> usize {
+        self.inner.queue.len()
+    }
+
+    /// Total number of frames the outgoing loop has fully written to the wire.
+    pub fn written(&self) -> u64 {
+        self.inner.written.load(Ordering::Relaxed)
+    }
+
+    /// Whether the outgoing loop is currently blocked inside `write_all`.
+    pub fn in_write(&self) -> bool {
+        self.inner.in_write.load(Ordering::Relaxed)
+    }
+
     /// Infallibly, non-blockingly enqueues a frame to be sent to the outgoing writer.
     pub fn enqueue(&self, outgoing: Frame) {
         tracing::trace!(
@@ -67,6 +113,9 @@ struct Inner {
     queue: SegQueue<Frame>,
     grow_signal: async_event::Event,
     shrink_signal: async_event::Event,
+    written: AtomicU64,
+    in_write: AtomicBool,
+    dead: AtomicBool,
 }
 
 async fn outgoing_loop(
@@ -77,6 +126,9 @@ async fn outgoing_loop(
     loop {
         let next = inner.grow_signal.wait_until(|| inner.queue.pop()).await;
         inner.shrink_signal.notify_all();
+        inner.in_write.store(true, Ordering::Relaxed);
         write.write_all(&next.bytes()).await?;
+        inner.in_write.store(false, Ordering::Relaxed);
+        inner.written.fetch_add(1, Ordering::Relaxed);
     }
 }

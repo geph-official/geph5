@@ -20,6 +20,7 @@ net.core.default_qdisc          = fq
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_syncookies         = 1
 net.ipv4.ip_local_port_range    = 1024 65535
+net.ipv4.tcp_mtu_probing = 1
 EOF
 sysctl -p
 
@@ -28,11 +29,88 @@ sysctl -p
 ########################################################################
 echo -e "\033[1mUpdating package lists and installing dependencies\033[0m"
 apt-get update || true
-apt-get install -y curl jq
+apt-get install -y curl jq iputils-ping
 
 echo -e "\033[1mDownloading geph5-exit\033[0m"
 curl -s https://artifacts.geph.io/musl-latest/geph5-exit -o /usr/local/bin/geph5-exit
 chmod +x /usr/local/bin/geph5-exit
+
+########################################################################
+# 2.5 MTU discovery (binary search, ICMP-blackhole-resistant)
+########################################################################
+# Path MTU is discovered by sending DF-set ICMP echoes of increasing size to
+# 1.1.1.1 and binary-searching for the largest packet that gets through. We do
+# NOT rely on receiving "fragmentation needed" replies (those are often dropped
+# by ICMP blackholes): a probe "succeeds" only if we get an echo *reply* back,
+# and "fails" (too big) on any other outcome. The result is then pinned onto the
+# primary interface persistently via a systemd unit.
+echo -e "\033[1mDiscovering path MTU via binary search\033[0m"
+
+# IP + ICMP headers consume 28 bytes; ping -s sets the payload size, so the
+# on-wire packet size is payload + 28. We search in packet-size (MTU) space.
+ICMP_OVERHEAD=28
+PING_TARGET=1.1.1.1
+
+# Returns 0 if a DF-set packet of the given total MTU size reaches the target.
+mtu_probe() {
+  local mtu="$1"
+  local payload=$((mtu - ICMP_OVERHEAD))
+  # -M do: set DF, never fragment. -c 1: one packet. -W 2: 2s reply timeout.
+  ping -M do -s "$payload" -c 1 -W 2 "$PING_TARGET" >/dev/null 2>&1
+}
+
+discovered_mtu=""
+# Only bother if the target is reachable at all at a safe, universally-routable
+# size (1280 = the IPv6 minimum, which virtually every path supports).
+if mtu_probe 1280; then
+  lo=1280   # known-good
+  hi=1500   # standard Ethernet ceiling; never probe above this
+  # If even 1500 works, we're done — that's the max we'd ever set.
+  if mtu_probe "$hi"; then
+    discovered_mtu=$hi
+  else
+    # Binary-search the largest size in (lo, hi) that still gets through.
+    while [ $((hi - lo)) -gt 1 ]; do
+      mid=$(((lo + hi) / 2))
+      if mtu_probe "$mid"; then
+        lo=$mid
+      else
+        hi=$mid
+      fi
+    done
+    discovered_mtu=$lo
+  fi
+fi
+
+if [ -n "$discovered_mtu" ]; then
+  primary_iface=$(ip -o route get "$PING_TARGET" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n1)
+fi
+
+if [ -n "$discovered_mtu" ] && [ -n "$primary_iface" ]; then
+  echo -e "\033[1mDiscovered MTU $discovered_mtu on $primary_iface; applying and persisting\033[0m"
+  ip link set dev "$primary_iface" mtu "$discovered_mtu" || true
+
+  # Persist across reboots with a oneshot unit, independent of the network
+  # manager in use. Re-applies on every boot after the interface is up.
+  cat > /etc/systemd/system/geph5-mtu.service <<EOL
+[Unit]
+Description=Pin path MTU for geph5 exit
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip link set dev $primary_iface mtu $discovered_mtu
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOL
+  systemctl daemon-reload
+  systemctl enable --now geph5-mtu.service || true
+else
+  echo -e "\033[1mCould not determine MTU (target unreachable?); leaving MTU unchanged\033[0m"
+fi
 
 ########################################################################
 # 3. Prep directories & random ports

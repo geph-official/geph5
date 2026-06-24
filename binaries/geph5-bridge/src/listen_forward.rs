@@ -195,16 +195,15 @@ where
     W: AsyncWrite + Unpin,
 {
     loop {
-        match pooled_read(&mut reader).timeout(timeout).await {
-            Some(Ok(buf)) => {
-                if buf.is_empty() {
-                    return Ok(());
-                }
+        match pooled_read(&mut reader, 8192).timeout(timeout).await {
+            // `None` (inner) signals EOF in async-io-bufpool 0.2.
+            Some(Ok(Some(buf))) => {
                 rate_limiter.wait(buf.len()).await;
                 writer.write_all(&buf).await?;
 
                 incr_bytes_asn(pool, asn, buf.len() as u64);
             }
+            Some(Ok(None)) => return Ok(()),
             Some(Err(err)) => return Err(err),
             None => return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout")),
         }
