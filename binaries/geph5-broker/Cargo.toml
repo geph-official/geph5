@@ -14,9 +14,9 @@ pollster = "0.3.0"
 serde = "1.0.228"
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"
-smolscale = "0.4.16"
+geph5-rt = { path = "../../libraries/geph5-rt" }
 sqlx = { version = "0.7", features = [
-  "runtime-async-std-rustls",
+  "runtime-tokio-rustls",
   "postgres",
   "chrono",
 ] }
@@ -27,7 +27,6 @@ nanorpc = "0.1.13"
 thiserror = "1.0.69"
 tracing = "0.1.44"
 rand = "0.8.6"
-async-io = "2.6.0"
 moka = { version = "0.12.15", features = ["future"] }
 blake3 = "1.8.5"
 isocountry = "0.3.2"
@@ -38,7 +37,6 @@ nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 sillad = { path = "../../libraries/sillad" }
 mizaru2 = { path = "../../libraries/mizaru2" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
-smol-timeout2 = "0.6.1"
 stdcode = "0.1.14"
 bytes = { version = "1.11.1", features = ["serde"] }
 argon2 = "0.5.3"
@@ -48,9 +46,7 @@ clap = { version = "4.6.1", features = ["derive"] }
 reqwest = { version = "0.12.28", default-features = false, features=["json", "rustls-tls-webpki-roots"] }
 hex = "0.4.3"
 tap = "1.0.1"
-blocking = "1.6.2"
 cached = {version="0.54.0", features=["async"]}
-smol = "2.0.2"
 geph5-stats = { path = "../../libraries/geph5-stats" }
 tikv-jemallocator = "0.6.1"
 geph5-ip-to-asn = { path = "../../libraries/geph5-ip-to-asn" }

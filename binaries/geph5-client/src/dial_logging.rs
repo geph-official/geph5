@@ -58,7 +58,7 @@ mod tests {
     };
 
     use async_trait::async_trait;
-    use futures_util::{AsyncRead, AsyncWrite};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
     use tracing_subscriber::layer::SubscriberExt as _;
 
     use super::*;
@@ -72,9 +72,9 @@ mod tests {
         fn poll_read(
             self: Pin<&mut Self>,
             _cx: &mut Context<'_>,
-            _buf: &mut [u8],
-        ) -> Poll<io::Result<usize>> {
-            Poll::Ready(Ok(0))
+            _buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
         }
     }
 
@@ -91,7 +91,7 @@ mod tests {
             Poll::Ready(Ok(()))
         }
 
-        fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             Poll::Ready(Ok(()))
         }
     }
@@ -174,7 +174,7 @@ mod tests {
                     remote_addr: Some("127.0.0.1:9000"),
                 },
             );
-            smolscale::block_on(async move { dialer.dial().await })
+            geph5_rt::block_on(async move { dialer.dial().await })
         });
 
         assert!(result.is_ok());
@@ -191,7 +191,7 @@ mod tests {
                 r#"{"plain_tls":{"lower":"..."}}"#.to_string(),
                 ErrDialer,
             );
-            smolscale::block_on(async move { dialer.dial().await })
+            geph5_rt::block_on(async move { dialer.dial().await })
         });
 
         assert!(result.is_err());
@@ -213,7 +213,7 @@ mod tests {
                     logged("tcp", r#"{"tcp":"127.0.0.1:9000"}"#.to_string(), ErrDialer),
                 ),
             );
-            smolscale::block_on(async move { dialer.dial().await })
+            geph5_rt::block_on(async move { dialer.dial().await })
         });
 
         assert!(result.is_err());
@@ -240,7 +240,7 @@ mod tests {
                     ),
                 ),
             );
-            smolscale::block_on(async move { dialer.dial().await })
+            geph5_rt::block_on(async move { dialer.dial().await })
         });
 
         assert!(result.is_ok());

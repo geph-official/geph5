@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use geph5_broker_protocol::{Credential, UserInfo};
 use geph5_misc_rpc::client_control::{ConnInfo, ControlClient};
 use nanorpc::RpcTransport;
-use smol::lock::Mutex;
+use tokio::sync::Mutex;
 
 use crate::{
     protocol::{
@@ -182,7 +182,8 @@ fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
 /// (it may spawn a privilege-dropping helper). Best-effort: failures are logged.
 async fn apply_proxy(session: SessionContext, connected: bool) {
     let url = format!("http://{}/proxy.pac", supervisor::PAC_ADDR);
-    let res = smol::unblock(move || proxy::apply_for_session(&session, connected, &url)).await;
+    let res = geph5_rt::spawn_blocking(move || proxy::apply_for_session(&session, connected, &url))
+        .await;
     match res {
         Ok(()) => tracing::info!(connected, "configured system proxy"),
         Err(e) => tracing::warn!(err = format!("{e:#}"), connected, "system proxy config failed"),

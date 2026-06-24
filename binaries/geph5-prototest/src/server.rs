@@ -1,10 +1,11 @@
 use std::{net::SocketAddr, sync::atomic::AtomicU64};
 
-use futures_util::{AsyncReadExt, AsyncWriteExt, TryFutureExt};
+use futures_util::TryFutureExt;
 use picomux::{PicoMux, Stream};
 use rand::RngCore;
 
 use sillad::{Pipe, listener::Listener};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::command::Command;
 use crate::stack::{dummy_tls_acceptor, listener_from_stack, parse_stack};
@@ -22,7 +23,7 @@ pub async fn server_main(listen: SocketAddr, stack: Option<String>) -> anyhow::R
     let mut listener = listener_from_stack(protocol, base, &tls_acceptor);
     loop {
         let wire = listener.accept().await?;
-        smolscale::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))
+        geph5_rt::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))
             .detach();
     }
 }
@@ -37,16 +38,14 @@ async fn once_wire(wire: impl Pipe) -> anyhow::Result<()> {
     //     eprintln!("gotten 1024 garbages");
     // }
 
-    let (read_wire, write_wire) = wire.split();
+    let (read_wire, write_wire) = tokio::io::split(wire);
     let mux = PicoMux::new(read_wire, write_wire);
     for stream_count in 0u64.. {
         let stream = mux.accept().await?;
         eprintln!("accepted stream {stream_count} from wire {wire_count}");
-        smolscale::spawn(
-            once_stream(wire_count, stream_count, stream).inspect_err(move |err| {
-                eprintln!("stream {wire_count}/{stream_count} died: {:?}", err)
-            }),
-        )
+        geph5_rt::spawn(once_stream(wire_count, stream_count, stream).inspect_err(
+            move |err| eprintln!("stream {wire_count}/{stream_count} died: {:?}", err),
+        ))
         .detach();
     }
     unreachable!()
@@ -66,7 +65,7 @@ async fn once_stream(wire_count: u64, stream_count: u64, mut stream: Stream) -> 
             }
         }
         Command::Sink(sink) => {
-            futures_util::io::copy(stream.take(sink as _), &mut futures_util::io::sink()).await?;
+            tokio::io::copy(&mut stream.take(sink as _), &mut tokio::io::sink()).await?;
         }
     }
     anyhow::Ok(())

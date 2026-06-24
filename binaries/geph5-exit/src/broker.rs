@@ -175,7 +175,7 @@ async fn resolve_advertised_ip(source: &AdvertisedIpLookupSource) -> anyhow::Res
 
 async fn resolve_hostname_ip(hostname: &str) -> anyhow::Result<IpAddr> {
     let lookup = format!("{hostname}:0");
-    let addrs = smol::net::resolve(&lookup)
+    let addrs = tokio::net::lookup_host(&lookup)
         .await
         .with_context(|| format!("could not resolve advertised exit hostname {hostname}"))?;
     addrs
@@ -305,12 +305,12 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                 if let Err(err) = upload.await {
                     tracing::warn!(err = debug(err), "failed to upload descriptor")
                 }
-                smol::Timer::after(Duration::from_millis(2000)).await;
+                tokio::time::sleep(Duration::from_millis(2000)).await;
             }
         }
         None => {
             tracing::info!("not starting broker loop since there's no binder URL");
-            smol::future::pending().await
+            std::future::pending().await
         }
     }
 }

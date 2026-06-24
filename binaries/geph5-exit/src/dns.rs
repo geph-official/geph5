@@ -81,7 +81,7 @@ async fn parse_oisd(url: &str) -> anyhow::Result<GlobSet> {
         count += 1;
         if fastrand::f32() < 0.01 {
             tracing::info!(url, count, "LOADING an oisd blocklist");
-            smol::future::yield_now().await;
+            tokio::task::yield_now().await;
         }
     }
     tracing::info!(url, count, "LOADED an oisd blocklist");
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn resolve_google() {
-        smolscale::block_on(async move {
+        geph5_rt::block_on(async move {
             let res = dns_resolve(
                 "google.com:443",
                 super::FilterOptions {

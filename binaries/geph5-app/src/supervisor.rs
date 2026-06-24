@@ -483,7 +483,7 @@ pub async fn wait_control_ready(client: &ControlClient, timeout: Duration) -> an
         match client.start_time().await {
             Ok(_) => return Ok(()),
             Err(_) if start.elapsed() < timeout => {
-                smol::Timer::after(deadline).await;
+                geph5_rt::sleep(deadline).await;
             }
             Err(e) => anyhow::bail!("engine never became reachable: {e:?}"),
         }

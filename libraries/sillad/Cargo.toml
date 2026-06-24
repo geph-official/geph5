@@ -1,32 +1,28 @@
 [package]
 name = "sillad"
 edition = "2024"
-description = "A framework for talking about TCP-like dialers and listeners, within the futures-io ecosystem"
+description = "A framework for talking about TCP-like dialers and listeners, within the tokio-io ecosystem"
 version = "0.2.10"
 repository.workspace = true
 license.workspace = true
 
 [dependencies]
 anyhow = "1.0.102"
-async-io = "2.6.0"
 async-trait = "0.1.89"
 futures-concurrency = "7.7.1"
-futures-lite = "2.6.1"
-futures-util = { version = "0.3.32", features = ["io"] }
+futures-util = "0.3.32"
 libc = "0.2.186"
 pin-project = "1.1.11"
 rand = "0.8.6"
-smol-timeout2 = "0.6.1"
 socket2 = "0.5.10"
+tokio = { version = "1.52", features = ["net", "time", "io-util"] }
 tracing = "0.1.44"
 
-# Windows named pipes: there is no mature smol-native async named-pipe API, so we
-# bridge tokio's named-pipe support onto our futures-io world via async-compat
-# (which runs a hidden tokio reactor and enters it on poll). windows-sys is used
-# for the raw CreateNamedPipeW + security-descriptor setup tokio doesn't expose.
+# Windows named pipes: tokio's named-pipe types implement tokio-io directly, so
+# no bridge is needed. windows-sys is only used for the raw CreateNamedPipeW +
+# security-descriptor setup that tokio's ServerOptions doesn't expose.
 [target.'cfg(windows)'.dependencies]
-tokio = { version = "1", features = ["net", "rt", "io-util"] }
-async-compat = "0.2.4"
+tokio = { version = "1.52", features = ["net", "io-util"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_Pipes",

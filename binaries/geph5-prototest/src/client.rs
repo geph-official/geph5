@@ -5,11 +5,11 @@ use std::{
 };
 
 use crate::stack::{dialer_from_stack, parse_stack};
-use futures_concurrency::future::FutureExt;
-use futures_util::AsyncReadExt;
+use futures_concurrency::future::Race;
 use geph5_misc_rpc::bridge::ObfsProtocol;
 use picomux::{LivenessConfig, PicoMux};
 use sillad::dialer::Dialer;
+use tokio::io::AsyncReadExt;
 
 use crate::command::Command;
 
@@ -24,7 +24,7 @@ pub async fn client_main(connect: SocketAddr, stack: Option<String>) -> anyhow::
     let wire = dialer_from_stack(&protocol, connect).dial().await?;
     eprintln!("wire dialed in {:?}", start.elapsed());
 
-    let (read, write) = wire.split();
+    let (read, write) = tokio::io::split(wire);
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
         ping_interval: Duration::from_secs(1),
@@ -37,7 +37,7 @@ pub async fn client_main(connect: SocketAddr, stack: Option<String>) -> anyhow::
     loop {
         let ping_loop = async {
             loop {
-                smol::Timer::after(Duration::from_secs(3)).await;
+                tokio::time::sleep(Duration::from_secs(3)).await;
                 let ping = ping_once(mux.clone()).await?;
                 eprintln!(
                     "loaded ping: {:?}; bloat {:?}",
@@ -46,7 +46,7 @@ pub async fn client_main(connect: SocketAddr, stack: Option<String>) -> anyhow::
                 );
             }
         };
-        ping_loop.race(download_chunk(mux.clone())).await?;
+        (ping_loop, download_chunk(mux.clone())).race().await?;
     }
 }
 
@@ -54,8 +54,8 @@ async fn ping_once(mux: Arc<PicoMux>) -> anyhow::Result<Duration> {
     let start = Instant::now();
     const COUNT: u32 = 1;
     for _ in 0..COUNT {
-        let stream = mux.open(&serde_json::to_vec(&Command::Source(1))?).await?;
-        futures_util::io::copy(stream, &mut futures_util::io::sink()).await?;
+        let mut stream = mux.open(&serde_json::to_vec(&Command::Source(1))?).await?;
+        tokio::io::copy(&mut stream, &mut tokio::io::sink()).await?;
     }
     Ok(start.elapsed() / COUNT)
 }
@@ -70,11 +70,8 @@ async fn download_chunk(mux: Arc<PicoMux>) -> anyhow::Result<()> {
     let start = Instant::now();
     let mut dl = 0;
     loop {
-        let n = futures_util::io::copy(
-            (&mut stream).take(10000 as _),
-            &mut futures_util::io::sink(),
-        )
-        .await?;
+        let n =
+            tokio::io::copy(&mut (&mut stream).take(10000 as _), &mut tokio::io::sink()).await?;
         if n == 0 {
             break;
         }

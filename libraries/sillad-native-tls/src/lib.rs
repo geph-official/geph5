@@ -1,8 +1,12 @@
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use async_native_tls::{TlsAcceptor, TlsConnector, TlsStream};
 use async_trait::async_trait;
-use futures_lite::{AsyncRead, AsyncWrite};
+use geph5_rt::{Task, spawn};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio_native_tls::{TlsAcceptor, TlsConnector, TlsStream};
 
 use sillad::{Pipe, dialer::Dialer, listener::Listener};
 
@@ -15,9 +19,9 @@ pub struct TlsPipe<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> {
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncRead for TlsPipe<T> {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_read(cx, buf)
     }
 }
@@ -25,24 +29,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncRead for TlsPipe<T> {
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncWrite for TlsPipe<T> {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> Poll<std::io::Result<usize>> {
         Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_flush(cx)
     }
 
-    fn poll_close(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_close(cx)
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
     }
 }
 
@@ -108,7 +106,7 @@ pub struct TlsListener<L: Listener> {
     // Channel that will yield successful TLS connections.
     incoming: tachyonix::Receiver<TlsPipe<L::P>>,
     // Keep the background task alive (cancels on drop).
-    _accept_task: async_task::Task<()>,
+    _accept_task: Task<()>,
 }
 
 impl<L: Listener> TlsListener<L>
@@ -120,7 +118,7 @@ where
         let (tx, rx) = tachyonix::channel(1);
 
         let acceptor_clone = acceptor.clone();
-        let accept_task = smolscale::spawn(async move {
+        let accept_task = spawn(async move {
             loop {
                 // Pull the next raw connection from the underlying listener.
                 let raw_conn = match inner.accept().await {
@@ -136,7 +134,7 @@ where
                 let tx2 = tx.clone();
                 let acceptor2 = acceptor_clone.clone();
                 let remote_addr = raw_conn.remote_addr().map(|s| s.to_string());
-                smolscale::spawn(async move {
+                spawn(async move {
                     match acceptor2.accept(raw_conn).await {
                         Ok(tls_stream) => {
                             let pipe = TlsPipe {

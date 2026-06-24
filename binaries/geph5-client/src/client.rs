@@ -2,17 +2,15 @@ use anyctx::AnyCtx;
 
 use anyhow::Context;
 use bytes::Bytes;
-use futures_util::{
-    AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt, future::Shared, task::noop_waker,
-};
+use futures_concurrency::future::Race as _;
+use futures_util::{FutureExt, TryFutureExt, future::Shared, task::noop_waker};
 use geph5_broker_protocol::UserInfo;
 use geph5_misc_rpc::client_control::{ControlClient, ControlService};
+use geph5_rt::Immortal;
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
-use smol::future::FutureExt as _;
-use std::{fs::File, sync::Arc};
-
-use smolscale::immortal::Immortal;
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
     auth::{auth_loop, get_auth_token},
@@ -37,7 +35,7 @@ pub use geph5_misc_rpc::client_config::{BrokerKeys, Config};
 
 #[derive(Clone)]
 pub struct Client {
-    task: Shared<smol::Task<Result<(), Arc<anyhow::Error>>>>,
+    task: Shared<geph5_rt::Task<Result<(), Arc<anyhow::Error>>>>,
     ctx: AnyCtx<Config>,
 }
 
@@ -65,14 +63,14 @@ impl Client {
 
         if let Some(fd) = vpn_fd {
             let ctx_clone = ctx.clone();
-            smolscale::spawn(async move {
+            geph5_rt::spawn(async move {
                 // Create an async file descriptor from the raw fd
-                let async_fd: smol::Async<File> =
-                    smol::Async::new(unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) })
-                        .expect("could not wrap VPN fd in Async");
+                let file: std::fs::File = unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) };
+                let async_fd = geph5_rt::asyncfd::AsyncFdStream::new(file)
+                    .expect("could not wrap VPN fd in AsyncFdStream");
 
                 // Split the file descriptor for reading and writingz
-                let (mut reader, mut writer) = async_fd.split();
+                let (mut reader, mut writer) = tokio::io::split(async_fd);
 
                 // Spawn a task for reading from fd and sending to VPN
                 let read_task = async {
@@ -123,12 +121,12 @@ impl Client {
                 };
 
                 // Wait for either task to complete (or fail)
-                let _ = read_task.race(write_task).await;
+                let _ = (read_task, write_task).race().await;
                 tracing::warn!("VPN fd handler exited");
             })
             .detach();
         }
-        let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
+        let task = geph5_rt::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
             task: task.shared(),
             ctx,
@@ -171,7 +169,7 @@ impl Client {
         match self
             .task
             .clone()
-            .poll(&mut std::task::Context::from_waker(&noop_waker()))
+            .poll_unpin(&mut std::task::Context::from_waker(&noop_waker()))
         {
             std::task::Poll::Ready(val) => val.map_err(|e| anyhow::anyhow!(e))?,
             std::task::Poll::Pending => {}
@@ -224,7 +222,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             .await?;
             anyhow::Ok(())
         } else {
-            smol::future::pending().await
+            std::future::pending().await
         }
     };
     let unix_rpc_serve = async {
@@ -237,7 +235,7 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             .await?;
             return anyhow::Ok(());
         }
-        smol::future::pending().await
+        std::future::pending().await
     };
     let pipe_rpc_serve = async {
         #[cfg(windows)]
@@ -249,9 +247,9 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
             .await?;
             return anyhow::Ok(());
         }
-        smol::future::pending().await
+        std::future::pending().await
     };
-    let rpc_serve = tcp_rpc_serve.race(unix_rpc_serve).race(pipe_rpc_serve);
+    let rpc_serve = (tcp_rpc_serve, unix_rpc_serve, pipe_rpc_serve).race();
     if ctx.init().dry_run {
         rpc_serve.await
     } else {
@@ -259,24 +257,20 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
 
         let _client_loop = Immortal::spawn(run_session(ctx.clone()));
 
-        socks5_loop(&ctx)
-            .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped"))
-            .race(vpn_loop.inspect_err(|e| tracing::error!(err = debug(e), "vpn loop stopped")))
-            .race(
-                http_proxy_serve(&ctx)
-                    .inspect_err(|e| tracing::error!(err = debug(e), "http proxy stopped")),
-            )
-            .race(
-                auth_loop(&ctx)
-                    .inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
-            )
-            .race(
-                bw_token_refresh_loop(&ctx)
-                    .inspect_err(|e| tracing::error!(err = debug(e), "bw token loop stopped")),
-            )
-            .race(rpc_serve)
-            .race(pac_serve(&ctx))
-            .race(port_forward(&ctx))
+        (
+            socks5_loop(&ctx)
+                .inspect_err(|e| tracing::error!(err = debug(e), "socks5 loop stopped")),
+            vpn_loop.inspect_err(|e| tracing::error!(err = debug(e), "vpn loop stopped")),
+            http_proxy_serve(&ctx)
+                .inspect_err(|e| tracing::error!(err = debug(e), "http proxy stopped")),
+            auth_loop(&ctx).inspect_err(|e| tracing::error!(err = debug(e), "auth loop stopped")),
+            bw_token_refresh_loop(&ctx)
+                .inspect_err(|e| tracing::error!(err = debug(e), "bw token loop stopped")),
+            rpc_serve,
+            pac_serve(&ctx),
+            port_forward(&ctx),
+        )
+            .race()
             .await
     }
 }

@@ -1,16 +1,17 @@
 use std::{
     io::ErrorKind,
-    net::{SocketAddr, TcpStream},
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
     time::Duration,
 };
 
-use async_io::Async;
 use async_trait::async_trait;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use futures_lite::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 use rand::Rng as _;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::{
     Pipe,
@@ -20,7 +21,7 @@ use crate::{
 
 /// A TcpListener is a listener for TCP endpoints.
 pub struct TcpListener {
-    inner: Async<std::net::TcpListener>,
+    inner: tokio::net::TcpListener,
 }
 
 const INITIAL_ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(5);
@@ -47,13 +48,13 @@ impl TcpListener {
         socket.listen(1024)?;
         let listener: std::net::TcpListener = socket.into();
         listener.set_nonblocking(true)?;
-        let inner = Async::new(listener)?;
+        let inner = tokio::net::TcpListener::from_std(listener)?;
         Ok(Self { inner })
     }
 
     /// Get the local listening address.
     pub async fn local_addr(&self) -> SocketAddr {
-        self.inner.as_ref().local_addr().unwrap()
+        self.inner.local_addr().unwrap()
     }
 }
 
@@ -75,7 +76,7 @@ impl Listener for TcpListener {
                         continue;
                     }
 
-                    let addr = match conn.as_ref().peer_addr() {
+                    let addr = match conn.peer_addr() {
                         Ok(addr) => addr.to_string(),
                         Err(err) => {
                             tracing::warn!(
@@ -95,7 +96,7 @@ impl Listener for TcpListener {
                         retry_delay_ms = retry_delay.as_millis(),
                         "transient TCP accept failure; retrying"
                     );
-                    async_io::Timer::after(jitter_accept_retry_delay(retry_delay)).await;
+                    tokio::time::sleep(jitter_accept_retry_delay(retry_delay)).await;
                     retry_delay = next_accept_retry_delay(retry_delay);
                 }
                 Err(err) => {
@@ -106,8 +107,8 @@ impl Listener for TcpListener {
     }
 }
 
-fn set_tcp_options(conn: &Async<TcpStream>) -> std::io::Result<()> {
-    conn.get_ref().set_nodelay(true)?;
+fn set_tcp_options(conn: &tokio::net::TcpStream) -> std::io::Result<()> {
+    conn.set_nodelay(true)?;
 
     // #[cfg(any(target_os = "linux", target_os = "android"))]
     // unsafe {
@@ -176,16 +177,7 @@ fn is_linux_accept_retry_errno(_: i32) -> bool {
 fn should_retry_accept_raw_os_error(err: i32) -> bool {
     matches!(
         err,
-        10004
-            | 10035
-            | 10053
-            | 10060
-            | 10050
-            | 10051
-            | 10064
-            | 10065
-            | 10055
-            | 10024
+        10004 | 10035 | 10053 | 10060 | 10050 | 10051 | 10064 | 10065 | 10055 | 10024
     )
 }
 
@@ -232,7 +224,7 @@ impl Dialer for TcpDialer {
     type P = TcpPipe;
     async fn dial(&self) -> std::io::Result<Self::P> {
         let inner = loop {
-            match Async::<TcpStream>::connect(self.dest_addr).await {
+            match tokio::net::TcpStream::connect(self.dest_addr).await {
                 Ok(inner) => break inner,
                 Err(err) if should_retry_connect(&err) => {
                     tracing::warn!(
@@ -264,39 +256,33 @@ fn should_retry_connect(_: &std::io::Error) -> bool {
 }
 
 #[pin_project]
-pub struct TcpPipe(#[pin] Async<TcpStream>, String);
+pub struct TcpPipe(#[pin] tokio::net::TcpStream, String);
 
 impl AsyncRead for TcpPipe {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         self.project().0.poll_read(cx, buf)
     }
 }
 
 impl AsyncWrite for TcpPipe {
     fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> Poll<std::io::Result<usize>> {
         self.project().0.poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         self.project().0.poll_flush(cx)
     }
 
-    fn poll_close(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        self.project().0.poll_close(cx)
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.project().0.poll_shutdown(cx)
     }
 }
 
@@ -316,11 +302,15 @@ mod tests {
 
     #[test]
     fn retry_common_transient_accept_kinds() {
-        assert!(should_retry_accept(&std::io::Error::from(ErrorKind::Interrupted)));
+        assert!(should_retry_accept(&std::io::Error::from(
+            ErrorKind::Interrupted
+        )));
         assert!(should_retry_accept(&std::io::Error::from(
             ErrorKind::ConnectionAborted
         )));
-        assert!(should_retry_accept(&std::io::Error::from(ErrorKind::TimedOut)));
+        assert!(should_retry_accept(&std::io::Error::from(
+            ErrorKind::TimedOut
+        )));
     }
 
     #[test]
@@ -328,6 +318,8 @@ mod tests {
         assert!(!should_retry_accept(&std::io::Error::from(
             ErrorKind::PermissionDenied
         )));
-        assert!(!should_retry_accept(&std::io::Error::from(ErrorKind::InvalidInput)));
+        assert!(!should_retry_accept(&std::io::Error::from(
+            ErrorKind::InvalidInput
+        )));
     }
 }

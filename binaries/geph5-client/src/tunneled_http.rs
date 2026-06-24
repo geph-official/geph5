@@ -1,5 +1,4 @@
 use anyctx::AnyCtx;
-use async_compat::{Compat, CompatExt};
 use hyper::Uri;
 use hyper_util::client::legacy::connect::Connection;
 use pin_project::pin_project;
@@ -49,7 +48,7 @@ impl tower_service::Service<Uri> for Connector {
                 open_conn(&ctx, "tcp", &remote)
                     .await
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e))
-                    .map(|conn| HyperRtCompat::new(TunneledConnection(conn.compat())))
+                    .map(|conn| HyperRtCompat::new(TunneledConnection(conn)))
             }),
         }
     }
@@ -69,11 +68,11 @@ impl Future for Connecting {
     }
 }
 
-pub struct TunneledConnection(Compat<Box<dyn sillad::Pipe>>);
+pub struct TunneledConnection(Box<dyn sillad::Pipe>);
 
 impl TunneledConnection {
     pub fn new(conn: Box<dyn sillad::Pipe>) -> Self {
-        Self(conn.compat())
+        Self(conn)
     }
 }
 

@@ -4,18 +4,16 @@
 //! local-only, access-controlled stream transport, used for the geph daemon's
 //! control plane instead of squat-prone loopback TCP.
 //!
-//! There is no mature smol-native async named-pipe API, so we bridge tokio's
-//! `named_pipe` support onto our futures-io world with [`async_compat`], which
-//! runs a hidden global tokio reactor and enters it while polling. Every handle
-//! creation (`from_raw_handle`, `ClientOptions::open`) and every read/write must
-//! happen inside that tokio context, so the whole accept/dial/IO surface is
-//! wrapped in `Compat`.
-//!
-//! tokio's `ServerOptions` does not expose a security descriptor, but the daemon
-//! pipe must be openable by an unprivileged client even when the daemon runs as a
-//! service. So instances are created by hand via `CreateNamedPipeW` with a
-//! caller-supplied SDDL string (the named-pipe equivalent of `chmod 0666`), then
-//! wrapped with `NamedPipeServer::from_raw_handle`.
+//! Now that sillad lives in the tokio-io ecosystem, tokio's own
+//! `named_pipe::{NamedPipeServer, NamedPipeClient}` already implement
+//! `tokio::io::{AsyncRead, AsyncWrite}`, so this is a thin delegating wrapper —
+//! no async-compat bridge is needed. The only piece tokio doesn't expose is a
+//! security descriptor on the server instance, so instances are still created by
+//! hand via `CreateNamedPipeW` with a caller-supplied SDDL string (the
+//! named-pipe equivalent of `chmod 0666`), then wrapped with
+//! `NamedPipeServer::from_raw_handle`. Handle creation must happen inside a
+//! tokio runtime context (it registers with tokio's IOCP); sillad always runs on
+//! the global runtime, so that holds.
 
 use std::{
     ffi::OsStr,
@@ -26,10 +24,9 @@ use std::{
     time::Duration,
 };
 
-use async_compat::{Compat, CompatExt};
 use async_trait::async_trait;
-use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient, NamedPipeServer};
 use windows_sys::Win32::{
     Foundation::{INVALID_HANDLE_VALUE, LocalFree},
@@ -60,7 +57,11 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// Create a single named-pipe server instance via the raw Win32 API so we can
 /// attach a security descriptor. Must be called inside a tokio reactor context
 /// (`from_raw_handle` registers the handle with tokio's IOCP).
-fn create_instance(name_w: &[u16], sddl_w: Option<&[u16]>, first: bool) -> io::Result<NamedPipeServer> {
+fn create_instance(
+    name_w: &[u16],
+    sddl_w: Option<&[u16]>,
+    first: bool,
+) -> io::Result<NamedPipeServer> {
     // Build SECURITY_ATTRIBUTES from the SDDL string, if any. `sa` must outlive
     // the CreateNamedPipeW call below.
     let mut psd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
@@ -166,20 +167,15 @@ impl crate::listener::Listener for NamedPipeListener {
     type P = NamedPipe;
 
     async fn accept(&mut self) -> io::Result<Self::P> {
-        // Run the whole accept inside the tokio reactor: instance creation,
-        // waiting for a client, and pre-creating the next instance.
-        Compat::new(async {
-            let server = match self.next.take() {
-                Some(s) => s,
-                None => self.make_instance()?,
-            };
-            server.connect().await?;
-            // Pre-create the instance the next accept() will hand out, so there is
-            // always a server listening between connections.
-            self.next = Some(self.make_instance()?);
-            Ok(NamedPipe::Server(server.compat()))
-        })
-        .await
+        let server = match self.next.take() {
+            Some(s) => s,
+            None => self.make_instance()?,
+        };
+        server.connect().await?;
+        // Pre-create the instance the next accept() will hand out, so there is
+        // always a server listening between connections.
+        self.next = Some(self.make_instance()?);
+        Ok(NamedPipe::Server(server))
     }
 }
 
@@ -194,37 +190,34 @@ impl crate::dialer::Dialer for NamedPipeDialer {
     type P = NamedPipe;
 
     async fn dial(&self) -> io::Result<Self::P> {
-        Compat::new(async {
-            loop {
-                match ClientOptions::new().read(true).write(true).open(&self.name) {
-                    Ok(client) => return Ok(NamedPipe::Client(client.compat())),
-                    // All instances are momentarily busy serving other clients;
-                    // wait for one to free up, like the Win32 WaitNamedPipe loop.
-                    Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
-                        async_io::Timer::after(Duration::from_millis(50)).await;
-                    }
-                    Err(e) => return Err(e),
+        loop {
+            match ClientOptions::new().read(true).write(true).open(&self.name) {
+                Ok(client) => return Ok(NamedPipe::Client(client)),
+                // All instances are momentarily busy serving other clients;
+                // wait for one to free up, like the Win32 WaitNamedPipe loop.
+                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
+                Err(e) => return Err(e),
             }
-        })
-        .await
+        }
     }
 }
 
-/// A connected named-pipe stream (either end). The inner `Compat` enters the
-/// tokio reactor on each poll, so reads/writes work on any executor.
+/// A connected named-pipe stream (either end), delegating tokio-io directly to
+/// the underlying named-pipe handle.
 #[pin_project(project = NamedPipeProj)]
 pub enum NamedPipe {
-    Server(#[pin] Compat<NamedPipeServer>),
-    Client(#[pin] Compat<NamedPipeClient>),
+    Server(#[pin] NamedPipeServer),
+    Client(#[pin] NamedPipeClient),
 }
 
 impl AsyncRead for NamedPipe {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         match self.project() {
             NamedPipeProj::Server(s) => s.poll_read(cx, buf),
             NamedPipeProj::Client(c) => c.poll_read(cx, buf),
@@ -247,10 +240,10 @@ impl AsyncWrite for NamedPipe {
         }
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.project() {
-            NamedPipeProj::Server(s) => s.poll_close(cx),
-            NamedPipeProj::Client(c) => c.poll_close(cx),
+            NamedPipeProj::Server(s) => s.poll_shutdown(cx),
+            NamedPipeProj::Client(c) => c.poll_shutdown(cx),
         }
     }
 }

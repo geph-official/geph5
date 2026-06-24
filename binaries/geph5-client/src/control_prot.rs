@@ -121,12 +121,12 @@ impl ControlProtocol for ControlProtocolImpl {
             secret: None,
         });
         let ctx = self.ctx.clone();
-        smolscale::spawn(async move {
+        geph5_rt::spawn(async move {
             loop {
                 let fallible = async {
                     let solution = {
                         let puzzle = puzzle.clone();
-                        smol::unblock(move || {
+                        geph5_rt::spawn_blocking(move || {
                             solve_puzzle(&puzzle, difficulty, |progress| {
                                 REGISTRATIONS.lock()[idx] = RegistrationProgress {
                                     progress,

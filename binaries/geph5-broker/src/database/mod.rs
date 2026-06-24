@@ -1,6 +1,5 @@
 use std::{str::FromStr, sync::LazyLock, time::Duration};
 
-use async_io::Timer;
 use rand::Rng;
 use sqlx::{
     PgPool,
@@ -11,24 +10,23 @@ use sqlx::{
 use crate::CONFIG_FILE;
 
 static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
-    smol::future::block_on(
-        PoolOptions::new()
-            .max_connections(150)
-            .acquire_timeout(Duration::from_secs(1))
-            .max_lifetime(Duration::from_secs(30))
-            .test_before_acquire(false)
-            .connect_with({
-                let cfg = CONFIG_FILE.wait();
-                let mut opts = PgConnectOptions::from_str(&cfg.postgres_url).unwrap();
-                if let Some(postgres_root_cert) = &cfg.postgres_root_cert {
-                    opts = opts
-                        .ssl_mode(PgSslMode::VerifyFull)
-                        .ssl_root_cert(postgres_root_cert);
-                }
-                opts
-            }),
-    )
-    .unwrap()
+    // `connect_lazy_with` builds the pool synchronously and connects on first
+    // use, so this works from inside the tokio runtime without blocking.
+    PoolOptions::new()
+        .max_connections(150)
+        .acquire_timeout(Duration::from_secs(1))
+        .max_lifetime(Duration::from_secs(30))
+        .test_before_acquire(false)
+        .connect_lazy_with({
+            let cfg = CONFIG_FILE.wait();
+            let mut opts = PgConnectOptions::from_str(&cfg.postgres_url).unwrap();
+            if let Some(postgres_root_cert) = &cfg.postgres_root_cert {
+                opts = opts
+                    .ssl_mode(PgSslMode::VerifyFull)
+                    .ssl_root_cert(postgres_root_cert);
+            }
+            opts
+        })
 });
 
 /// This loop is used for garbage-collecting stale data from the database.
@@ -38,7 +36,7 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
     loop {
         let sleep_time = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0..2.0));
         tracing::debug!("sleeping {:?}", sleep_time);
-        Timer::after(sleep_time).await;
+        tokio::time::sleep(sleep_time).await;
         let res = sqlx::query("delete from exits_new where expiry < extract(epoch from now())")
             .execute(&*POSTGRES)
             .await?;

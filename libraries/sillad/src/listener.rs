@@ -1,6 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
+use futures_concurrency::future::Race;
 
 use crate::{EitherPipe, Pipe};
 
@@ -30,11 +31,12 @@ pub struct JoinListener<L: Listener, R: Listener>(pub L, pub R);
 impl<L: Listener, R: Listener> Listener for JoinListener<L, R> {
     type P = EitherPipe<L::P, R::P>;
     async fn accept(&mut self) -> std::io::Result<Self::P> {
-        futures_lite::future::race(
+        (
             async { Ok(EitherPipe::Left(self.0.accept().await?)) },
             async { Ok(EitherPipe::Right(self.1.accept().await?)) },
         )
-        .await
+            .race()
+            .await
     }
 }
 

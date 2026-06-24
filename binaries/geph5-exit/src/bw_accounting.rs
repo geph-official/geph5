@@ -8,9 +8,9 @@ use std::{
 use async_event::Event;
 use base64::{Engine, prelude::BASE64_STANDARD_NO_PAD};
 use futures_concurrency::future::Race;
-use futures_util::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, io::BufReader};
 use geph5_broker_protocol::BrokerClient;
 use mizaru2::{ClientToken, SingleUnblindedSignature};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::{CONFIG_FILE, broker::BrokerRpcTransport};
 
@@ -19,7 +19,7 @@ use crate::{CONFIG_FILE, broker::BrokerRpcTransport};
 pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> anyhow::Result<()> {
     tracing::debug!("starting accounting loop!");
     scopeguard::defer!(tracing::debug!("stopping accounting loop"));
-    let (read, mut write) = stream.split();
+    let (read, mut write) = tokio::io::split(stream);
     let mut read = BufReader::new(read);
     let read_fut = async {
         let mut buf = String::new();
@@ -50,7 +50,7 @@ pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> 
             last_bytes_left = bytes_left;
             write.write_all(&(bytes_left as u64).to_be_bytes()).await?;
             // debounce
-            smol::Timer::after(Duration::from_secs_f32(rand::random::<f32>() / 2.0)).await;
+            tokio::time::sleep(Duration::from_secs_f32(rand::random::<f32>() / 2.0)).await;
         }
     };
     (read_fut, write_fut).race().await

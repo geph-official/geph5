@@ -40,7 +40,7 @@ fn flatten<T>(r: Result<Result<T, String>, GephCtlError<anyhow::Error>>) -> anyh
 
 /// Entry point for all non-daemon subcommands.
 pub fn run(command: Command) -> anyhow::Result<()> {
-    smolscale::block_on(run_inner(command))
+    geph5_rt::block_on(run_inner(command))
 }
 
 async fn run_inner(command: Command) -> anyhow::Result<()> {

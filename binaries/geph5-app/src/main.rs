@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
         Command::Daemon => {
             init_daemon_logging();
             require_root();
-            smolscale::block_on(daemon::run_daemon())
+            geph5_rt::block_on(daemon::run_daemon())
         }
         // Internal helper: the daemon re-invokes us dropped to the desktop user
         // to apply proxy settings. Runs directly, without contacting the daemon.

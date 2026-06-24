@@ -6,7 +6,7 @@ use anyhow::Context;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use smol::lock::Semaphore;
+use tokio::sync::Semaphore;
 
 use crate::client::Config;
 use crate::database;
@@ -45,9 +45,9 @@ async fn get_ip_address(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
 }
 
 async fn fetch_ip_from_service() -> anyhow::Result<String> {
-    static SEMAPH: Semaphore = Semaphore::new(1);
+    static SEMAPH: Semaphore = Semaphore::const_new(1);
 
-    let _guard = SEMAPH.acquire().await;
+    let _guard = SEMAPH.acquire().await.unwrap();
     // we MUST use ipv4 here, because the server cannot handle Ipv6 addresses yet
     let client = reqwest::Client::builder()
         .local_address(IpAddr::V4(Ipv4Addr::UNSPECIFIED))

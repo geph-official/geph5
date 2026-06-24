@@ -26,7 +26,7 @@ pub async fn new_task_until_death(protected_period: Duration) -> anyhow::Result<
     });
     TASK_KILLER.notify_one();
 
-    smol::Timer::after(protected_period).await;
+    tokio::time::sleep(protected_period).await;
 
     // wait until something horrible happens
     TASK_KILLER

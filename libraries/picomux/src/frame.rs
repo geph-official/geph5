@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use bytes::Bytes;
-use futures_util::{AsyncRead, AsyncReadExt};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[derive(Clone, Debug)]
 pub struct Frame {
@@ -43,7 +43,31 @@ impl Frame {
         let header: Header = bytemuck::cast(header_buf);
         let len = header.body_len as usize;
         let mut body = vec![0; len];
-        rdr.read_exact(&mut body).await?;
+        // DIAG: a header was parsed, so the body should follow promptly. If it
+        // stalls, the read loop is stuck mid-frame (e.g. a desynced/oversized
+        // body_len swallowing subsequent bytes). We poll the body read against a
+        // 3s timer, warning on each elapse until it completes.
+        {
+            let mut read_fut = std::pin::pin!(rdr.read_exact(&mut body));
+            let start = std::time::Instant::now();
+            loop {
+                match tokio::time::timeout(std::time::Duration::from_secs(3), read_fut.as_mut())
+                    .await
+                {
+                    Ok(r) => {
+                        r?;
+                        break;
+                    }
+                    Err(_elapsed) => tracing::warn!(
+                        command = header.command,
+                        stream_id = header.stream_id,
+                        body_len = len,
+                        elapsed = ?start.elapsed(),
+                        "FRAME-READ-STALL: header parsed, body not arriving"
+                    ),
+                }
+            }
+        }
         Ok(Self {
             header,
             body: body.into(),

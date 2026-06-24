@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     let args: Args = argh::from_env();
 
     match args.subcommand {
-        Subcommand::Server(cmd) => smolscale::block_on(server_main(cmd.listen, cmd.stack)),
-        Subcommand::Client(cmd) => smolscale::block_on(client_main(cmd.connect, cmd.stack)),
+        Subcommand::Server(cmd) => geph5_rt::block_on(server_main(cmd.listen, cmd.stack)),
+        Subcommand::Client(cmd) => geph5_rt::block_on(client_main(cmd.connect, cmd.stack)),
     }
 }

@@ -4,10 +4,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures_util::{AsyncReadExt, AsyncWriteExt};
 use rand::{Rng, RngCore};
 use sillad::dialer::Dialer;
 use tap::Tap;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{Cookie, SosistabPipe, handshake::Handshake, state::State};
 

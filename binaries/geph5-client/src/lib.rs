@@ -72,7 +72,7 @@ pub unsafe extern "C" fn daemon_rpc(
 
     if let Some(client) = CLIENT.get() {
         let ctrl = client.control_client().0;
-        if let Ok(response) = smolscale::block_on(async move { ctrl.call_raw(jrpc).await }) {
+        if let Ok(response) = geph5_rt::block_on(async move { ctrl.call_raw(jrpc).await }) {
             let response_json = serde_json::to_string(&response).unwrap();
             let response_c = std::ffi::CString::new(response_json).unwrap();
             let bytes = response_c.as_bytes_with_nul();
@@ -91,7 +91,8 @@ pub unsafe extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
     let slice: &'static [u8] =
         unsafe { std::slice::from_raw_parts(pkt as *mut u8, pkt_len as usize) };
     if let Some(client) = CLIENT.get()
-        && let Ok(_) = smol::future::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
+        && let Ok(_) =
+            geph5_rt::block_on(client.send_vpn_packet(Bytes::copy_from_slice(slice)))
     {
         return 0;
     }
@@ -101,7 +102,7 @@ pub unsafe extern "C" fn send_pkt(pkt: *const c_char, pkt_len: c_int) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn recv_pkt(out_buf: *mut c_char, out_buflen: c_int) -> c_int {
     if let Some(client) = CLIENT.get()
-        && let Ok(pkt) = smol::future::block_on(client.recv_vpn_packet())
+        && let Ok(pkt) = geph5_rt::block_on(client.recv_vpn_packet())
     {
         return unsafe { fill_buffer(out_buf, out_buflen, &pkt) };
     }
@@ -125,8 +126,6 @@ unsafe fn fill_buffer(buffer: *mut c_char, buflen: c_int, output: &[u8]) -> c_in
 
 #[cfg(test)]
 mod tests {
-    use smol::Timer;
-
     use super::*;
     use serde_json::json;
     use std::{
@@ -222,7 +221,9 @@ mod tests {
             println!("daemon_rpc output = {output}");
             let resp: nanorpc::JrpcResponse = serde_json::from_str(output).unwrap();
             assert!(resp.error.is_none(), "daemon_rpc error: {:?}", resp.error);
-            smolscale::block_on(async { Timer::after(std::time::Duration::from_secs(1)).await });
+            geph5_rt::block_on(async {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await
+            });
         }
     }
 }

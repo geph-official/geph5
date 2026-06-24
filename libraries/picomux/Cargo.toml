@@ -9,43 +9,34 @@ description = "A protocol to multiplex multiple AsyncRead/Write streams over a s
 [dependencies]
 ahash = "0.8.12"
 anyhow = "1.0.102"
-async-dup = "1.2.4"
-async-task = "4.7.1"
-async_io_stream = "0.3.3"
-bipe = "0.2"
 bytemuck = { version = "1.25.0", features = ["derive", "min_const_generics"] }
 bytes = "1.11.1"
 dashmap = "6.1.0"
-futures-lite = "2.6.1"
-futures-util = { version = "0.3.32", features = ["io"] }
+futures-util = "0.3.32"
+futures-concurrency = "7.7.1"
+geph5-rt = { version = "0.1", path = "../geph5-rt" }
+tokio = { version = "1.52", features = ["io-util", "time"] }
 oneshot = "0.1.13"
 parking_lot = "0.12.5"
 rand = "0.9"
-recycle-box = "0.2.0"
 scopeguard = "1.2.0"
-smol-timeout2 = "0.6.1"
-smolscale = "0.4.16"
 tracing = "0.1.44"
 tracing-test = "0.2.6"
 
 tap = "1.0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-async-io = "2.6.0"
 sillad = { version = "0.2", path = "../sillad" }
 futures-intrusive = "0.5.0"
 async-channel = "2.5.0"
 pin-project = "1.1.11"
 tachyonix = "0.3.1"
 async-event = "0.2.1"
-async-lock = "3.4.2"
 crossbeam-queue = "0.3.12"
-async-io-bufpool = "0.2"
-atomic_float = "1.1.0"
 
 [dev-dependencies]
-smol = "2"
-socksv5 = "0.3"
+socksv5 = { version = "0.3", features = ["tokio"] }
+tokio = { version = "1.52", features = ["net"] }
 sillad-sosistab3 = { path = "../sillad-sosistab3" }
 tracing-subscriber = "0.3"
 clap = { version = "4.6.1", features = ["derive"] }

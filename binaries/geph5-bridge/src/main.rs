@@ -11,17 +11,16 @@ use std::{
 };
 
 use anyhow::Context as _;
+use futures_concurrency::future::Race;
 use futures_util::future::join_all;
 use geph5_broker_protocol::{BridgeDescriptor, Mac};
+use geph5_rt::TimeoutExt;
 use listen_forward::listen_forward_loop;
 use rand::Rng;
 use ratelimit::BridgeRateLimiter;
 use sillad::{dialer::DialerExt, tcp::TcpDialer};
 use sillad_sosistab3::{Cookie, listener::SosistabListener};
-use smol::future::FutureExt as _;
-use smol::process::Command;
-
-use smol_timeout2::TimeoutExt;
+use tokio::process::Command;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[global_allocator]
@@ -50,7 +49,7 @@ fn main() {
                 .from_env_lossy(),
         )
         .init();
-    smolscale::block_on(async move {
+    geph5_rt::block_on(async move {
         let rate_limiter = match rate_limit_kib {
             Some(rate_limit_kib) => {
                 tracing::info!(rate_limit_kib, "configured bridge rate limit");
@@ -66,7 +65,7 @@ fn main() {
 
         {
             let auth_token = auth_token.clone();
-            smolscale::spawn(
+            geph5_rt::spawn(
                 async move { stats::stats_flush_loop(&auth_token, broker_addr).await },
             )
             .detach();
@@ -128,14 +127,14 @@ async fn run_bridge_instance(
         control_listen = display(instance.control_listen),
         "starting bridge instance"
     );
-    broker_loop(
+    let upload = broker_loop(
         instance.control_listen,
         instance.control_cookie.clone(),
         instance.pool.clone(),
         auth_token,
         broker_addr,
-    )
-    .race(async move {
+    );
+    let serve = async move {
         loop {
             let listener = sillad::tcp::TcpListener::bind_with_v6_only(
                 instance.bind_addr,
@@ -161,10 +160,10 @@ async fn run_bridge_instance(
                     "error in listen_forward_loop"
                 );
             }
-            smol::Timer::after(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-    })
-    .await
+    };
+    (upload, serve).race().await
 }
 
 fn bridge_total_ratelimit_from_env() -> anyhow::Result<Option<u32>> {
@@ -248,7 +247,7 @@ async fn broker_loop(
         if let Err(err) = res.await {
             tracing::error!(err = %err, "error in upload_loop");
         }
-        smol::Timer::after(Duration::from_secs(10)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
 

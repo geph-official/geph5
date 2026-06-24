@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
+use geph5_rt::Task;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use smol::Task;
 
 static TASK_POOL: Lazy<Mutex<VecDeque<Task<anyhow::Result<()>>>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));

@@ -15,10 +15,10 @@ use nanorpc::{JrpcId, JrpcRequest, JrpcResponse, RpcService};
 use once_cell::sync::{Lazy, OnceCell};
 
 use database::self_stat::self_stat_loop;
+use geph5_rt::{Immortal, RespawnStrategy};
 use rand::Rng as _;
 use rpc_impl::WrappedBrokerService;
 use serde::Deserialize;
-use smolscale::immortal::{Immortal, RespawnStrategy};
 use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::Duration};
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -157,8 +157,11 @@ struct CliArgs {
     config: PathBuf,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    geph5_rt::block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
         .with(

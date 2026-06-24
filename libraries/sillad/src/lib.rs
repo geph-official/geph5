@@ -1,7 +1,10 @@
-use std::pin::{Pin, pin};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub mod dialer;
 pub mod listener;
@@ -48,10 +51,10 @@ pub enum EitherPipe<L: Pipe, R: Pipe> {
 
 impl<L: Pipe, R: Pipe> AsyncRead for EitherPipe<L, R> {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         match self.project() {
             EitherPipeProj::Left(l) => l.poll_read(cx, buf),
             EitherPipeProj::Right(r) => r.poll_read(cx, buf),
@@ -62,32 +65,26 @@ impl<L: Pipe, R: Pipe> AsyncRead for EitherPipe<L, R> {
 impl<L: Pipe, R: Pipe> AsyncWrite for EitherPipe<L, R> {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> Poll<std::io::Result<usize>> {
         match self.project() {
             EitherPipeProj::Left(l) => l.poll_write(cx, buf),
             EitherPipeProj::Right(r) => r.poll_write(cx, buf),
         }
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         match self.project() {
             EitherPipeProj::Left(l) => l.poll_flush(cx),
             EitherPipeProj::Right(r) => r.poll_flush(cx),
         }
     }
 
-    fn poll_close(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         match self.project() {
-            EitherPipeProj::Left(l) => l.poll_close(cx),
-            EitherPipeProj::Right(r) => r.poll_close(cx),
+            EitherPipeProj::Left(l) => l.poll_shutdown(cx),
+            EitherPipeProj::Right(r) => r.poll_shutdown(cx),
         }
     }
 }

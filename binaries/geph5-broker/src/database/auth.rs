@@ -187,7 +187,7 @@ pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, Acco
 
     let expiry = get_subscription_expiry(user_id).await?;
     tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
-    smolscale::spawn(record_auth(user_id)).detach();
+    geph5_rt::spawn(record_auth(user_id)).detach();
 
     if expiry.is_none() {
         Ok(Some((user_id, AccountLevel::Free)))

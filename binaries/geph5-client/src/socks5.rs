@@ -3,11 +3,9 @@ use crate::{litecopy::litecopy, session::open_conn, taskpool::add_task};
 use anyctx::AnyCtx;
 use anyhow::Context;
 
-use futures_util::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use nursery_macro::nursery;
+use async_channel as channel;
+use futures_concurrency::future::Race as _;
 use sillad::listener::Listener as _;
-use smol::future::FutureExt as _;
-use smol::{channel, net::UdpSocket};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, read_handshake,
     read_request, write_auth_method, write_request_status,
@@ -17,6 +15,8 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
 };
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio::net::UdpSocket;
 
 use super::Config;
 
@@ -24,66 +24,70 @@ use super::Config;
 pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     if let Some(listen_addr) = ctx.init().socks5_listen {
         let mut listener = sillad::tcp::TcpListener::bind(listen_addr).await?;
-        nursery!({
-            loop {
-                let client = listener.accept().await?;
-                let task = spawn!(async {
-                    tracing::trace!("socks5 connection accepted");
-                    let (mut read_client, mut write_client) = client.split();
-                    let _handshake = read_handshake(&mut read_client).await?;
-                    write_auth_method(&mut write_client, SocksV5AuthMethod::Noauth).await?;
-                    let request = read_request(&mut read_client).await?;
-                    match request.command {
-                        SocksV5Command::Connect => {
-                            let port = request.port;
-                            let domain = host_to_string(&request.host)?;
-                            let remote_addr = format!("{domain}:{port}");
-                            tracing::trace!(
-                                remote_addr = display(&remote_addr),
-                                "socks5 connect request received"
-                            );
-                            let stream = open_conn(ctx, "tcp", &remote_addr).await?;
-                            write_request_status(
-                                &mut write_client,
-                                SocksV5RequestStatus::Success,
-                                clone_host(&request.host),
-                                port,
-                            )
+        // Owns the per-connection handlers so they are all cancelled when this
+        // loop's future is dropped (replaces the old `nursery!` scoped executor).
+        let reaper: geph5_rt::TaskReaper<anyhow::Result<()>> =
+            geph5_rt::TaskReaper::new();
+        loop {
+            let client = listener.accept().await?;
+            let ctx_clone = ctx.clone();
+            let task = geph5_rt::spawn(async move {
+                let ctx = ctx_clone;
+                tracing::trace!("socks5 connection accepted");
+                let (mut read_client, mut write_client) = tokio::io::split(client);
+                let _handshake = read_handshake(&mut read_client).await?;
+                write_auth_method(&mut write_client, SocksV5AuthMethod::Noauth).await?;
+                let request = read_request(&mut read_client).await?;
+                match request.command {
+                    SocksV5Command::Connect => {
+                        let port = request.port;
+                        let domain = host_to_string(&request.host)?;
+                        let remote_addr = format!("{domain}:{port}");
+                        tracing::trace!(
+                            remote_addr = display(&remote_addr),
+                            "socks5 connect request received"
+                        );
+                        let stream = open_conn(&ctx, "tcp", &remote_addr).await?;
+                        write_request_status(
+                            &mut write_client,
+                            SocksV5RequestStatus::Success,
+                            clone_host(&request.host),
+                            port,
+                        )
+                        .await?;
+                        tracing::trace!(remote_addr = display(&remote_addr), "connection opened");
+                        let (read_stream, write_stream) = tokio::io::split(stream);
+                        (
+                            litecopy(read_stream, write_client),
+                            litecopy(read_client, write_stream),
+                        )
+                            .race()
                             .await?;
-                            tracing::trace!(
-                                remote_addr = display(&remote_addr),
-                                "connection opened"
-                            );
-                            let (read_stream, write_stream) = stream.split();
-                            litecopy(read_stream, write_client)
-                                .race(litecopy(read_client, write_stream))
-                                .await?;
-                            anyhow::Ok(())
-                        }
-                        SocksV5Command::UdpAssociate => {
-                            handle_udp_associate(ctx, listen_addr, read_client, write_client).await
-                        }
-                        _ => {
-                            write_request_status(
-                                &mut write_client,
-                                SocksV5RequestStatus::CommandNotSupported,
-                                clone_host(&request.host),
-                                request.port,
-                            )
-                            .await?;
-                            anyhow::Ok(())
-                        }
+                        anyhow::Ok(())
                     }
-                });
-                if let Some(task_limit) = ctx.init().task_limit {
-                    add_task(task_limit, task);
-                } else {
-                    task.detach();
+                    SocksV5Command::UdpAssociate => {
+                        handle_udp_associate(&ctx, listen_addr, read_client, write_client).await
+                    }
+                    _ => {
+                        write_request_status(
+                            &mut write_client,
+                            SocksV5RequestStatus::CommandNotSupported,
+                            clone_host(&request.host),
+                            request.port,
+                        )
+                        .await?;
+                        anyhow::Ok(())
+                    }
                 }
+            });
+            if let Some(task_limit) = ctx.init().task_limit {
+                add_task(task_limit, task);
+            } else {
+                reaper.attach(task);
             }
-        })
+        }
     } else {
-        smol::future::pending().await
+        std::future::pending().await
     }
 }
 
@@ -167,7 +171,7 @@ async fn handle_udp_associate(
                     } else {
                         let (tx, rx) = channel::bounded(32);
                         guard.insert(target.clone(), (clone_host(&host), port, tx.clone()));
-                        smolscale::spawn(run_udp_tunnel(
+                        geph5_rt::spawn(run_udp_tunnel(
                             ctx.clone(),
                             target.clone(),
                             clone_host(&host),
@@ -196,7 +200,7 @@ async fn handle_udp_associate(
         anyhow::Ok(())
     };
 
-    udp_loop.race(tcp_watch).await
+    (udp_loop, tcp_watch).race().await
 }
 
 fn parse_udp_datagram(buf: &[u8]) -> anyhow::Result<Option<(String, SocksV5Host, u16, &[u8])>> {
@@ -271,7 +275,7 @@ async fn run_udp_tunnel(
     recv: channel::Receiver<Vec<u8>>,
 ) -> anyhow::Result<()> {
     let pipe = open_conn(&ctx, "udp", &target).await?;
-    let (mut read_tunneled, mut write_tunneled) = pipe.split();
+    let (mut read_tunneled, mut write_tunneled) = tokio::io::split(pipe);
 
     let up = async {
         while let Ok(pkt) = recv.recv().await {
@@ -298,5 +302,5 @@ async fn run_udp_tunnel(
         }
     };
 
-    up.race(down).await
+    (up, down).race().await
 }

@@ -8,10 +8,10 @@ license = "MPL-2.0"
 anyhow = "1.0.102"
 argh = "0.1.19"
 async-event = "0.2.1"
-async-io = "2.6.0"
-async-io-bufpool = "0.2"
-async-native-tls = "0.5.0"
 async-trait = "0.1.89"
+geph5-rt = { path = "../../libraries/geph5-rt" }
+tokio = { version = "1.52", features = ["io-util", "time"] }
+tokio-native-tls = "0.3.1"
 atomic_float = "1.1.0"
 blake3 = "1.8.5"
 bytes = "1.11.1"
@@ -37,10 +37,6 @@ sillad-native-tls = { path = "../../libraries/sillad-native-tls" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 sillad-meeklike = { path = "../../libraries/sillad-meeklike" }
 sillad-hex = { path = "../../libraries/sillad-hex" }
-smol = "2.0.2"
-smol-timeout2 = "0.6.1"
-smolscale = "0.4.16"
-socket2 = "0.5.10"
 tachyonix = "0.3.1"
 tap = "1.0.1"
 tracing = "0.1.44"

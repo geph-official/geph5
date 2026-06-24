@@ -8,11 +8,11 @@ use anyhow::Context as _;
 use blind_rsa_signatures as brs;
 use futures_intrusive::sync::ManualResetEvent;
 use geph5_broker_protocol::{AccountLevel, AuthError};
+use geph5_rt::TimeoutExt;
 use mizaru2::{ClientToken, UnblindedSignature};
 use rand::Rng;
-use smol::lock::Mutex;
-use smol_timeout2::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
+use tokio::sync::Mutex;
 
 use crate::{
     broker::broker_client,
@@ -86,17 +86,17 @@ pub async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
 
 pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
     if ctx.init().broker.is_none() {
-        return smol::future::pending().await;
+        return std::future::pending().await;
     }
 
     let auth_token = get_auth_token(ctx).await?;
     loop {
         if let Err(err) = refresh_conn_token(ctx, &auth_token).await {
             tracing::warn!(err = debug(err), "failed to refresh conn token");
-            smol::Timer::after(Duration::from_secs(10)).await;
+            tokio::time::sleep(Duration::from_secs(10)).await;
         } else {
             let sleep_secs = rand::thread_rng().gen_range(400..800);
-            smol::Timer::after(Duration::from_secs(sleep_secs)).await;
+            tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
         }
     }
 }
