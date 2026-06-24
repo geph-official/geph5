@@ -12,14 +12,23 @@ use parking_lot::Mutex;
 use std::{
     net::{IpAddr, Ipv4Addr},
     process::Command,
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use crate::{
     Config,
     session::{open_conn, wait_until_tunnel_ready},
-    spoof_dns::fake_dns_respond,
+    spoof_dns::{empty_aaaa_response, fake_dns_respond},
 };
+
+/// Whether the current exit can reach IPv6 (set once by [`probe_ipv6`] at VPN
+/// startup). When false, the DNS proxy suppresses AAAA answers so apps stay on
+/// IPv4 and don't pay the Happy Eyeballs fallback delay to an exit that can't
+/// do IPv6.
+static GEPH_IPV6_ENABLED: AtomicBool = AtomicBool::new(false);
 
 const FAKE_LOCAL_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(100, 64, 89, 64));
 
@@ -30,14 +39,45 @@ pub(super) fn vpn_whitelist(addr: IpAddr) {
     });
 }
 
+/// Probes whether the current exit can actually reach IPv6 destinations, by
+/// dialing a well-known dual-stack host over a literal IPv6 address through the
+/// tunnel. The exit only reports success after its own TCP connect to the v6
+/// destination succeeds, so an `Ok` here means the exit has working IPv6 egress.
+async fn probe_ipv6(ctx: &AnyCtx<Config>) -> bool {
+    const PROBE_TARGET: &str = "[2606:4700:4700::1111]:443"; // Cloudflare, dual-stack
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        open_conn(ctx, "tcp", PROBE_TARGET),
+    )
+    .await
+    {
+        Ok(Ok(_conn)) => {
+            tracing::info!("IPv6 probe succeeded; enabling IPv6 on the VPN");
+            true
+        }
+        Ok(Err(err)) => {
+            tracing::info!(
+                err = debug(err),
+                "IPv6 probe failed; running the VPN IPv4-only (no tun IPv6 address, so apps won't attempt IPv6)"
+            );
+            false
+        }
+        Err(_) => {
+            tracing::info!("IPv6 probe timed out; running the VPN IPv4-only");
+            false
+        }
+    }
+}
+
 #[allow(clippy::redundant_closure)]
-fn setup_routing() -> anyhow::Result<()> {
+fn setup_routing(enable_ipv6: bool) -> anyhow::Result<()> {
     let cmd = include_str!("linux_routing_setup.sh");
     let mut child = Command::new("sh")
         .arg("-c")
         .arg(cmd)
         .env("GEPH_DNS", GEPH_DNS.lock().clone())
         .env("GEPH_DNS_IPV6", GEPH_DNS_IPV6.lock().clone())
+        .env("GEPH_ENABLE_IPV6", if enable_ipv6 { "1" } else { "0" })
         .spawn()
         .unwrap();
     child.wait().context("iptables was not set up properly")?;
@@ -98,6 +138,12 @@ pub(super) async fn packet_shuffle(
             let mut buf = [0u8; 8192];
             let (n, src) = dns_proxy.recv_from(&mut buf).await?;
             tracing::trace!(n, src = display(src), "received DNS packet");
+            if !GEPH_IPV6_ENABLED.load(Ordering::Relaxed) {
+                if let Some(resp) = empty_aaaa_response(&buf[..n]) {
+                    let _ = dns_proxy.send_to(&resp, src).await;
+                    continue;
+                }
+            }
             if ctx.init().spoof_dns {
                 if let Ok(resp) = fake_dns_respond(&ctx, &buf[..n]) {
                     let _ = dns_proxy.send_to(&resp, src).await;
@@ -136,6 +182,12 @@ pub(super) async fn packet_shuffle(
                     let mut buf = [0u8; 8192];
                     let (n, src) = dns_proxy_v6.recv_from(&mut buf).await?;
                     tracing::trace!(n, src = display(src), "received IPv6 DNS packet");
+                    if !GEPH_IPV6_ENABLED.load(Ordering::Relaxed) {
+                        if let Some(resp) = empty_aaaa_response(&buf[..n]) {
+                            let _ = dns_proxy_v6.send_to(&resp, src).await;
+                            continue;
+                        }
+                    }
                     if ctx.init().spoof_dns {
                         if let Ok(resp) = fake_dns_respond(&ctx, &buf[..n]) {
                             let _ = dns_proxy_v6.send_to(&resp, src).await;
@@ -178,7 +230,9 @@ pub(super) async fn packet_shuffle(
             .context("cannot init up_file")?;
 
     wait_until_tunnel_ready(&ctx).await;
-    setup_routing().unwrap();
+    let ipv6_ok = probe_ipv6(&ctx).await;
+    GEPH_IPV6_ENABLED.store(ipv6_ok, Ordering::Relaxed);
+    setup_routing(ipv6_ok).unwrap();
     scopeguard::defer!(teardown_routing());
     let (mut read, mut write) = tokio::io::split(up_file);
     let inject = async {
