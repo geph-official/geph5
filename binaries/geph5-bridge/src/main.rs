@@ -7,7 +7,6 @@ use std::{
     env::VarError,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
-    thread::available_parallelism,
     time::{Duration, SystemTime},
 };
 
@@ -41,40 +40,7 @@ struct BridgeInstance {
 
 fn main() {
     let base_pool = std::env::var("GEPH5_BRIDGE_POOL").unwrap();
-    let configured_rate_limit_kib = bridge_total_ratelimit_from_env().unwrap();
-    let child_process_count = bridge_child_process_count(&base_pool);
-    let effective_rate_limit_kib =
-        configured_rate_limit_kib.map(|limit| effective_rate_limit_kib(limit, child_process_count));
-
-    if base_pool.contains("yaofan") {
-        smolscale::permanently_single_threaded();
-        if std::env::var("GEPH5_BRIDGE_CHILD").is_err() {
-            for _ in 0..child_process_count {
-                std::thread::spawn(|| {
-                    let current_exe = std::env::current_exe().unwrap();
-
-                    // Collect the current command-line arguments
-                    let args: Vec<String> = std::env::args().collect();
-
-                    // Trim the first argument which is the current binary's path
-                    let args_to_pass = &args[1..];
-
-                    // Spawn a new process with the same command
-                    let mut child = std::process::Command::new(current_exe)
-                        .args(args_to_pass)
-                        .env("GEPH5_BRIDGE_CHILD", "1")
-                        .spawn()
-                        .unwrap();
-
-                    // Wait for the spawned process to finish
-                    child.wait().unwrap();
-                });
-            }
-            loop {
-                std::thread::park();
-            }
-        }
-    }
+    let rate_limit_kib = bridge_total_ratelimit_from_env().unwrap();
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().compact())
@@ -85,15 +51,10 @@ fn main() {
         )
         .init();
     smolscale::block_on(async move {
-        let rate_limiter = match effective_rate_limit_kib {
-            Some(effective_rate_limit_kib) => {
-                tracing::info!(
-                    configured_rate_limit_kib,
-                    effective_rate_limit_kib,
-                    child_process_count,
-                    "configured bridge rate limit"
-                );
-                BridgeRateLimiter::limited(effective_rate_limit_kib)
+        let rate_limiter = match rate_limit_kib {
+            Some(rate_limit_kib) => {
+                tracing::info!(rate_limit_kib, "configured bridge rate limit");
+                BridgeRateLimiter::limited(rate_limit_kib)
             }
             None => {
                 tracing::info!("bridge rate limit disabled");
@@ -236,21 +197,6 @@ fn parse_bridge_total_ratelimit(raw: &str) -> anyhow::Result<u32> {
         "{BRIDGE_TOTAL_RATELIMIT_ENV} must be greater than zero"
     );
     Ok(limit)
-}
-
-fn bridge_child_process_count(pool: &str) -> usize {
-    if pool.contains("yaofan") {
-        available_parallelism()
-            .map(|count| count.get())
-            .unwrap_or(1)
-    } else {
-        1
-    }
-}
-
-fn effective_rate_limit_kib(configured_rate_limit_kib: u32, process_count: usize) -> u32 {
-    let process_count = u32::try_from(process_count).unwrap_or(u32::MAX).max(1);
-    (configured_rate_limit_kib / process_count).max(1)
 }
 
 async fn broker_loop(
@@ -452,20 +398,6 @@ mod tests {
         assert!(parse_bridge_total_ratelimit("0").is_err());
         assert!(parse_bridge_total_ratelimit("").is_err());
         assert!(parse_bridge_total_ratelimit("12.5").is_err());
-    }
-
-    #[test]
-    fn effective_rate_limit_is_split_across_processes() {
-        assert_eq!(effective_rate_limit_kib(1000, 1), 1000);
-        assert_eq!(effective_rate_limit_kib(1000, 4), 250);
-        assert_eq!(effective_rate_limit_kib(3, 8), 1);
-        assert_eq!(effective_rate_limit_kib(1000, 0), 1000);
-    }
-
-    #[test]
-    fn bridge_child_process_count_only_splits_yaofan_pools() {
-        assert_eq!(bridge_child_process_count("regular"), 1);
-        assert!(bridge_child_process_count("yaofan-main") >= 1);
     }
 
     #[test]
