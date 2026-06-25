@@ -122,7 +122,24 @@ pub async fn vpn_loop(ctx: &AnyCtx<crate::Config>) -> anyhow::Result<()> {
                 let ctx_clone = ctx.clone();
 
                 let task = geph5_rt::spawn(async move {
-                    let tunneled = open_conn(&ctx_clone, "tcp", &peer_addr.to_string()).await?;
+                    let mut captured = captured;
+                    let tunneled = match open_conn(&ctx_clone, "tcp", &peer_addr.to_string()).await {
+                        Ok(tunneled) => tunneled,
+                        Err(err) => {
+                            // The exit reports the dial error (e.g. "Connection
+                            // refused (os error 111)" vs "Network unreachable").
+                            // If the destination actively refused us, RST so the
+                            // app fails fast with "connection refused". Otherwise
+                            // (unreachable/timeout) just drop the stream, leaving
+                            // the SYN unanswered so the app's Happy Eyeballs can
+                            // fall back to another address (e.g. IPv4 when this
+                            // exit can't reach the IPv6 destination).
+                            if format!("{err:#}").contains("os error 111") {
+                                captured.reset();
+                            }
+                            return Err(err);
+                        }
+                    };
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                     let (read_tunneled, write_tunneled) = tokio::io::split(tunneled);
                     let (read_captured, write_captured) = tokio::io::split(captured);
