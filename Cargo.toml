@@ -12,6 +12,7 @@ edition = "2024"
 
 [patch.crates-io]
 # ipstack-geph = { path = "../ipstack-geph" }
+sqlx-postgres = { path = "libraries/sqlx-postgres" }
 
 
 [profile.release]
