@@ -251,6 +251,7 @@ impl Client {
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
+    crate::china::spawn_geoip_updater();
     let tcp_rpc_serve = async {
         if let Some(control_listen) = ctx.init().control_listen {
             nanorpc_sillad::rpc_serve(

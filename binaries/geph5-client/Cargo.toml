@@ -122,6 +122,7 @@ rlimit = "0.10.2"
 async-channel = "2.5.0"
 native-tls = "0.2"
 tracing-oslog = "0.3.0"
+maxminddb = "0.28.1"
 
 
 [target.'cfg(windows)'.dependencies]
