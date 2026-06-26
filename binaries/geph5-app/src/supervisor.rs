@@ -241,16 +241,36 @@ fn build_query_config() -> anyhow::Result<String> {
     serde_yaml::to_string(&val).context("could not serialize query config")
 }
 
-/// Locate the `geph5-client` binary: prefer one next to the current executable,
-/// otherwise rely on `PATH`.
-fn geph5_client_command() -> Command {
-    // Normally `geph5-client` is an installed companion binary found on PATH
-    // (Windows appends `.exe` automatically). `GEPH_CLIENT_BIN` overrides this to
-    // point at an uninstalled build, e.g. `target/debug/geph5-client`.
-    match std::env::var_os("GEPH_CLIENT_BIN") {
-        Some(path) => Command::new(path),
-        None => Command::new("geph5-client"),
+/// Bare filename of the engine binary for the current platform.
+const ENGINE_BIN: &str = if cfg!(windows) { "geph5-client.exe" } else { "geph5-client" };
+
+/// Resolve the full path of the `geph5-client` engine binary.
+///
+/// On Windows this must be a concrete full path, not a bare name: the VPN kill
+/// switch derives a WFP app-id from it to permit the engine's own egress, and an
+/// app-id built from a relative name won't match the running image (the engine
+/// would then be blocked by its own kill switch). The resolution order is:
+///   1. `GEPH_CLIENT_BIN` (an uninstalled build, e.g. `target/debug/geph5-client`);
+///   2. a companion binary next to the daemon (cargo-install / the installer put
+///      `geph5` and `geph5-client` in the same directory);
+///   3. the bare name as a last resort (PATH lookup at spawn; no app-id match).
+pub fn engine_bin_path() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("GEPH_CLIENT_BIN") {
+        return path.into();
     }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(sibling) = exe.parent().map(|d| d.join(ENGINE_BIN)) {
+            if sibling.exists() {
+                return sibling;
+            }
+        }
+    }
+    std::path::PathBuf::from(ENGINE_BIN)
+}
+
+/// A `Command` that runs the resolved engine binary (see [`engine_bin_path`]).
+fn geph5_client_command() -> Command {
+    Command::new(engine_bin_path())
 }
 
 /// Spawn the **tunnel** engine: the real, credentialed engine. Only spawned while

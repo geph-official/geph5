@@ -236,10 +236,9 @@ fn geph_app_ids() -> Vec<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         ids.push(exe);
     }
-    match std::env::var_os("GEPH_CLIENT_BIN") {
-        Some(p) => ids.push(p.into()),
-        None => ids.push(std::path::PathBuf::from("geph5-client.exe")),
-    }
+    // Must be the *same* full path the engine is actually spawned from, or the
+    // kill switch's app-id permit won't match and the engine blocks itself.
+    ids.push(crate::supervisor::engine_bin_path());
     ids
 }
 
