@@ -134,7 +134,7 @@ pub trait GephCtlProtocol {
     /// change is applied to `session`'s system proxy immediately.
     async fn set_auto_proxy(&self, enabled: bool, session: SessionContext) -> Result<(), String>;
 
-    /// Enable or disable full-tunnel VPN mode (Linux). Restarts the tunnel if
+    /// Enable or disable full-tunnel VPN mode. Restarts the tunnel if
     /// currently connected.
     async fn set_vpn_mode(&self, enabled: bool) -> Result<(), String>;
 

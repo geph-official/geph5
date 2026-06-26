@@ -119,3 +119,6 @@ rlimit = "0.10.2"
 async-channel = "2.5.0"
 native-tls = "0.2"
 tracing-oslog = "0.3.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock"] }

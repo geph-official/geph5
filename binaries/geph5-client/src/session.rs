@@ -108,7 +108,9 @@ pub async fn open_conn(
             dest_addr = debug(dest_addr),
             "passing through whitelisted address"
         );
-        return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
+        return Ok(Box::new(
+            crate::bound_dialer::connect_addrs(&addrs).await?,
+        ));
     }
 
     let cmd = RichTunnelCommand {

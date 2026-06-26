@@ -46,7 +46,7 @@ pub enum Command {
         state: Option<String>,
     },
 
-    /// Show or set full-tunnel VPN mode (Linux).
+    /// Show or set full-tunnel VPN mode.
     Vpn {
         /// `on` or `off`. Omit to show the current setting.
         state: Option<String>,

@@ -102,7 +102,8 @@ pub struct Settings {
     /// Whether to point the desktop's system proxy at the tunnel while connected.
     #[serde(default = "default_true")]
     pub auto_proxy: bool,
-    /// Full-tunnel VPN mode (Linux): capture all traffic via a tun device.
+    /// Full-tunnel VPN mode: capture all traffic via a tun device (Linux) or a
+    /// WinTUN device (Windows).
     #[serde(default)]
     pub vpn: bool,
     /// Let connections to private/LAN addresses bypass the tunnel.
@@ -256,6 +257,10 @@ fn geph5_client_command() -> Command {
 /// connected. `service_user`, when set, drops it to that user (it always runs
 /// unprivileged); `vpn_fd`, when set, is dup'd onto fd 3 and passed via
 /// `--vpn-fd 3` for full-tunnel mode.
+///
+/// Unix only: on Windows the tunnel engine is spawned via [`spawn_tunnel_windows`]
+/// (full-tunnel mode drives the engine through stdio rather than a tun fd).
+#[cfg(not(windows))]
 pub fn spawn_tunnel(
     settings: &Settings,
     service_user: Option<(u32, u32)>,
@@ -305,16 +310,57 @@ pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<Child> {
     })
 }
 
-/// Lower-level: write `config_yaml`, make state/cache/socket dirs owned by the
-/// service user, and spawn a `geph5-client` against the config.
-fn spawn_engine(
-    role: &str,
-    config_name: &str,
-    config_yaml: String,
-    service_user: Option<(u32, u32)>,
-    vpn_fd: Option<i32>,
-    _sock_dir: Option<std::path::PathBuf>,
-) -> anyhow::Result<Child> {
+/// Spawn the **tunnel** engine on Windows. In full-tunnel mode (`binds = Some`)
+/// the daemon owns the WinTUN device, so the child is driven through stdio
+/// (`--stdio-vpn`, 16-bit length-prefixed packets) and pinned to the physical
+/// interface via `GEPH_VPN_BIND_IF4/6`; the returned stdio handles are wired to the
+/// daemon's packet pump. In proxy mode (`binds = None`) it spawns an ordinary
+/// child and returns no stdio.
+#[cfg(windows)]
+pub fn spawn_tunnel_windows(
+    settings: &Settings,
+    binds: Option<(u32, u32)>,
+) -> anyhow::Result<(
+    Child,
+    Option<(std::process::ChildStdin, std::process::ChildStdout)>,
+)> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+
+    let config_yaml = build_tunnel_config(settings)?;
+    let config_path = write_engine_config("child-config.yaml", config_yaml)?;
+
+    let mut cmd = geph5_client_command();
+    cmd.arg("--config").arg(&config_path);
+    let vpn = binds.is_some();
+    if let Some((if4, if6)) = binds {
+        cmd.arg("--stdio-vpn");
+        cmd.env("GEPH_VPN_BIND_IF4", if4.to_string());
+        cmd.env("GEPH_VPN_BIND_IF6", if6.to_string());
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+    }
+    // CREATE_NO_WINDOW: don't pop a console window for the child.
+    cmd.creation_flags(0x08000000);
+
+    let mut child = cmd.spawn().context(
+        "could not spawn geph5-client (is it installed on PATH? or set GEPH_CLIENT_BIN)",
+    )?;
+    tracing::info!(pid = child.id(), role = "tunnel", vpn, "spawned geph5-client engine");
+
+    let stdio = if vpn {
+        let cin = child.stdin.take().context("child stdin missing")?;
+        let cout = child.stdout.take().context("child stdout missing")?;
+        Some((cin, cout))
+    } else {
+        None
+    };
+    Ok((child, stdio))
+}
+
+/// Write `config_yaml` to the role's config file, (re)creating the state + cache
+/// dirs and migrating the old single-file cache layout. Returns the config path.
+fn write_engine_config(config_name: &str, config_yaml: String) -> anyhow::Result<std::path::PathBuf> {
     std::fs::create_dir_all(paths::state_dir())?;
     // The cache is a directory the unprivileged child writes its SQLite into.
     // Migrate the old layout (where `cache` was the SQLite file itself).
@@ -327,15 +373,33 @@ fn spawn_engine(
     }
     std::fs::create_dir_all(&cache_dir)?;
 
+    let config_path = paths::state_dir().join(config_name);
+    std::fs::write(&config_path, config_yaml)
+        .with_context(|| format!("could not write {}", config_path.display()))?;
+    Ok(config_path)
+}
+
+/// Lower-level: write `config_yaml`, make state/cache/socket dirs owned by the
+/// service user, and spawn a `geph5-client` against the config.
+fn spawn_engine(
+    role: &str,
+    config_name: &str,
+    config_yaml: String,
+    service_user: Option<(u32, u32)>,
+    vpn_fd: Option<i32>,
+    _sock_dir: Option<std::path::PathBuf>,
+) -> anyhow::Result<Child> {
+    // `service_user` is only consulted on Unix (uid drop); harmless elsewhere.
+    let _ = service_user;
+    let config_path = write_engine_config(config_name, config_yaml)?;
+    #[cfg(unix)]
+    let cache_dir = paths::cache_dir();
+
     // The engine binds its control socket in a service-user-owned runtime subdir.
     #[cfg(unix)]
     if let Some(dir) = _sock_dir.as_ref() {
         std::fs::create_dir_all(dir)?;
     }
-
-    let config_path = paths::state_dir().join(config_name);
-    std::fs::write(&config_path, config_yaml)
-        .with_context(|| format!("could not write {}", config_path.display()))?;
 
     // Make the config + cache dir + socket dir owned by the unprivileged child so
     // it can read its config and bind its control socket.

@@ -10,6 +10,7 @@ use geph5_rt::Immortal;
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use std::sync::Arc;
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
@@ -147,7 +148,7 @@ impl Client {
         });
         tracing::info!("raised file descriptor limit to {}", fd_limit);
 
-        let task = smolscale::spawn(client_main(ctx.clone()).map_err(Arc::new));
+        let task = geph5_rt::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
             task: task.shared(),
             ctx,

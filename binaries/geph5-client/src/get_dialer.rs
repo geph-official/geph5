@@ -9,10 +9,9 @@ use geph5_broker_protocol::{
 };
 use isocountry::CountryCode;
 use rand::seq::SliceRandom;
-use sillad::{
-    dialer::{DialerExt, DynDialer, FailingDialer},
-    tcp::TcpDialer,
-};
+use sillad::dialer::{DialerExt, DynDialer, FailingDialer};
+
+use crate::bound_dialer::BoundTcpDialer;
 use sillad_conntest::ConnTestDialer;
 use sillad_hex::HexDialer;
 use sillad_meeklike::MeeklikeDialer;
@@ -76,7 +75,7 @@ pub async fn get_dialer(
                         inner: logged(
                             "tcp",
                             route_subtree_json(&RouteDescriptor::Tcp(dest_addr)),
-                            TcpDialer { dest_addr },
+                            BoundTcpDialer { dest_addr },
                         )
                         .dynamic(),
                     },
@@ -246,7 +245,7 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
             logged(
                 "tcp",
                 route_subtree_json(route),
-                TcpDialer { dest_addr: addr },
+                BoundTcpDialer { dest_addr: addr },
             )
             .dynamic()
         }

@@ -11,7 +11,10 @@ mod paths;
 mod protocol;
 mod proxy;
 mod supervisor;
+#[cfg(not(windows))]
 mod vpn_linux;
+#[cfg(windows)]
+mod vpn_windows;
 
 use clap::Parser;
 
@@ -54,7 +57,40 @@ fn require_root() {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn require_root() {
-    // On Windows, elevation is handled by the service manager / installer.
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    // VPN mode needs Administrator for WinTUN, routing, and WFP. A Windows
+    // service running as LocalSystem is the eventual model; for now we require
+    // the daemon to be launched elevated and bail clearly otherwise.
+    let elevated = unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            false
+        } else {
+            let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+            let mut ret_len = 0u32;
+            let ok = GetTokenInformation(
+                token,
+                TokenElevation,
+                &mut elevation as *mut _ as *mut core::ffi::c_void,
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut ret_len,
+            );
+            CloseHandle(token);
+            ok != 0 && elevation.TokenIsElevated != 0
+        }
+    };
+    if !elevated {
+        eprintln!("geph5 daemon must be run as Administrator");
+        std::process::exit(1);
+    }
 }
+
+#[cfg(not(any(unix, windows)))]
+fn require_root() {}

@@ -14,6 +14,7 @@ use nanorpc::RpcTransport;
 use once_cell::sync::OnceCell;
 
 mod auth;
+mod bound_dialer;
 mod broker;
 mod bw_accounting;
 mod bw_token;
@@ -54,7 +55,10 @@ pub unsafe extern "C" fn start_client(cfg: *const c_char, vpn_fd: c_int) -> libc
     #[cfg(unix)]
     let vpn_fd = if vpn_fd >= 0 { Some(vpn_fd) } else { None };
     #[cfg(not(unix))]
-    let _ = vpn_fd;
+    let vpn_fd: Option<i32> = {
+        let _ = vpn_fd;
+        None
+    };
 
     CLIENT.get_or_init(|| Client::start_with_vpn_fd(cfg, vpn_fd));
 

@@ -36,7 +36,34 @@ impl RpcTransport for FrontedHttpTransport {
             "calling broker through http"
         );
         let start = Instant::now();
-        let mut request_builder = if let Some(dns) = &self.dns {
+        let mut request_builder = if crate::bound_dialer::binding_active() {
+            // Windows full-tunnel: route this connection through a loopback
+            // forwarder whose upstream is dialed via the bound dialer
+            // (physical-NIC-pinned), so only *our* socket to the shared front IP
+            // bypasses the tunnel. Reached only for fronted sources with fixed
+            // `override_dns` addresses (others are ignored in VPN mode).
+            let dests = self
+                .dns
+                .clone()
+                .context("fronted broker source without override_dns is unusable in VPN mode")?;
+            if reqwest::Url::parse(&self.url).ok().and_then(|u| u.port()).is_some() {
+                tracing::warn!(
+                    url = self.url,
+                    "front URL has an explicit port; the loopback egress forwarder may be bypassed"
+                );
+            }
+            let loopback = super::bind_forward::forward_addrs(dests)
+                .await
+                .context("could not set up broker egress forwarder")?;
+            reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(60))
+                .dns_resolver(Arc::new(OverrideDnsResolve(vec![loopback])))
+                .build()
+                .context("could not build bound broker client")?
+                .post(&self.url)
+                .header("content-type", "application/json")
+        } else if let Some(dns) = &self.dns {
             reqwest::Client::builder()
                 .no_proxy()
                 .timeout(Duration::from_secs(60))

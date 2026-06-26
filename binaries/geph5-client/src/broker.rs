@@ -1,3 +1,4 @@
+mod bind_forward;
 mod fronted_http;
 mod priority_race;
 mod race;
@@ -19,9 +20,8 @@ use priority_race::PriorityRaceTransport;
 use race::RaceTransport;
 use tunneled_http::TunneledHttpTransport;
 
-use sillad::tcp::TcpDialer;
-
 use crate::{
+    bound_dialer::BoundTcpDialer,
     client::CtxField,
     control_prot::CURRENT_CONNECTED_INFOS,
     timeout::{BROKER_RPC_TIMEOUT, RpcTransportExt},
@@ -44,6 +44,32 @@ pub(crate) trait ConfigHelperExt {
 
 impl ConfigHelperExt for BrokerSource {
     fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
+        // In Windows full-tunnel VPN mode, a broker source that needs DNS
+        // resolution cannot bootstrap: its `getaddrinfo` isn't physical-NIC-pinned
+        // (we can't intercept the system resolver's sockets), so the query would
+        // route into the not-yet-established tunnel and hang. Ignore those sources
+        // entirely; only DNS-free ones (fronted with `override_dns`, and
+        // direct-TCP) can reach the broker before the tunnel is up.
+        if crate::bound_dialer::binding_active() {
+            let skip = match self {
+                BrokerSource::Direct(_) => Some("direct"),
+                BrokerSource::Fronted {
+                    override_dns: None, ..
+                } => Some("fronted-without-override_dns"),
+                BrokerSource::AwsLambda { .. } => Some("aws_lambda"),
+                _ => None,
+            };
+            if let Some(kind) = skip {
+                tracing::warn!(
+                    source = kind,
+                    "ignoring DNS-dependent broker source in Windows full-tunnel VPN mode"
+                );
+                return DynRpcTransport::new(
+                    UnsupportedBrokerTransport("DNS-dependent broker source skipped in VPN mode")
+                        .timeout(BROKER_RPC_TIMEOUT),
+                );
+            }
+        }
         match self {
             BrokerSource::Direct(s) => DynRpcTransport::new(
                 FrontedHttpTransport {
@@ -54,7 +80,7 @@ impl ConfigHelperExt for BrokerSource {
                 .timeout(BROKER_RPC_TIMEOUT),
             ),
             BrokerSource::DirectTcp(dest_addr) => DynRpcTransport::new(
-                nanorpc_sillad::DialerTransport(TcpDialer {
+                nanorpc_sillad::DialerTransport(BoundTcpDialer {
                     dest_addr: *dest_addr,
                 })
                 .timeout(BROKER_RPC_TIMEOUT),

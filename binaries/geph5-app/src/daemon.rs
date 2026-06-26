@@ -21,8 +21,11 @@ use crate::{
     },
     proxy,
     supervisor::{self, Settings},
-    vpn_linux,
 };
+#[cfg(not(windows))]
+use crate::vpn_linux as vpn;
+#[cfg(windows)]
+use crate::vpn_windows as vpn;
 
 const CHILD_READY_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -34,9 +37,14 @@ struct Inner {
     query: Option<Child>,
     /// The credentialed tunnel engine. Present only while connected.
     tunnel: Option<Child>,
-    /// Live full-tunnel VPN state (tun fd + routing/kill-switch), when connected
-    /// in VPN mode. Held here so it survives tunnel-engine restarts.
-    vpn: Option<vpn_linux::VpnHandle>,
+    /// Live full-tunnel VPN state (routing/kill-switch + the tun device), when
+    /// connected in VPN mode. Held here so it survives tunnel-engine restarts.
+    vpn: Option<vpn::VpnHandle>,
+    /// Windows only: the WinTUN<->engine stdio packet pump. Re-created per child
+    /// (its session is cycled on each restart); the device/routes/kill-switch in
+    /// `vpn` persist underneath it.
+    #[cfg(windows)]
+    vpn_pump: Option<vpn::Pump>,
 }
 
 pub struct DaemonImpl {
@@ -54,6 +62,8 @@ impl DaemonImpl {
                 query: None,
                 tunnel: None,
                 vpn: None,
+                #[cfg(windows)]
+                vpn_pump: None,
             }),
         };
         let mut inner = this.inner.lock().await;
@@ -82,8 +92,12 @@ impl DaemonImpl {
             return Ok(());
         }
         // Run it as the service user (like the tunnel engine) so its broker
-        // traffic is unmarked and the VPN kill switch lets it out.
-        let service_user = vpn_linux::ensure_service_user().ok();
+        // traffic is unmarked and the VPN kill switch lets it out. (No service
+        // user on Windows — loop prevention there is socket binding, not uid.)
+        #[cfg(not(windows))]
+        let service_user = vpn::ensure_service_user().ok();
+        #[cfg(windows)]
+        let service_user: Option<(u32, u32)> = None;
         let child = supervisor::spawn_query(service_user).map_err(|e| format!("{e:?}"))?;
         inner.query = Some(child);
         supervisor::wait_control_ready(&supervisor::query_control(), CHILD_READY_TIMEOUT)
@@ -102,13 +116,36 @@ impl DaemonImpl {
         if let Some(child) = inner.tunnel.take() {
             supervisor::kill_child(child);
         }
+        // Windows: stop the old packet pump (closing its WinTUN session and
+        // joining its threads) before reconciling the device. The device,
+        // routes, and kill switch persist underneath in `inner.vpn`.
+        #[cfg(windows)]
+        {
+            inner.vpn_pump = None;
+        }
         let service_user = reconcile_vpn(inner)?;
         if !inner.settings.connected {
             return Ok(());
         }
-        let vpn_fd = inner.vpn.as_ref().map(|h| h.tun_fd());
-        let child = supervisor::spawn_tunnel(&inner.settings, service_user, vpn_fd)
-            .map_err(|e| format!("{e:?}"))?;
+        #[cfg(not(windows))]
+        let child = {
+            let vpn_fd = inner.vpn.as_ref().map(|h| h.tun_fd());
+            supervisor::spawn_tunnel(&inner.settings, service_user, vpn_fd)
+                .map_err(|e| format!("{e:?}"))?
+        };
+        #[cfg(windows)]
+        let child = {
+            let _ = service_user;
+            let binds = inner.vpn.as_ref().map(|h| h.bind_indices());
+            let (child, stdio) = supervisor::spawn_tunnel_windows(&inner.settings, binds)
+                .map_err(|e| format!("{e:?}"))?;
+            // In VPN mode, wire the child's stdio to a fresh pump on the device.
+            if let (Some((cin, cout)), Some(handle)) = (stdio, inner.vpn.as_ref()) {
+                let session = handle.start_session().map_err(|e| format!("{e:#}"))?;
+                inner.vpn_pump = Some(vpn::Pump::start(session, cin, cout));
+            }
+            child
+        };
         inner.tunnel = Some(child);
         supervisor::wait_control_ready(&supervisor::live_control(), CHILD_READY_TIMEOUT)
             .await
@@ -157,24 +194,44 @@ impl DaemonImpl {
 }
 
 /// Bring the VPN tunnel/kill-switch into line with the desired state
-/// (`connected && vpn`) and resolve the service user the child runs as.
+/// (`connected && vpn`). On Unix it also resolves the service user the child runs
+/// as; on Windows there is no service user (it returns `None`).
 fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
     let want_vpn = inner.settings.connected && inner.settings.vpn;
-    if want_vpn {
-        let (uid, gid) =
-            vpn_linux::ensure_service_user().map_err(|e| format!("vpn service user: {e:#}"))?;
-        if inner.vpn.is_none() {
-            inner.vpn = Some(vpn_linux::setup(uid).map_err(|e| format!("vpn setup: {e:#}"))?);
+    #[cfg(not(windows))]
+    {
+        if want_vpn {
+            let (uid, gid) =
+                vpn::ensure_service_user().map_err(|e| format!("vpn service user: {e:#}"))?;
+            if inner.vpn.is_none() {
+                inner.vpn = Some(vpn::setup(uid).map_err(|e| format!("vpn setup: {e:#}"))?);
+            }
+            Ok(Some((uid, gid)))
+        } else {
+            // Tear down the tunnel/kill-switch when not in active VPN mode so
+            // normal (disconnected or proxy-mode) connectivity is restored.
+            if inner.vpn.take().is_some() {
+                vpn::teardown();
+            }
+            // Best-effort: still run the child unprivileged in proxy mode.
+            Ok(vpn::ensure_service_user().ok())
         }
-        Ok(Some((uid, gid)))
-    } else {
-        // Tear down the tunnel/kill-switch when not in active VPN mode so normal
-        // (disconnected or proxy-mode) connectivity is restored.
-        if inner.vpn.take().is_some() {
-            vpn_linux::teardown();
+    }
+    #[cfg(windows)]
+    {
+        if want_vpn {
+            if inner.vpn.is_none() {
+                let phys =
+                    vpn::physical_iface().map_err(|e| format!("physical interface: {e:#}"))?;
+                inner.vpn = Some(
+                    vpn::setup(phys, inner.settings.allow_lan)
+                        .map_err(|e| format!("vpn setup: {e:#}"))?,
+                );
+            }
+        } else if inner.vpn.take().is_some() {
+            // Dropping the handle removes routes + kill switch (RAII teardown).
         }
-        // Best-effort: still run the child unprivileged in proxy mode (else root).
-        Ok(vpn_linux::ensure_service_user().ok())
+        Ok(None)
     }
 }
 

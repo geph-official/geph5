@@ -39,6 +39,7 @@ pub fn state_dir() -> PathBuf {
 ///
 /// - Linux: `/run/geph`
 /// - macOS: `/var/run/geph`
+#[cfg(unix)]
 pub fn runtime_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
