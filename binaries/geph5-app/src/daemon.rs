@@ -440,6 +440,7 @@ impl GephCtlProtocol for DaemonImpl {
         constraint: geph5_broker_protocol::ExitConstraint,
     ) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
+        tracing::debug!(?constraint, "setting changed: exit_constraint");
         inner.settings.exit_constraint = constraint;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         // Only the connected child needs restarting; a disconnected one rebuilds
@@ -453,6 +454,7 @@ impl GephCtlProtocol for DaemonImpl {
     async fn set_auto_proxy(&self, enabled: bool, session: SessionContext) -> Result<(), String> {
         let connected = {
             let mut inner = self.inner.lock().await;
+            tracing::debug!(enabled, "setting changed: auto_proxy");
             inner.settings.auto_proxy = enabled;
             inner.settings.save().map_err(|e| format!("{e:?}"))?;
             inner.settings.connected
@@ -467,6 +469,7 @@ impl GephCtlProtocol for DaemonImpl {
 
     async fn set_vpn_mode(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
+        tracing::debug!(enabled, "setting changed: vpn");
         inner.settings.vpn = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         // reconcile_tunnel reconciles the VPN tunnel/kill-switch with settings.vpn.
@@ -478,6 +481,7 @@ impl GephCtlProtocol for DaemonImpl {
 
     async fn set_allow_lan(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
+        tracing::debug!(enabled, "setting changed: allow_lan");
         inner.settings.allow_lan = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         if inner.settings.connected {
@@ -488,6 +492,7 @@ impl GephCtlProtocol for DaemonImpl {
 
     async fn set_allow_direct(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
+        tracing::debug!(enabled, "setting changed: allow_direct");
         inner.settings.allow_direct = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         if inner.settings.connected {
