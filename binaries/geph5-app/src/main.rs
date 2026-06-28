@@ -12,8 +12,10 @@ mod protocol;
 mod proxy;
 mod service;
 mod supervisor;
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod vpn_linux;
+#[cfg(target_os = "macos")]
+mod vpn_macos;
 #[cfg(windows)]
 mod vpn_windows;
 

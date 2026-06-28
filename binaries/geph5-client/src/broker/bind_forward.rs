@@ -1,9 +1,9 @@
 //! Per-process egress binding for the broker's fronted `reqwest` client.
 //!
-//! In Windows full-tunnel mode, [`crate::bound_dialer`] pins the engine's TCP
-//! sockets to the physical NIC via `IP_UNICAST_IF`. `reqwest` creates its sockets
-//! internally, so to pin the fronted broker connection too we splice its TCP
-//! through a tiny loopback forwarder whose *upstream* is dialed via
+//! In full-tunnel mode, [`crate::bound_dialer`] pins the engine's TCP sockets to
+//! the physical NIC (Windows `IP_UNICAST_IF`, macOS `IP_BOUND_IF`). `reqwest`
+//! creates its sockets internally, so to pin the fronted broker connection too we
+//! splice its TCP through a tiny loopback forwarder whose *upstream* is dialed via
 //! [`connect_addrs`] (hence physical-NIC-pinned).
 //!
 //! This keeps the discriminator strictly per-process. The broker front is an

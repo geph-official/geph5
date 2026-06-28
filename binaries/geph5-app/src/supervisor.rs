@@ -268,9 +268,48 @@ pub fn engine_bin_path() -> std::path::PathBuf {
     std::path::PathBuf::from(ENGINE_BIN)
 }
 
-/// A `Command` that runs the resolved engine binary (see [`engine_bin_path`]).
-fn geph5_client_command() -> Command {
-    Command::new(engine_bin_path())
+/// A `Command` that runs the engine binary. On macOS the engine runs unprivileged
+/// as `_geph`, which cannot traverse the developer's 0750 home directory, so the
+/// binary is first staged into a world-traversable, root-owned location (see
+/// [`staged_engine_bin`]); elsewhere it runs the resolved path directly.
+fn geph5_client_command() -> anyhow::Result<Command> {
+    #[cfg(target_os = "macos")]
+    let bin = staged_engine_bin()?;
+    #[cfg(not(target_os = "macos"))]
+    let bin = engine_bin_path();
+    Ok(Command::new(bin))
+}
+
+/// Copy the resolved engine binary into `<state_dir>/bin` (root-owned, 0755) so the
+/// unprivileged `_geph` engine can exec it even when the build output lives under
+/// the developer's 0750 home. Re-stages only when the source is newer; once staged
+/// it's a no-op. In a packaged install the source is already in an accessible
+/// location, so this is just a cheap same-host copy.
+#[cfg(target_os = "macos")]
+fn staged_engine_bin() -> anyhow::Result<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let src = engine_bin_path();
+    let dir = paths::state_dir().join("bin");
+    std::fs::create_dir_all(&dir)?;
+    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+    let dst = dir.join(ENGINE_BIN);
+
+    let up_to_date = match (std::fs::metadata(&src), std::fs::metadata(&dst)) {
+        (Ok(s), Ok(d)) => match (s.modified(), d.modified()) {
+            (Ok(sm), Ok(dm)) => dm >= sm,
+            _ => false,
+        },
+        _ => false,
+    };
+    if !up_to_date {
+        std::fs::copy(&src, &dst)
+            .with_context(|| format!("staging engine binary {} -> {}", src.display(), dst.display()))?;
+        std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755))?;
+        // Own it root:wheel so the unprivileged user can't rewrite the staged
+        // binary (fs::copy may inherit the source's ownership).
+        let _ = chown_path(&dst, 0, 0);
+    }
+    Ok(dst)
 }
 
 /// Spawn the **tunnel** engine: the real, credentialed engine. Only spawned while
@@ -285,6 +324,7 @@ pub fn spawn_tunnel(
     settings: &Settings,
     service_user: Option<(u32, u32)>,
     vpn_fd: Option<i32>,
+    bind_indices: Option<(u32, u32)>,
 ) -> anyhow::Result<Child> {
     let config_yaml = build_tunnel_config(settings)?;
     #[cfg(unix)]
@@ -294,16 +334,24 @@ pub fn spawn_tunnel(
             .expect("engine socket path has a parent")
             .to_path_buf(),
     );
-    spawn_engine("tunnel", "child-config.yaml", config_yaml, service_user, vpn_fd, {
-        #[cfg(unix)]
+    spawn_engine(
+        "tunnel",
+        "child-config.yaml",
+        config_yaml,
+        service_user,
+        vpn_fd,
+        bind_indices,
         {
-            sock_dir
-        }
-        #[cfg(not(unix))]
-        {
-            None
-        }
-    })
+            #[cfg(unix)]
+            {
+                sock_dir
+            }
+            #[cfg(not(unix))]
+            {
+                None
+            }
+        },
+    )
 }
 
 /// Spawn the permanent **query** engine: secret-less, dry-run, never given a tun
@@ -318,16 +366,24 @@ pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<Child> {
             .expect("query socket path has a parent")
             .to_path_buf(),
     );
-    spawn_engine("query", "query-config.yaml", config_yaml, service_user, None, {
-        #[cfg(unix)]
+    spawn_engine(
+        "query",
+        "query-config.yaml",
+        config_yaml,
+        service_user,
+        None,
+        None,
         {
-            sock_dir
-        }
-        #[cfg(not(unix))]
-        {
-            None
-        }
-    })
+            #[cfg(unix)]
+            {
+                sock_dir
+            }
+            #[cfg(not(unix))]
+            {
+                None
+            }
+        },
+    )
 }
 
 /// Spawn the **tunnel** engine on Windows. In full-tunnel mode (`binds = Some`)
@@ -350,7 +406,7 @@ pub fn spawn_tunnel_windows(
     let config_yaml = build_tunnel_config(settings)?;
     let config_path = write_engine_config("child-config.yaml", config_yaml)?;
 
-    let mut cmd = geph5_client_command();
+    let mut cmd = geph5_client_command()?;
     cmd.arg("--config").arg(&config_path);
     let vpn = binds.is_some();
     if let Some((if4, if6)) = binds {
@@ -407,6 +463,7 @@ fn spawn_engine(
     config_yaml: String,
     service_user: Option<(u32, u32)>,
     vpn_fd: Option<i32>,
+    bind_indices: Option<(u32, u32)>,
     _sock_dir: Option<std::path::PathBuf>,
 ) -> anyhow::Result<Child> {
     // `service_user` is only consulted on Unix (uid drop); harmless elsewhere.
@@ -432,10 +489,16 @@ fn spawn_engine(
         }
     }
 
-    let mut cmd = geph5_client_command();
+    let mut cmd = geph5_client_command()?;
     cmd.arg("--config").arg(&config_path);
     if vpn_fd.is_some() {
         cmd.arg("--vpn-fd").arg("3");
+    }
+    // Physical-interface pinning for the engine's own sockets (macOS full-tunnel:
+    // the bound dialer reads these and applies IP_BOUND_IF). Linux/query pass None.
+    if let Some((if4, if6)) = bind_indices {
+        cmd.env("GEPH_VPN_BIND_IF4", if4.to_string());
+        cmd.env("GEPH_VPN_BIND_IF6", if6.to_string());
     }
     #[cfg(windows)]
     {
@@ -443,7 +506,7 @@ fn spawn_engine(
         // CREATE_NO_WINDOW: don't pop a console window for the child.
         cmd.creation_flags(0x08000000);
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         // SAFETY: child_pre_exec uses only async-signal-safe syscalls and no
@@ -486,18 +549,21 @@ fn chown_recursive(path: &std::path::Path, uid: u32, gid: u32) -> std::io::Resul
     Ok(())
 }
 
-/// `pre_exec` hook for the child. Drops to the unprivileged service user, hands
-/// the tun fd over at a known number, and arms parent-death. The ordering is
-/// load-bearing:
+/// `pre_exec` hook for the child. Drops to the unprivileged service user (when one
+/// is given), hands the tun fd over at a known number, and — on Linux — arms
+/// parent-death. The ordering is load-bearing:
 ///   1. `setgroups` before `setuid` (it needs root) to drop root's supplementary
 ///      groups — and `CommandExt::groups` is still unstable, so we do it by hand;
 ///   2. `setgid`/`setuid` to the service user;
 ///   3. `dup2` the tun fd onto fd 3 (the dup clears CLOEXEC so it survives exec);
 ///   4. `PR_SET_PDEATHSIG` LAST — `setuid` clears any pending parent-death signal.
 ///
+/// On macOS there is no service user (so steps 1–2 are skipped) and no
+/// `PR_SET_PDEATHSIG` equivalent (step 4 is skipped); only the fd hand-off runs.
+///
 /// SAFETY: runs post-fork/pre-exec, so it must use only async-signal-safe
 /// syscalls and perform no allocation.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn child_pre_exec(service_user: Option<(u32, u32)>, vpn_fd: Option<i32>) -> std::io::Result<()> {
     let err = std::io::Error::last_os_error;
     if let Some((uid, gid)) = service_user {
@@ -516,7 +582,8 @@ fn child_pre_exec(service_user: Option<(u32, u32)>, vpn_fd: Option<i32>) -> std:
     {
         return Err(err());
     }
-    // PR_SET_PDEATHSIG == 1.
+    // PR_SET_PDEATHSIG == 1. Linux-only; macOS has no direct equivalent.
+    #[cfg(target_os = "linux")]
     if unsafe { libc::prctl(1, libc::SIGTERM, 0, 0, 0) } != 0 {
         return Err(err());
     }
