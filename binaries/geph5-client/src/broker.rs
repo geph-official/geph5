@@ -44,12 +44,12 @@ pub(crate) trait ConfigHelperExt {
 
 impl ConfigHelperExt for BrokerSource {
     fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
-        // In Windows full-tunnel VPN mode, a broker source that needs DNS
-        // resolution cannot bootstrap: its `getaddrinfo` isn't physical-NIC-pinned
-        // (we can't intercept the system resolver's sockets), so the query would
-        // route into the not-yet-established tunnel and hang. Ignore those sources
-        // entirely; only DNS-free ones (fronted with `override_dns`, and
-        // direct-TCP) can reach the broker before the tunnel is up.
+        // In full-tunnel VPN mode, a broker source that needs DNS resolution
+        // cannot bootstrap: its `getaddrinfo` isn't physical-NIC-pinned (we can't
+        // intercept the system resolver's sockets), so the query would route into
+        // the not-yet-established tunnel and hang. Ignore those sources entirely;
+        // only DNS-free ones (fronted with `override_dns`, and direct-TCP) can
+        // reach the broker before the tunnel is up.
         if crate::bound_dialer::binding_active() {
             let skip = match self {
                 BrokerSource::Direct(_) => Some("direct"),
@@ -62,7 +62,7 @@ impl ConfigHelperExt for BrokerSource {
             if let Some(kind) = skip {
                 tracing::warn!(
                     source = kind,
-                    "ignoring DNS-dependent broker source in Windows full-tunnel VPN mode"
+                    "ignoring DNS-dependent broker source in full-tunnel VPN mode"
                 );
                 return DynRpcTransport::new(
                     UnsupportedBrokerTransport("DNS-dependent broker source skipped in VPN mode")

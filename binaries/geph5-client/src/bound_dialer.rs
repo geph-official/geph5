@@ -1,17 +1,18 @@
 //! Geph-owned TCP dialer that pins its outbound sockets to the physical interface
-//! in Windows full-tunnel VPN mode.
+//! in full-tunnel VPN mode.
 //!
 //! Implemented as a `sillad::Dialer` — sillad's extension point for custom dial
 //! behavior — so the interface-binding policy lives here in the engine.
 //!
 //! When the daemon spawns the engine in full-tunnel mode it sets
 //! `GEPH_VPN_BIND_IF4` / `GEPH_VPN_BIND_IF6` to the physical interface indices.
-//! With those set, [`BoundTcpDialer`] pins each socket via `IP_UNICAST_IF` /
-//! `IPV6_UNICAST_IF` before connecting, so the engine's own bridge/exit/broker
-//! traffic leaves the real NIC. Without them (all non-Windows, all non-VPN) it is
-//! a plain connect. This is the single chokepoint for all of the engine's raw
-//! outbound TCP — bridges, exits, LAN passthrough, the direct-TCP broker source,
-//! and the broker egress forwarder.
+//! With those set, [`BoundTcpDialer`] pins each socket to that interface before
+//! connecting (Windows `IP_UNICAST_IF`, macOS `IP_BOUND_IF`), so the engine's own
+//! bridge/exit/broker traffic leaves the real NIC instead of looping back into the
+//! tunnel. Without them (non-VPN, or platforms without pinning) it is a plain
+//! connect. This is the single chokepoint for all of the engine's raw outbound
+//! TCP — bridges, exits, LAN passthrough, the direct-TCP broker source, and the
+//! broker egress forwarder.
 
 use std::{
     net::SocketAddr,
@@ -120,13 +121,19 @@ impl Pipe for BoundTcpPipe {
     }
 }
 
-/// Connect to `dest`, applying the `IP_UNICAST_IF` pin on Windows when an
-/// interface index is configured for the address family; a plain connect
-/// otherwise.
+/// Connect to `dest`, pinning the socket to the physical interface when one is
+/// configured for the address family (Windows `IP_UNICAST_IF`, macOS
+/// `IP_BOUND_IF`); a plain connect otherwise.
 async fn connect_bound(dest: SocketAddr) -> std::io::Result<tokio::net::TcpStream> {
     #[cfg(windows)]
     {
         if let Some(stream) = windows_bind::connect_unicast_if(dest).await? {
+            return Ok(stream);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(stream) = macos_bind::connect_bound_if(dest).await? {
             return Ok(stream);
         }
     }
@@ -212,6 +219,78 @@ mod windows_bind {
                 optname,
                 &value as *const u32 as *const u8,
                 std::mem::size_of::<u32>() as i32,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Some(socket.connect(dest).await?))
+    }
+}
+
+// IP_BOUND_IF pinning — the macOS analogue of `windows_bind`. The bind index is
+// read once from the daemon-supplied env; absent (or 0), `connect_bound_if`
+// returns None and the caller falls back to an ordinary connect.
+#[cfg(target_os = "macos")]
+mod macos_bind {
+    use std::net::SocketAddr;
+    use std::os::fd::AsRawFd;
+    use std::sync::OnceLock;
+
+    // From <netinet/in.h>: IPPROTO_IP = 0, IP_BOUND_IF = 25.
+    // From <netinet/in.h> (IPPROTO_IPV6 = 41) and <netinet6/in6.h>: IPV6_BOUND_IF = 125.
+    const IPPROTO_IP: i32 = 0;
+    const IPPROTO_IPV6: i32 = 41;
+    const IP_BOUND_IF: i32 = 25;
+    const IPV6_BOUND_IF: i32 = 125;
+
+    fn env_index(var: &str) -> Option<u32> {
+        std::env::var(var)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .filter(|&i| i != 0)
+    }
+
+    fn bind_if4() -> Option<u32> {
+        static V: OnceLock<Option<u32>> = OnceLock::new();
+        *V.get_or_init(|| env_index("GEPH_VPN_BIND_IF4"))
+    }
+
+    fn bind_if6() -> Option<u32> {
+        static V: OnceLock<Option<u32>> = OnceLock::new();
+        *V.get_or_init(|| env_index("GEPH_VPN_BIND_IF6"))
+    }
+
+    /// If an interface is configured for `dest`'s family, create a socket bound to
+    /// it and connect; otherwise `Ok(None)` to fall back to a plain connect.
+    pub async fn connect_bound_if(
+        dest: SocketAddr,
+    ) -> std::io::Result<Option<tokio::net::TcpStream>> {
+        let (level, optname, idx) = match dest {
+            SocketAddr::V4(_) => match bind_if4() {
+                Some(i) => (IPPROTO_IP, IP_BOUND_IF, i),
+                None => return Ok(None),
+            },
+            SocketAddr::V6(_) => match bind_if6() {
+                Some(i) => (IPPROTO_IPV6, IPV6_BOUND_IF, i),
+                None => return Ok(None),
+            },
+        };
+
+        let socket = match dest {
+            SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+            SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+        };
+        // IP_BOUND_IF/IPV6_BOUND_IF both take the interface index in host byte
+        // order (no Windows-style network-byte-order quirk).
+        let value: u32 = idx;
+        let rc = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                level,
+                optname,
+                &value as *const u32 as *const libc::c_void,
+                std::mem::size_of::<u32>() as libc::socklen_t,
             )
         };
         if rc != 0 {

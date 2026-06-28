@@ -22,8 +22,10 @@ use crate::{
     proxy,
     supervisor::{self, Settings},
 };
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use crate::vpn_linux as vpn;
+#[cfg(target_os = "macos")]
+use crate::vpn_macos as vpn;
 #[cfg(windows)]
 use crate::vpn_windows as vpn;
 
@@ -48,23 +50,29 @@ struct Inner {
 }
 
 pub struct DaemonImpl {
-    inner: Mutex<Inner>,
+    // Arc so `run_daemon` can hand a clone to the shutdown-signal task (which tears
+    // the VPN down on SIGINT/SIGTERM — `Drop` alone never runs on a signal).
+    inner: std::sync::Arc<Mutex<Inner>>,
 }
 
 impl DaemonImpl {
     /// Load settings, spawn the permanent query engine and (if persisted as
     /// connected) the tunnel engine, then return the daemon.
     pub async fn start() -> anyhow::Result<Self> {
+        // Purge any VPN state stranded by a prior crash / `kill -9` (whose Drop
+        // never ran), so we never start on a half-configured, blackholed machine.
+        #[cfg(target_os = "macos")]
+        vpn::cleanup_stale();
         let settings = Settings::load()?;
         let this = DaemonImpl {
-            inner: Mutex::new(Inner {
+            inner: std::sync::Arc::new(Mutex::new(Inner {
                 settings,
                 query: None,
                 tunnel: None,
                 vpn: None,
                 #[cfg(windows)]
                 vpn_pump: None,
-            }),
+            })),
         };
         let mut inner = this.inner.lock().await;
         // The query engine must be up for broker queries; bring it up first.
@@ -76,11 +84,11 @@ impl DaemonImpl {
         // Restore connection state (spawns the tunnel + VPN kill-switch if the
         // user was connected). If that fails, fall back to a clean disconnected
         // state rather than refusing to start.
-        if let Err(e) = this.reconcile_tunnel(&mut inner).await {
+        if let Err(e) = Self::reconcile_tunnel(&mut inner).await {
             tracing::warn!(err = %e, "could not restore persisted state; starting disconnected");
             inner.settings.connected = false;
             let _ = inner.settings.save();
-            let _ = this.reconcile_tunnel(&mut inner).await;
+            let _ = Self::reconcile_tunnel(&mut inner).await;
         }
         drop(inner);
         Ok(this)
@@ -94,7 +102,7 @@ impl DaemonImpl {
         // Run it as the service user (like the tunnel engine) so its broker
         // traffic is unmarked and the VPN kill switch lets it out. (No service
         // user on Windows — loop prevention there is socket binding, not uid.)
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         let service_user = vpn::ensure_service_user().ok();
         #[cfg(windows)]
         let service_user: Option<(u32, u32)> = None;
@@ -108,7 +116,7 @@ impl DaemonImpl {
     /// Bring the **tunnel** engine into line with `settings.connected`: kill any
     /// existing one, reconcile the VPN tunnel/kill-switch, then (if connected)
     /// spawn a fresh tunnel engine. The query engine is untouched.
-    async fn reconcile_tunnel(&self, inner: &mut Inner) -> Result<(), String> {
+    async fn reconcile_tunnel(inner: &mut Inner) -> Result<(), String> {
         // Kill the tunnel FIRST, before reconcile_vpn possibly tears the tun
         // device down. Otherwise the still-running engine's read on the tun fd
         // fails with EBADFD ("File descriptor in bad state") as the device
@@ -130,7 +138,14 @@ impl DaemonImpl {
         #[cfg(not(windows))]
         let child = {
             let vpn_fd = inner.vpn.as_ref().map(|h| h.tun_fd());
-            supervisor::spawn_tunnel(&inner.settings, service_user, vpn_fd)
+            // macOS pins the engine's own sockets to the physical NIC via
+            // IP_BOUND_IF (no uid-based loop prevention); Linux uses uid marking
+            // and needs no bind indices.
+            #[cfg(target_os = "macos")]
+            let binds = inner.vpn.as_ref().map(|h| h.bind_indices());
+            #[cfg(not(target_os = "macos"))]
+            let binds: Option<(u32, u32)> = None;
+            supervisor::spawn_tunnel(&inner.settings, service_user, vpn_fd, binds)
                 .map_err(|e| format!("{e:?}"))?
         };
         #[cfg(windows)]
@@ -198,7 +213,7 @@ impl DaemonImpl {
 /// as; on Windows there is no service user (it returns `None`).
 fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
     let want_vpn = inner.settings.connected && inner.settings.vpn;
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         if want_vpn {
             let (uid, gid) =
@@ -216,6 +231,27 @@ fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
             // Best-effort: still run the child unprivileged in proxy mode.
             Ok(vpn::ensure_service_user().ok())
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // The engine runs as the _geph service user so the PF kill switch can
+        // permit its egress by uid (loop prevention itself is IP_BOUND_IF pinning).
+        let (uid, gid) =
+            vpn::ensure_service_user().map_err(|e| format!("vpn service user: {e:#}"))?;
+        if want_vpn {
+            if inner.vpn.is_none() {
+                // Discover the physical interface *before* installing the /1 routes.
+                let phys =
+                    vpn::physical_iface().map_err(|e| format!("physical interface: {e:#}"))?;
+                inner.vpn = Some(
+                    vpn::setup(phys, uid, inner.settings.allow_lan)
+                        .map_err(|e| format!("vpn setup: {e:#}"))?,
+                );
+            }
+        } else if inner.vpn.take().is_some() {
+            // Dropping the handle restores DNS/routes and lifts the kill switch.
+        }
+        Ok(Some((uid, gid)))
     }
     #[cfg(windows)]
     {
@@ -297,7 +333,7 @@ impl GephCtlProtocol for DaemonImpl {
         // tunnel engine carries the secret, so restart it if we're connected;
         // otherwise the next connect() picks up the new secret.
         if inner.settings.connected {
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
         }
         Ok(account)
     }
@@ -308,7 +344,7 @@ impl GephCtlProtocol for DaemonImpl {
             inner.settings.secret = None;
             inner.settings.connected = false;
             inner.settings.save().map_err(|e| format!("{e:?}"))?;
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
             inner.settings.auto_proxy
         };
         if auto_proxy {
@@ -337,7 +373,7 @@ impl GephCtlProtocol for DaemonImpl {
             }
             inner.settings.connected = true;
             inner.settings.save().map_err(|e| format!("{e:?}"))?;
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
             // In full-tunnel VPN mode the proxy is redundant (everything is
             // already routed), so only auto-configure it in proxy mode.
             inner.settings.auto_proxy && !inner.settings.vpn
@@ -356,7 +392,7 @@ impl GephCtlProtocol for DaemonImpl {
         // restart_child keeps the VPN tun + kill switch up across the restart
         // (reconcile_vpn leaves the handle in place while connected), so there is
         // no leak window — only the engine child is swapped.
-        self.reconcile_tunnel(&mut inner).await
+        Self::reconcile_tunnel(&mut inner).await
     }
 
     async fn disconnect(&self, session: SessionContext) -> Result<(), String> {
@@ -364,7 +400,7 @@ impl GephCtlProtocol for DaemonImpl {
             let mut inner = self.inner.lock().await;
             inner.settings.connected = false;
             inner.settings.save().map_err(|e| format!("{e:?}"))?;
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
             inner.settings.auto_proxy
         };
         if auto_proxy {
@@ -446,7 +482,7 @@ impl GephCtlProtocol for DaemonImpl {
         // Only the connected child needs restarting; a disconnected one rebuilds
         // from settings on the next connect().
         if inner.settings.connected {
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
         }
         Ok(())
     }
@@ -474,7 +510,7 @@ impl GephCtlProtocol for DaemonImpl {
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         // reconcile_tunnel reconciles the VPN tunnel/kill-switch with settings.vpn.
         if inner.settings.connected {
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
         }
         Ok(())
     }
@@ -485,7 +521,7 @@ impl GephCtlProtocol for DaemonImpl {
         inner.settings.allow_lan = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         if inner.settings.connected {
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
         }
         Ok(())
     }
@@ -496,7 +532,7 @@ impl GephCtlProtocol for DaemonImpl {
         inner.settings.allow_direct = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
         if inner.settings.connected {
-            self.reconcile_tunnel(&mut inner).await?;
+            Self::reconcile_tunnel(&mut inner).await?;
         }
         Ok(())
     }
@@ -559,9 +595,126 @@ impl GephCtlProtocol for DaemonImpl {
     }
 }
 
+/// Wait for a termination signal (SIGINT/SIGTERM on unix, Ctrl-C on Windows).
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        // If either handler can't be installed, fall back to the other.
+        let mut term = signal(SignalKind::terminate()).ok();
+        let mut int = signal(SignalKind::interrupt()).ok();
+        match (term.as_mut(), int.as_mut()) {
+            (Some(t), Some(i)) => {
+                tokio::select! { _ = t.recv() => {}, _ = i.recv() => {} }
+            }
+            (Some(t), None) => {
+                t.recv().await;
+            }
+            (None, Some(i)) => {
+                i.recv().await;
+            }
+            (None, None) => std::future::pending::<()>().await,
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Tear down everything the daemon installed, so a Ctrl-C / `kill` cleanly restores
+/// normal networking instead of leaving the fail-closed kill switch (and routes /
+/// DNS) stranded with no engine to carry traffic. Mirrors the disconnected path of
+/// `reconcile_vpn`.
+async fn shutdown_teardown(inner: &Mutex<Inner>) {
+    let mut inner = inner.lock().await;
+    if let Some(child) = inner.tunnel.take() {
+        supervisor::kill_child(child);
+    }
+    if let Some(child) = inner.query.take() {
+        supervisor::kill_child(child);
+    }
+    #[cfg(windows)]
+    {
+        inner.vpn_pump = None;
+    }
+    // Dropping the handle tears down routes/DNS (and, on macOS/Windows, the kill
+    // switch) via its Drop. Linux's nftables teardown is a separate free function.
+    let had_vpn = inner.vpn.take().is_some();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if had_vpn {
+        vpn::teardown();
+    }
+    let _ = had_vpn;
+}
+
 /// Run the daemon forever: spawn the child and serve the CLI control protocol.
 pub async fn run_daemon() -> anyhow::Result<()> {
     let daemon = DaemonImpl::start().await?;
+
+    // Graceful shutdown: on a termination signal, tear the VPN down and exit. Rust
+    // `Drop` does not run when the process is killed by a signal, so without this a
+    // Ctrl-C would leave the kill switch / routes / DNS in place and strand the
+    // machine offline until the daemon is restarted.
+    {
+        let inner = daemon.inner.clone();
+        geph5_rt::spawn(async move {
+            shutdown_signal().await;
+            tracing::warn!("termination signal received; tearing down VPN and exiting");
+            shutdown_teardown(&inner).await;
+            std::process::exit(0);
+        })
+        .detach();
+    }
+
+    // macOS resilience watchdog: the physical interface + interface-scoped default
+    // are captured once at connect, and sleep/wake or a network switch invalidates
+    // them — leaving the engine unable to reach any exit. Driven by the kernel's
+    // routing socket so it reacts to a wake within ~a second, with a slow poll as a
+    // backstop for any missed event; on each wake it re-checks and repairs (or
+    // fully rebuilds on a physical change).
+    #[cfg(target_os = "macos")]
+    {
+        let inner = daemon.inner.clone();
+        let route_changed = std::sync::Arc::new(tokio::sync::Notify::new());
+        // Block on PF_ROUTE in a dedicated thread; coalesce bursts via Notify.
+        {
+            let route_changed = route_changed.clone();
+            std::thread::spawn(move || vpn::route_change_loop(|| route_changed.notify_one()));
+        }
+        geph5_rt::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = route_changed.notified() => {
+                        // Let the burst of route changes (DHCP, iface up) settle.
+                        geph5_rt::sleep(Duration::from_secs(2)).await;
+                    }
+                    _ = geph5_rt::sleep(Duration::from_secs(60)) => {}
+                }
+                let mut inner = inner.lock().await;
+                if !(inner.settings.connected && inner.settings.vpn) {
+                    continue;
+                }
+                let action = match inner.vpn.as_ref() {
+                    Some(handle) => vpn::network_check(handle),
+                    None => continue,
+                };
+                match action {
+                    vpn::VpnAction::Healthy => {}
+                    vpn::VpnAction::Respawn => {
+                        tracing::warn!("VPN routing went stale (sleep/wake?); repaired, respawning engine");
+                        let _ = DaemonImpl::reconcile_tunnel(&mut inner).await;
+                    }
+                    vpn::VpnAction::Rebuild => {
+                        tracing::warn!("physical network changed; rebuilding VPN");
+                        inner.vpn = None; // drop → tear down stale routes/kill-switch
+                        let _ = DaemonImpl::reconcile_tunnel(&mut inner).await;
+                    }
+                }
+            }
+        })
+        .detach();
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

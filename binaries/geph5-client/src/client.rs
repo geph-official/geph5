@@ -79,12 +79,20 @@ impl Client {
                     loop {
                         match reader.read(&mut buf).await {
                             Ok(n) if n > 0 => {
+                                // macOS utun prepends a 4-byte address-family
+                                // header to every packet; strip it to recover the
+                                // raw IP packet the IP stack expects.
+                                #[cfg(target_os = "macos")]
+                                let pkt = {
+                                    if n <= 4 {
+                                        continue;
+                                    }
+                                    bytes::Bytes::copy_from_slice(&buf[4..n])
+                                };
+                                #[cfg(not(target_os = "macos"))]
+                                let pkt = bytes::Bytes::copy_from_slice(&buf[..n]);
                                 // Send the packet to the VPN
-                                send_vpn_packet(
-                                    &ctx_clone,
-                                    bytes::Bytes::copy_from_slice(&buf[..n]),
-                                )
-                                .await;
+                                send_vpn_packet(&ctx_clone, pkt).await;
                             }
                             Ok(0) => {
                                 // EOF
@@ -106,6 +114,22 @@ impl Client {
                     loop {
                         // Receive a packet from the VPN
                         let packet = recv_vpn_packet(&ctx_clone).await;
+
+                        // macOS utun expects a 4-byte address-family header before
+                        // the IP packet, written as a single datagram. Pick AF from
+                        // the IP version nibble (AF_INET=2, AF_INET6=30).
+                        #[cfg(target_os = "macos")]
+                        let packet = {
+                            let af: u32 = if packet.first().map(|b| b >> 4) == Some(6) {
+                                30
+                            } else {
+                                2
+                            };
+                            let mut framed = Vec::with_capacity(4 + packet.len());
+                            framed.extend_from_slice(&af.to_be_bytes());
+                            framed.extend_from_slice(&packet);
+                            bytes::Bytes::from(framed)
+                        };
 
                         // Write the packet to the file descriptor
                         if let Err(e) = writer.write_all(&packet).await {
