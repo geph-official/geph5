@@ -12,6 +12,13 @@
 //!     through `libgio` loaded at runtime with `dlopen` (so a headless build
 //!     without libgio still runs — GNOME proxy is simply skipped).
 //!   * KDE via `~/.config/kioslaverc`.
+//!
+//! On Windows the same split applies: the daemon runs as LocalSystem, but the
+//! WinINET proxy settings live in the interactive user's hive
+//! (`HKCU\…\Internet Settings`) and the change-notification must fire in that
+//! user's session. So `apply_for_session` re-launches `geph __apply-proxy` in
+//! the active console session via `CreateProcessAsUserW`, and `apply` (running
+//! as that user) writes the `AutoConfigURL` value and refreshes WinINET.
 
 use crate::protocol::SessionContext;
 
@@ -27,7 +34,11 @@ pub fn apply_for_session(
     {
         linux::apply_for_session(session, connected, pac_url)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::apply_for_session(session, connected, pac_url)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (session, connected, pac_url);
         tracing::debug!("system proxy configuration not implemented on this platform");
@@ -42,7 +53,11 @@ pub fn apply_in_process(connected: bool, pac_url: &str) -> anyhow::Result<()> {
     {
         linux::apply(connected, pac_url)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::apply(connected, pac_url)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (connected, pac_url);
         Ok(())
@@ -299,6 +314,204 @@ mod linux {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use anyhow::bail;
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE,
+    };
+    use windows_sys::Win32::Networking::WinInet::{
+        InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
+    };
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+        KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    };
+    use windows_sys::Win32::System::RemoteDesktop::{
+        WTSGetActiveConsoleSessionId, WTSQueryUserToken,
+    };
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessAsUserW, GetExitCodeProcess, WaitForSingleObject, CREATE_NO_WINDOW,
+        PROCESS_INFORMATION, STARTUPINFOW,
+    };
+
+    use crate::protocol::SessionContext;
+
+    /// A NUL-terminated UTF-16 string, as the Win32 wide APIs expect.
+    fn wide(s: &str) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    /// Daemon-side (LocalSystem): run the proxy edit inside the interactive
+    /// desktop user's session, so it writes *that* user's `HKCU` and the WinINET
+    /// refresh reaches *that* session's apps. The Windows analogue of Linux's
+    /// privilege-dropping re-invoke; `session` is unused because the daemon
+    /// targets the active console session itself. Best-effort: a machine with no
+    /// interactive user logged in is a no-op, not an error.
+    pub fn apply_for_session(
+        _session: &SessionContext,
+        connected: bool,
+        url: &str,
+    ) -> anyhow::Result<()> {
+        let session_id = unsafe { WTSGetActiveConsoleSessionId() };
+        // 0xFFFFFFFF: no session is currently attached to the physical console.
+        if session_id == u32::MAX {
+            tracing::debug!("no active console session; skipping system proxy config");
+            return Ok(());
+        }
+
+        // Token for the user logged into the console session. Needs
+        // SeTcbPrivilege, which LocalSystem holds; failure means no interactive
+        // user (e.g. the login screen), so we skip rather than fail.
+        let mut token: HANDLE = std::ptr::null_mut();
+        if unsafe { WTSQueryUserToken(session_id, &mut token) } == 0 {
+            tracing::debug!(
+                err = %std::io::Error::last_os_error(),
+                "no interactive user token; skipping system proxy config"
+            );
+            return Ok(());
+        }
+
+        let result = spawn_apply_proxy(token, connected, url);
+        unsafe { CloseHandle(token) };
+        result
+    }
+
+    /// `CreateProcessAsUserW(token, …)` to run `geph __apply-proxy on|off [url]`
+    /// in the target user's session, then wait for it and check its exit code.
+    fn spawn_apply_proxy(token: HANDLE, connected: bool, url: &str) -> anyhow::Result<()> {
+        let exe = std::env::current_exe().map_err(|e| anyhow::anyhow!("current_exe: {e}"))?;
+        let exe_str = exe.to_string_lossy();
+        // CreateProcess treats the first token of the command line as argv[0]
+        // even when an application name is given, so include the exe there too.
+        let cmdline = if connected {
+            format!("\"{exe_str}\" __apply-proxy on \"{url}\"")
+        } else {
+            format!("\"{exe_str}\" __apply-proxy off")
+        };
+
+        let app_w = wide(&exe_str);
+        let mut cmdline_w = wide(&cmdline);
+        // Give the child a valid window station/desktop in the user's session.
+        let mut desktop_w = wide("winsta0\\default");
+
+        unsafe {
+            let mut si: STARTUPINFOW = std::mem::zeroed();
+            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            si.lpDesktop = desktop_w.as_mut_ptr();
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+
+            let ok = CreateProcessAsUserW(
+                token,
+                app_w.as_ptr(),
+                cmdline_w.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0, // bInheritHandles
+                CREATE_NO_WINDOW,
+                std::ptr::null(),
+                std::ptr::null(),
+                &si,
+                &mut pi,
+            );
+            if ok == 0 {
+                bail!(
+                    "CreateProcessAsUserW failed: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+
+            CloseHandle(pi.hThread);
+            WaitForSingleObject(pi.hProcess, u32::MAX);
+            let mut code: u32 = 0;
+            GetExitCodeProcess(pi.hProcess, &mut code);
+            CloseHandle(pi.hProcess);
+            if code != 0 {
+                bail!("__apply-proxy child exited with code {code}");
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs as the desktop user (invoked via the hidden `__apply-proxy`
+    /// subcommand): write or clear the WinINET PAC URL, then refresh WinINET so
+    /// running apps pick up the change without a restart.
+    pub fn apply(connected: bool, url: &str) -> anyhow::Result<()> {
+        const SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+        let subkey_w = wide(SUBKEY);
+        let value_w = wide("AutoConfigURL");
+
+        unsafe {
+            let mut hkey: HKEY = std::ptr::null_mut();
+            let rc = RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                subkey_w.as_ptr(),
+                0,
+                std::ptr::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_SET_VALUE,
+                std::ptr::null(),
+                &mut hkey,
+                std::ptr::null_mut(),
+            );
+            if rc != ERROR_SUCCESS {
+                bail!(
+                    "RegCreateKeyExW failed: {}",
+                    std::io::Error::from_raw_os_error(rc as i32)
+                );
+            }
+
+            // Touch only AutoConfigURL (the PAC); leave the manual-proxy keys
+            // (ProxyEnable/ProxyServer) alone — PAC works independently of them.
+            let rc = if connected {
+                let data = wide(url);
+                RegSetValueExW(
+                    hkey,
+                    value_w.as_ptr(),
+                    0,
+                    REG_SZ,
+                    data.as_ptr() as *const u8,
+                    (data.len() * 2) as u32, // bytes, including the NUL terminator
+                )
+            } else {
+                let rc = RegDeleteValueW(hkey, value_w.as_ptr());
+                // Clearing an already-absent value is success (idempotent).
+                if rc == ERROR_FILE_NOT_FOUND {
+                    ERROR_SUCCESS
+                } else {
+                    rc
+                }
+            };
+            RegCloseKey(hkey);
+            if rc != ERROR_SUCCESS {
+                bail!(
+                    "updating AutoConfigURL failed: {}",
+                    std::io::Error::from_raw_os_error(rc as i32)
+                );
+            }
+
+            // Signal WinINET that settings changed and to re-read them now.
+            InternetSetOptionW(
+                std::ptr::null_mut(),
+                INTERNET_OPTION_SETTINGS_CHANGED,
+                std::ptr::null(),
+                0,
+            );
+            InternetSetOptionW(
+                std::ptr::null_mut(),
+                INTERNET_OPTION_REFRESH,
+                std::ptr::null(),
+                0,
+            );
+        }
         Ok(())
     }
 }
