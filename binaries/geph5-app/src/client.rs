@@ -46,7 +46,10 @@ pub fn run(command: Command) -> anyhow::Result<()> {
 async fn run_inner(command: Command) -> anyhow::Result<()> {
     let client = daemon_client();
     match command {
-        Command::Daemon | Command::ApplyProxy { .. } => unreachable!("handled in main"),
+        Command::Daemon
+        | Command::ApplyProxy { .. }
+        | Command::RegisterDaemon
+        | Command::UnregisterDaemon => unreachable!("handled in main"),
 
         Command::Login { secret } => {
             let secret = match secret {

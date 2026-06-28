@@ -10,6 +10,7 @@ mod daemon;
 mod paths;
 mod protocol;
 mod proxy;
+mod service;
 mod supervisor;
 #[cfg(not(windows))]
 mod vpn_linux;
@@ -27,6 +28,17 @@ fn main() -> anyhow::Result<()> {
             init_daemon_logging();
             require_root();
             geph5_rt::block_on(daemon::run_daemon())
+        }
+        // Background (un)registration runs directly, without contacting the
+        // daemon; it installs the autostart (systemd unit on Linux, a boot-time
+        // scheduled task on Windows), so it needs root/Administrator like the daemon.
+        Command::RegisterDaemon => {
+            require_root();
+            service::register()
+        }
+        Command::UnregisterDaemon => {
+            require_root();
+            service::unregister()
         }
         // Internal helper: the daemon re-invokes us dropped to the desktop user
         // to apply proxy settings. Runs directly, without contacting the daemon.
@@ -52,7 +64,7 @@ fn require_root() {
     // SAFETY: geteuid is always safe to call.
     let euid = unsafe { libc::geteuid() };
     if euid != 0 {
-        eprintln!("geph5 daemon must be run as root (try: sudo geph5 daemon)");
+        eprintln!("this command must be run as root (try: sudo ...)");
         std::process::exit(1);
     }
 }
@@ -87,7 +99,7 @@ fn require_root() {
         }
     };
     if !elevated {
-        eprintln!("geph5 daemon must be run as Administrator");
+        eprintln!("this command must be run as Administrator");
         std::process::exit(1);
     }
 }

@@ -14,6 +14,14 @@ pub enum Command {
     /// Run the privileged supervising daemon (must be run as root).
     Daemon,
 
+    /// Register the daemon to run in the background across logins and reboots
+    /// (systemd on Linux, a boot-time scheduled task on Windows; must be run as
+    /// root/Administrator).
+    RegisterDaemon,
+    /// Remove the daemon's background registration (must be run as
+    /// root/Administrator).
+    UnregisterDaemon,
+
     /// Log in with an account secret. Reads from stdin if omitted.
     Login {
         /// The account secret.
