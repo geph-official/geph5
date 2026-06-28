@@ -173,6 +173,23 @@ fn default_free_port_whitelist() -> Vec<u16> {
         1677, 1723, 1755, 1863, 2083, 2086, 2087, 2095, 2096, 2102, 2103, 2104, 3690, 4321, 4643,
         5050, 5190, 5222, 5223, 5228, 8008, 8074, 8082, 8087, 8088, 8332, 8333, 8443, 8888, 9418,
         10000, 11371, 19294, 19638, 50002, 64738,
+        // --- VoIP / WebRTC calling (WhatsApp, Signal, FaceTime, Teams, Zoom, Meet) ---
+        // STUN/TURN signaling + relay. This is the single most important group: when
+        // direct peer-to-peer media is blocked, virtually every app falls back to
+        // relaying media through a TURN server on these ports, so opening them makes
+        // calls work without exposing the wide ephemeral media ranges. Not amplifiers,
+        // and UDP here is a *connected* socket on the exit (see proxy.rs), so it cannot
+        // be abused as a spoofed-source reflector.
+        3478, 3479, 3480, 3481, // STUN/TURN/ICE (WhatsApp, Teams, Zoom, Meet, FaceTime)
+        5349, // STUN/TURN over TLS/DTLS
+        // WhatsApp-specific signaling/media ports documented by Meta.
+        4244, 5242, 45395, 50318,
+        // Direct-media ports for the major apps (bounded ranges, not the full
+        // 49152-65535 ephemeral range, which would defeat the whitelist).
+        19302, 19303, 19304, 19305, 19306, 19307, 19308, 19309, // Google Meet/Duo
+        8801, 8802, 8803, 8804, 8805, 8806, 8807, 8808, 8809, 8810, // Zoom media
+        16384, 16385, 16386, 16387, // Apple FaceTime RTP
+        16393, 16394, 16395, 16396, 16397, 16398, 16399, 16400, 16401, 16402, // FaceTime RTP
     ]
 }
 
