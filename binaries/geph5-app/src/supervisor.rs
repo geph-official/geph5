@@ -422,6 +422,7 @@ pub fn spawn_tunnel_windows(
     let mut child = cmd.spawn().context(
         "could not spawn geph5-client (is it installed on PATH? or set GEPH_CLIENT_BIN)",
     )?;
+    assign_child_to_reaper_job(&child);
     tracing::info!(pid = child.id(), role = "tunnel", vpn, "spawned geph5-client engine");
 
     let stdio = if vpn {
@@ -518,6 +519,8 @@ fn spawn_engine(
     let child = cmd.spawn().context(
         "could not spawn geph5-client (is it installed on PATH? or set GEPH_CLIENT_BIN)",
     )?;
+    #[cfg(windows)]
+    assign_child_to_reaper_job(&child);
     tracing::info!(
         pid = child.id(),
         role,
@@ -525,6 +528,68 @@ fn spawn_engine(
         "spawned geph5-client engine"
     );
     Ok(child)
+}
+
+/// Windows: assign an engine child to a process-lifetime job object configured with
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the child cannot outlive the daemon.
+///
+/// The daemon only kills its children via the Ctrl-C teardown in `daemon.rs`, but a
+/// hard `TerminateProcess` — which is exactly what Task Scheduler's `/End` does when
+/// an installer upgrade runs `unregister-daemon` — bypasses that, orphaning
+/// `geph5-client.exe` and leaving it holding its own file (breaking the overwrite).
+/// With the child in this job, the daemon's death (by *any* means) closes the job's
+/// last handle and the OS reaps the child. The Windows analogue of the Linux
+/// `PR_SET_PDEATHSIG` armed on the tun-fd children in `child_pre_exec`.
+#[cfg(windows)]
+fn assign_child_to_reaper_job(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    // Created once and never closed — it must stay open for the daemon's whole life,
+    // since closing the last handle is precisely what triggers the kill. Stored as
+    // usize because the raw HANDLE pointer is not Send/Sync.
+    static JOB: OnceLock<usize> = OnceLock::new();
+    let job = *JOB.get_or_init(|| unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            tracing::warn!(
+                err = %std::io::Error::last_os_error(),
+                "CreateJobObject failed; engine children may orphan if the daemon is killed"
+            );
+            return 0;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION as *const core::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        ) == 0
+        {
+            tracing::warn!(
+                err = %std::io::Error::last_os_error(),
+                "SetInformationJobObject(KILL_ON_JOB_CLOSE) failed; engine children may orphan"
+            );
+        }
+        job as usize
+    });
+    if job == 0 {
+        return;
+    }
+    if unsafe { AssignProcessToJobObject(job as HANDLE, child.as_raw_handle() as HANDLE) } == 0 {
+        tracing::warn!(
+            pid = child.id(),
+            err = %std::io::Error::last_os_error(),
+            "AssignProcessToJobObject failed; this engine child may orphan if the daemon is killed"
+        );
+    }
 }
 
 #[cfg(unix)]
