@@ -11,7 +11,7 @@ set -u
 
 echo "[recover] killing geph processes..."
 pkill -9 -f geph5-client 2>/dev/null
-pkill -9 -f 'geph5 daemon' 2>/dev/null
+pkill -9 -f 'geph5 manager' 2>/dev/null
 pkill -9 -f 'target/debug/geph5' 2>/dev/null
 pkill -9 -f 'target/release/geph5' 2>/dev/null
 sleep 1

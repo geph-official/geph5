@@ -6,7 +6,7 @@
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
 GEPH="$DIR/target/debug/geph5"
-LOG=/tmp/geph-daemon.log
+LOG=/tmp/geph-manager.log
 R=/tmp/geph-verify.txt; : > "$R"
 WAIT="${1:-15}"
 
@@ -17,8 +17,8 @@ echo "[verify] backstop watchdog PID $! (120s)"
 
 pkill -9 -f 'target/debug/geph5' 2>/dev/null; sleep 1
 : > "$LOG"
-RUST_LOG=geph=info nohup "$GEPH" daemon >>"$LOG" 2>&1 &
-echo "[verify] daemon PID $!"; sleep 3
+RUST_LOG=geph=info nohup "$GEPH" manager >>"$LOG" 2>&1 &
+echo "[verify] manager PID $!"; sleep 3
 
 "$GEPH" vpn on >/dev/null 2>&1
 "$GEPH" connect >/dev/null 2>&1

@@ -1,7 +1,7 @@
 //! Windows named-pipe transport.
 //!
 //! This is the Windows analogue of [`crate::unix`]: a filesystem-namespaced,
-//! local-only, access-controlled stream transport, used for the geph daemon's
+//! local-only, access-controlled stream transport, used for the geph manager's
 //! control plane instead of squat-prone loopback TCP.
 //!
 //! Now that sillad lives in the tokio-io ecosystem, tokio's own
@@ -137,7 +137,7 @@ pub struct NamedPipeListener {
 }
 
 impl NamedPipeListener {
-    /// Bind a listener to a pipe name such as `\\.\pipe\geph-daemon-control`.
+    /// Bind a listener to a pipe name such as `\\.\pipe\geph-manager-control`.
     ///
     /// `sddl`, when set, is a Win32 SDDL security-descriptor string applied to
     /// every instance (e.g. [`SDDL_ALLOW_AUTHENTICATED`]); when `None`, the pipe
@@ -181,7 +181,7 @@ impl crate::listener::Listener for NamedPipeListener {
 
 /// Connects to a [`NamedPipeListener`].
 pub struct NamedPipeDialer {
-    /// Pipe name, e.g. `\\.\pipe\geph-daemon-control`.
+    /// Pipe name, e.g. `\\.\pipe\geph-manager-control`.
     pub name: String,
 }
 

@@ -4,7 +4,7 @@
 //!
 //! Unlike Linux there is no uid-based policy routing, so the engine's own
 //! bridge/exit/broker sockets are kept on the physical NIC by `IP_BOUND_IF`
-//! pinning (the daemon hands it the interface indices via
+//! pinning (the manager hands it the interface indices via
 //! [`VpnHandle::bind_indices`] → `GEPH_VPN_BIND_IF4/6`; see geph5-client's
 //! `bound_dialer.rs`). Because macOS scoped routing won't fall back to the global
 //! default once the `/1` routes capture everything, [`add_scoped_default`] also
@@ -20,12 +20,12 @@
 //! Windows implementation); a network change (Wi-Fi ↔ Ethernet) mid-session is not
 //! re-evaluated and needs a reconnect.
 //!
-//! macOS has no `PR_SET_PDEATHSIG`, so a *hard* daemon crash (SIGKILL) leaves the
+//! macOS has no `PR_SET_PDEATHSIG`, so a *hard* manager crash (SIGKILL) leaves the
 //! engine child running and still holding the utun fd, keeping the interface and
 //! its routes alive with no supervisor. Two things contain that: [`setup`] is
 //! idempotent (it clears stale `/1` and scoped-default routes and never trusts a
 //! leftover sentinel as the user's DNS), and `recover-geph.sh` is the manual
-//! escape hatch. Clean disconnect is unaffected — the daemon kills the child
+//! escape hatch. Clean disconnect is unaffected — the manager kills the child
 //! before dropping the handle.
 //!
 //! This file is compiled only on macOS (gated by the `mod` declaration), so no
@@ -308,7 +308,7 @@ fn create_utun() -> anyhow::Result<(OwnedFd, String)> {
     // fresh (non-cloexec) dup via the spawn pre_exec dup2. macOS sockets have no
     // atomic SOCK_CLOEXEC, so there is a tiny window between socket() and this
     // fcntl in which a concurrent spawn could inherit the fd — acceptable, as the
-    // daemon does not spawn children during VPN setup.
+    // manager does not spawn children during VPN setup.
     unsafe {
         libc::fcntl(owned.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
     }
@@ -399,7 +399,7 @@ fn set_sentinel_dns() -> Vec<(String, Vec<String>)> {
                 .map(|l| l.trim().to_string())
                 .filter(|l| !l.is_empty())
                 // Never record our own sentinels as the user's setting: if a prior
-                // daemon crash left them in place, capturing them here would make
+                // manager crash left them in place, capturing them here would make
                 // `restore_dns` write them back forever (DNS stuck on the sentinel).
                 .filter(|l| l != SENTINEL_DNS_V4 && l != SENTINEL_DNS_V6)
                 .collect()
@@ -426,7 +426,7 @@ fn restore_dns(backup: &[(String, Vec<String>)]) {
     }
 }
 
-/// What the daemon's watchdog should do after [`network_check`].
+/// What the manager's watchdog should do after [`network_check`].
 pub enum VpnAction {
     /// Routing is healthy; nothing to do.
     Healthy,
@@ -510,7 +510,7 @@ pub fn route_change_loop(mut on_change: impl FnMut()) {
 }
 
 /// Purge stale VPN state left by a crashed/`-9`-killed prior instance (whose `Drop`
-/// never ran), so a fresh daemon doesn't start on a half-configured machine.
+/// never ran), so a fresh manager doesn't start on a half-configured machine.
 /// Best-effort / idempotent.
 pub fn cleanup_stale() {
     // Stop any leftover kill-switch blocking: flush our anchor and restore the

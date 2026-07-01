@@ -5,17 +5,17 @@
 #   sudo ./vpn-edge.sh
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
-# The daemon auto-stages the engine binary, so run straight from target/debug.
+# The manager auto-stages the engine binary, so run straight from target/debug.
 GEPH="$DIR/target/debug/geph5"
-LOG=/tmp/geph-daemon.log; R=/tmp/geph-edge.txt; : > "$R"
+LOG=/tmp/geph-manager.log; R=/tmp/geph-edge.txt; : > "$R"
 [ "$(id -u)" -eq 0 ] || { echo "must run as root"; exit 1; }
 
 nohup bash -c "sleep 150; '$DIR/recover-geph.sh'" >/tmp/geph-watchdog.log 2>&1 &
 echo "[edge] backstop watchdog PID $! (150s)"
 pkill -9 -f 'target/debug/geph5' 2>/dev/null; sleep 1
 : > "$LOG"
-RUST_LOG=geph=info nohup "$GEPH" daemon >>"$LOG" 2>&1 &
-echo "[edge] daemon PID $!"; sleep 3
+RUST_LOG=geph=info nohup "$GEPH" manager >>"$LOG" 2>&1 &
+echo "[edge] manager PID $!"; sleep 3
 ip(){ curl -s --max-time 10 https://api.ipify.org; }
 utun(){ ifconfig 2>/dev/null | awk '/^utun/{i=$1} /100\.64\.0\.1/{print i}'; }
 

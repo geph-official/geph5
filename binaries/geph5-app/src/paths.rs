@@ -1,8 +1,8 @@
-//! Per-OS locations for daemon state.
+//! Per-OS locations for manager state.
 
 use std::path::PathBuf;
 
-/// System state directory where the daemon persists settings and cache.
+/// System state directory where the manager persists settings and cache.
 ///
 /// - Linux: `/var/lib/geph`
 /// - macOS: `/Library/Application Support/geph`

@@ -1,5 +1,5 @@
-//! `geph5 register-daemon` / `unregister-daemon`: install the privileged
-//! supervisor (`geph5 daemon`) to run in the background across logins and
+//! `geph5 register-manager` / `unregister-manager`: install the privileged
+//! supervisor (`geph5 manager`) to run in the background across logins and
 //! reboots, independent of any GUI front-end.
 //!
 //! Linux uses a systemd unit; Windows uses a boot-time scheduled task running as
@@ -12,14 +12,14 @@ mod imp {
 
     use anyhow::Context;
 
-    const UNIT_NAME: &str = "geph-daemon.service";
-    const UNIT_PATH: &str = "/etc/systemd/system/geph-daemon.service";
+    const UNIT_NAME: &str = "geph-manager.service";
+    const UNIT_PATH: &str = "/etc/systemd/system/geph-manager.service";
 
     pub fn register() -> anyhow::Result<()> {
         ensure_systemd()?;
 
         // Point the unit at wherever this binary currently lives. The packaging
-        // /installer owns where that is; re-run register-daemon if it moves.
+        // /installer owns where that is; re-run register-manager if it moves.
         let exe = std::env::current_exe()
             .context("could not determine the path to the geph5 binary")?
             .canonicalize()
@@ -35,7 +35,7 @@ mod imp {
         systemctl(&["enable", UNIT_NAME])?;
         // `restart` starts a stopped unit and reloads a changed one, so a
         // re-register is idempotent: it always lands the latest unit and leaves
-        // the daemon running.
+        // the manager running.
         systemctl(&["restart", UNIT_NAME])?;
 
         println!("Registered and started {UNIT_NAME}.");
@@ -46,7 +46,7 @@ mod imp {
         ensure_systemd()?;
 
         // Best-effort: the unit may already be disabled/absent. `disable --now`
-        // also stops the running daemon (tearing down the tunnel), which is the
+        // also stops the running manager (tearing down the tunnel), which is the
         // intended behavior for uninstall.
         let _ = systemctl(&["disable", "--now", UNIT_NAME]);
 
@@ -63,12 +63,12 @@ mod imp {
     fn unit_file(exe: &str) -> String {
         format!(
             "[Unit]\n\
-             Description=Geph5 privileged daemon\n\
+             Description=Geph5 privileged manager\n\
              After=network-online.target\n\
              Wants=network-online.target\n\
              \n\
              [Service]\n\
-             ExecStart={exe} daemon\n\
+             ExecStart={exe} manager\n\
              Restart=always\n\
              RestartSec=2\n\
              \n\
@@ -82,7 +82,7 @@ mod imp {
             Ok(())
         } else {
             anyhow::bail!(
-                "systemd does not appear to be running; register-daemon currently \
+                "systemd does not appear to be running; register-manager currently \
                  supports systemd only"
             )
         }
@@ -108,14 +108,14 @@ mod imp {
     use anyhow::Context;
 
     /// Scheduled-task name (Task Scheduler `/TN`) — the Windows analogue of the
-    /// Linux `geph-daemon.service` unit.
-    const TASK_NAME: &str = "Geph Daemon";
+    /// Linux `geph-manager.service` unit.
+    const TASK_NAME: &str = "Geph Manager";
 
     pub fn register() -> anyhow::Result<()> {
         // Point the task at wherever this binary currently lives. On Windows
         // `current_exe` is already an absolute, non-verbatim path (no `\\?\`),
         // which Task Scheduler wants. The installer owns where that is; re-run
-        // register-daemon if it moves.
+        // register-manager if it moves.
         let exe = std::env::current_exe()
             .context("could not determine the path to the geph5 binary")?;
         let exe = exe
@@ -124,9 +124,9 @@ mod imp {
 
         // Drive `schtasks` from an XML definition: the bare CLI can't express
         // restart-on-failure (the analogue of systemd `Restart=always`) or an
-        // unlimited run time (the daemon runs forever; the default 72h limit
+        // unlimited run time (the manager runs forever; the default 72h limit
         // would kill it).
-        let xml_path = std::env::temp_dir().join("geph-daemon-task.xml");
+        let xml_path = std::env::temp_dir().join("geph-manager-task.xml");
         write_utf16le(&xml_path, &task_xml(exe))
             .with_context(|| format!("could not write {}", xml_path.display()))?;
 
@@ -143,7 +143,7 @@ mod imp {
         create?;
 
         // The boot trigger only fires at startup, so start it now too (mirrors
-        // the Linux `systemctl restart`, which leaves the daemon running).
+        // the Linux `systemctl restart`, which leaves the manager running).
         schtasks(&["/Run", "/TN", TASK_NAME])?;
 
         println!("Registered and started the \"{TASK_NAME}\" scheduled task.");
@@ -152,14 +152,14 @@ mod imp {
 
     pub fn unregister() -> anyhow::Result<()> {
         // Best-effort: the task may already be stopped/absent. `/End` stops the
-        // running daemon (tearing down the tunnel), the intended uninstall behavior.
+        // running manager (tearing down the tunnel), the intended uninstall behavior.
         let _ = schtasks(&["/End", "/TN", TASK_NAME]);
         let _ = schtasks(&["/Delete", "/TN", TASK_NAME, "/F"]);
         println!("Unregistered the \"{TASK_NAME}\" scheduled task.");
         Ok(())
     }
 
-    /// Task Scheduler XML: run `<exe> daemon` at boot as LocalSystem (well-known
+    /// Task Scheduler XML: run `<exe> manager` at boot as LocalSystem (well-known
     /// SID S-1-5-18), elevated, with no time limit and restart-on-failure.
     fn task_xml(exe: &str) -> String {
         let exe = xml_escape(exe);
@@ -167,7 +167,7 @@ mod imp {
             r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Geph5 privileged daemon</Description>
+    <Description>Geph5 privileged manager</Description>
   </RegistrationInfo>
   <Triggers>
     <BootTrigger>
@@ -198,7 +198,7 @@ mod imp {
   <Actions Context="Author">
     <Exec>
       <Command>{exe}</Command>
-      <Arguments>daemon</Arguments>
+      <Arguments>manager</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -244,11 +244,11 @@ mod imp {
 #[cfg(not(any(target_os = "linux", windows)))]
 mod imp {
     pub fn register() -> anyhow::Result<()> {
-        anyhow::bail!("register-daemon is not supported on this platform")
+        anyhow::bail!("register-manager is not supported on this platform")
     }
 
     pub fn unregister() -> anyhow::Result<()> {
-        anyhow::bail!("unregister-daemon is not supported on this platform")
+        anyhow::bail!("unregister-manager is not supported on this platform")
     }
 }
 

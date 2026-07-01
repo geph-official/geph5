@@ -1,4 +1,4 @@
-//! CLI-side: connect to the `geph daemon`, issue one `GephCtlProtocol` call, and
+//! CLI-side: connect to the `geph manager`, issue one `GephCtlProtocol` call, and
 //! render the result for a human.
 
 use std::sync::LazyLock;
@@ -13,43 +13,43 @@ use crate::{
     supervisor,
 };
 
-/// A shared client pointed at the running daemon. Each call still dials a fresh
+/// A shared client pointed at the running manager. Each call still dials a fresh
 /// connection (DialerTransport has no pooling); this just avoids rebuilding the
 /// wrapper, matching the workspace's `LazyLock` idiom.
-fn daemon_client() -> &'static GephCtlClient {
+fn manager_client() -> &'static GephCtlClient {
     static CLIENT: LazyLock<GephCtlClient> = LazyLock::new(|| {
         GephCtlClient::from(nanorpc_sillad::DialerTransport(
-            supervisor::daemon_control_dialer(),
+            supervisor::manager_control_dialer(),
         ))
     });
     &CLIENT
 }
 
 /// Flatten the double-Result that RPC methods return, turning a transport-level
-/// failure into a friendly "is the daemon running?" message.
+/// failure into a friendly "is the manager running?" message.
 fn flatten<T>(r: Result<Result<T, String>, GephCtlError<anyhow::Error>>) -> anyhow::Result<T> {
     match r {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(msg)) => Err(anyhow::anyhow!(msg)),
         Err(GephCtlError::Transport(_)) => Err(anyhow::anyhow!(
-            "could not reach the geph daemon — is it running? start it with `sudo geph5 daemon`"
+            "could not reach the geph manager — is it running? start it with `sudo geph5 manager`"
         )),
         Err(e) => Err(anyhow::anyhow!("rpc error: {e:?}")),
     }
 }
 
-/// Entry point for all non-daemon subcommands.
+/// Entry point for all non-manager subcommands.
 pub fn run(command: Command) -> anyhow::Result<()> {
     geph5_rt::block_on(run_inner(command))
 }
 
 async fn run_inner(command: Command) -> anyhow::Result<()> {
-    let client = daemon_client();
+    let client = manager_client();
     match command {
-        Command::Daemon
+        Command::Manager
         | Command::ApplyProxy { .. }
-        | Command::RegisterDaemon
-        | Command::UnregisterDaemon => unreachable!("handled in main"),
+        | Command::RegisterManager
+        | Command::UnregisterManager => unreachable!("handled in main"),
 
         Command::Login { secret } => {
             let secret = match secret {
@@ -70,8 +70,8 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
         }
 
         Command::Connect => {
-            // Pass our session so the daemon can configure this user's system
-            // proxy; the proxy-setting code lives entirely in the daemon.
+            // Pass our session so the manager can configure this user's system
+            // proxy; the proxy-setting code lives entirely in the manager.
             flatten(client.connect(current_session()).await)?;
             println!("Connecting…");
         }
@@ -227,7 +227,7 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Describe the caller's desktop session so the daemon can configure its proxy.
+/// Describe the caller's desktop session so the manager can configure its proxy.
 /// This is just identity (uid + a few env vars) — no proxy logic lives here.
 fn current_session() -> SessionContext {
     #[cfg(unix)]

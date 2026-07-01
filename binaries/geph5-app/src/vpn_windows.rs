@@ -1,10 +1,10 @@
-//! Windows full-tunnel VPN: a daemon-owned WinTUN device, a `/1` split default
+//! Windows full-tunnel VPN: a manager-owned WinTUN device, a `/1` split default
 //! route into it, a DNS sentinel, a fail-closed kill switch (see [`firewall`]),
 //! and a stdio packet pump between the device and the engine child.
 //!
 //! Loop prevention is entirely per-process: the engine binds its own outbound
 //! sockets to the physical interface via `IP_UNICAST_IF` (driven by the
-//! `GEPH_VPN_BIND_IF4/6` env vars the daemon sets — see `geph5-client`'s
+//! `GEPH_VPN_BIND_IF4/6` env vars the manager sets — see `geph5-client`'s
 //! `bound_dialer`), so its bridge/exit traffic leaves the real NIC. The broker's
 //! own HTTP clients (`reqwest`/`aws-sdk`) connect through an in-process loopback
 //! forwarder whose upstream is dialed the same way (see `geph5-client`'s
@@ -13,7 +13,7 @@
 //! still routes into the tunnel.
 //!
 //! Unlike Linux (where the engine reads the tun fd directly), the engine has no
-//! native Windows tun ingestion, so the daemon owns the WinTUN device and pumps
+//! native Windows tun ingestion, so the manager owns the WinTUN device and pumps
 //! packets to `geph5-client --stdio-vpn` over its stdin/stdout.
 
 mod firewall;
@@ -68,7 +68,7 @@ pub struct PhysIface {
     pub index6: u32,
 }
 
-/// Persistent VPN state, held by the daemon across engine-child restarts: the
+/// Persistent VPN state, held by the manager across engine-child restarts: the
 /// WinTUN adapter (keeps the device + its `/1` routes alive), the kill switch,
 /// and enough state to tear routing back down. The packet pump is *not* here —
 /// it is re-created per child (see [`Pump`]).
@@ -225,12 +225,12 @@ fn cleanup_stale(wintun: &Wintun) {
         }
     }
     // Delete any leftover kill-switch sublayer (and its filters) by GUID, in case
-    // a previous daemon used a non-dynamic session or otherwise didn't clean up.
+    // a previous manager used a non-dynamic session or otherwise didn't clean up.
     firewall::purge_stale();
 }
 
 /// Full image paths the kill switch permits to egress the physical NIC: the
-/// daemon itself and the engine child.
+/// manager itself and the engine child.
 fn geph_app_ids() -> Vec<std::path::PathBuf> {
     let mut ids = Vec::new();
     if let Ok(exe) = std::env::current_exe() {

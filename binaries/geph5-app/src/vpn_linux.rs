@@ -1,12 +1,13 @@
 //! Linux full-tunnel VPN: a dedicated service user, a tun device, uid-marked
 //! policy routing, and an always-on nftables kill switch.
 //!
-//! There is no address whitelisting. The engine runs as the `geph5-daemon` uid;
-//! nftables marks every packet *not* from that uid and an `ip rule` routes marked
+//! There is no address whitelisting. The engine runs as the `geph5-daemon` uid
+//! (named for the geph5-client daemon it runs); nftables marks every packet
+//! *not* from that uid and an `ip rule` routes marked
 //! packets into the tun. The engine's own traffic (bridges/exits + bootstrap DNS,
 //! and the in-engine LAN passthrough) is unmarked → physical NIC → no loop. The
 //! kill switch drops anything else that would egress a physical interface, so a
-//! crash of geph5-client (or even the daemon) fails closed.
+//! crash of geph5-client (or even the manager) fails closed.
 
 pub use imp::*;
 

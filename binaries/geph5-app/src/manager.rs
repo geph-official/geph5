@@ -1,4 +1,4 @@
-//! The `geph daemon` supervisor: owns persisted settings and two child
+//! The `geph manager` supervisor: owns persisted settings and two child
 //! `geph5-client` engines — a permanent, secret-less *query* engine that always
 //! answers broker RPCs, and an ephemeral *tunnel* engine that exists only while
 //! connected — and implements the `GephCtlProtocol` the CLI/GUI talks to.
@@ -49,22 +49,22 @@ struct Inner {
     vpn_pump: Option<vpn::Pump>,
 }
 
-pub struct DaemonImpl {
-    // Arc so `run_daemon` can hand a clone to the shutdown-signal task (which tears
+pub struct ManagerImpl {
+    // Arc so `run_manager` can hand a clone to the shutdown-signal task (which tears
     // the VPN down on SIGINT/SIGTERM — `Drop` alone never runs on a signal).
     inner: std::sync::Arc<Mutex<Inner>>,
 }
 
-impl DaemonImpl {
+impl ManagerImpl {
     /// Load settings, spawn the permanent query engine and (if persisted as
-    /// connected) the tunnel engine, then return the daemon.
+    /// connected) the tunnel engine, then return the manager.
     pub async fn start() -> anyhow::Result<Self> {
         // Purge any VPN state stranded by a prior crash / `kill -9` (whose Drop
         // never ran), so we never start on a half-configured, blackholed machine.
         #[cfg(target_os = "macos")]
         vpn::cleanup_stale();
         let settings = Settings::load()?;
-        let this = DaemonImpl {
+        let this = ManagerImpl {
             inner: std::sync::Arc::new(Mutex::new(Inner {
                 settings,
                 query: None,
@@ -76,7 +76,7 @@ impl DaemonImpl {
         };
         let mut inner = this.inner.lock().await;
         // The query engine must be up for broker queries; bring it up first.
-        // Non-fatal if it fails — the daemon still serves settings/connect, and
+        // Non-fatal if it fails — the manager still serves settings/connect, and
         // query calls will surface a clear error until it recovers.
         if let Err(e) = this.ensure_query_engine(&mut inner).await {
             tracing::warn!(err = %e, "query engine failed to start; broker queries unavailable");
@@ -327,7 +327,7 @@ fn exit_info_from(
 }
 
 #[async_trait]
-impl GephCtlProtocol for DaemonImpl {
+impl GephCtlProtocol for ManagerImpl {
     async fn login(&self, secret: String) -> Result<AccountInfo, String> {
         let secret = secret.trim().to_string();
         // Validate before persisting anything.
@@ -631,7 +631,7 @@ async fn shutdown_signal() {
                 Err(_) => std::future::pending::<()>().await,
             }
         }
-        // Every way a foreground daemon is normally told to stop. Missing any
+        // Every way a foreground manager is normally told to stop. Missing any
         // strands the kill switch / routes and blackholes the machine, since Drop
         // doesn't run on an uncaught signal.
         tokio::select! {
@@ -647,7 +647,7 @@ async fn shutdown_signal() {
     }
 }
 
-/// Tear down everything the daemon installed, so a Ctrl-C / `kill` cleanly restores
+/// Tear down everything the manager installed, so a Ctrl-C / `kill` cleanly restores
 /// normal networking instead of leaving the fail-closed kill switch (and routes /
 /// DNS) stranded with no engine to carry traffic. Mirrors the disconnected path of
 /// `reconcile_vpn`.
@@ -673,16 +673,16 @@ async fn shutdown_teardown(inner: &Mutex<Inner>) {
     let _ = had_vpn;
 }
 
-/// Run the daemon forever: spawn the child and serve the CLI control protocol.
-pub async fn run_daemon() -> anyhow::Result<()> {
-    let daemon = DaemonImpl::start().await?;
+/// Run the manager forever: spawn the children and serve the CLI control protocol.
+pub async fn run_manager() -> anyhow::Result<()> {
+    let manager = ManagerImpl::start().await?;
 
     // Graceful shutdown: on a termination signal, tear the VPN down and exit. Rust
     // `Drop` does not run when the process is killed by a signal, so without this a
     // Ctrl-C would leave the kill switch / routes / DNS in place and strand the
-    // machine offline until the daemon is restarted.
+    // machine offline until the manager is restarted.
     {
-        let inner = daemon.inner.clone();
+        let inner = manager.inner.clone();
         geph5_rt::spawn(async move {
             shutdown_signal().await;
             tracing::warn!("termination signal received; tearing down VPN and exiting");
@@ -700,7 +700,7 @@ pub async fn run_daemon() -> anyhow::Result<()> {
     // fully rebuilds on a physical change).
     #[cfg(target_os = "macos")]
     {
-        let inner = daemon.inner.clone();
+        let inner = manager.inner.clone();
         let route_changed = std::sync::Arc::new(tokio::sync::Notify::new());
         // Block on PF_ROUTE in a dedicated thread; coalesce bursts via Notify.
         {
@@ -728,12 +728,12 @@ pub async fn run_daemon() -> anyhow::Result<()> {
                     vpn::VpnAction::Healthy => {}
                     vpn::VpnAction::Respawn => {
                         tracing::warn!("VPN routing went stale (sleep/wake?); repaired, respawning engine");
-                        let _ = DaemonImpl::reconcile_tunnel(&mut inner).await;
+                        let _ = ManagerImpl::reconcile_tunnel(&mut inner).await;
                     }
                     vpn::VpnAction::Rebuild => {
                         tracing::warn!("physical network changed; rebuilding VPN");
                         inner.vpn = None; // drop → tear down stale routes/kill-switch
-                        let _ = DaemonImpl::reconcile_tunnel(&mut inner).await;
+                        let _ = ManagerImpl::reconcile_tunnel(&mut inner).await;
                     }
                 }
             }
@@ -743,27 +743,27 @@ pub async fn run_daemon() -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let path = supervisor::daemon_control_path();
+        let path = supervisor::manager_control_path();
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let listener = sillad::unix::UnixListener::bind(&path).await?; // unlinks any stale socket
-        // The CLI/GUI run unprivileged; let them connect to the root daemon's socket.
+        // The CLI/GUI run unprivileged; let them connect to the root manager's socket.
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
-        tracing::info!(path = %path.display(), "geph daemon listening for clients");
-        nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
+        tracing::info!(path = %path.display(), "geph manager listening for clients");
+        nanorpc_sillad::rpc_serve(listener, GephCtlService(manager)).await?;
     }
     #[cfg(windows)]
     {
-        // The CLI/GUI run unprivileged but the daemon may run as a service; the
+        // The CLI/GUI run unprivileged but the manager may run as a service; the
         // SDDL grants authenticated users access (the pipe analogue of chmod 0666).
-        let name = supervisor::DAEMON_CONTROL_PIPE;
+        let name = supervisor::MANAGER_CONTROL_PIPE;
         let listener = sillad::windows_pipe::NamedPipeListener::bind(
             name,
             Some(sillad::windows_pipe::SDDL_ALLOW_AUTHENTICATED),
         )?;
-        tracing::info!(name, "geph daemon listening for clients");
-        nanorpc_sillad::rpc_serve(listener, GephCtlService(daemon)).await?;
+        tracing::info!(name, "geph manager listening for clients");
+        nanorpc_sillad::rpc_serve(listener, GephCtlService(manager)).await?;
     }
     Ok(())
 }

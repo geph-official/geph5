@@ -1,12 +1,12 @@
 //! `geph` — a Mullvad-like command-line client for Geph5.
 //!
-//! `geph daemon` runs the privileged supervisor that owns a child `geph5-client`
+//! `geph manager` runs the privileged supervisor that owns a child `geph5-client`
 //! process; all other subcommands are thin clients that talk to it over loopback
 //! TCP.
 
 mod cli;
 mod client;
-mod daemon;
+mod manager;
 mod paths;
 mod protocol;
 mod proxy;
@@ -26,24 +26,24 @@ use crate::cli::{Cli, Command};
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Daemon => {
-            init_daemon_logging();
+        Command::Manager => {
+            init_manager_logging();
             require_root();
-            geph5_rt::block_on(daemon::run_daemon())
+            geph5_rt::block_on(manager::run_manager())
         }
         // Background (un)registration runs directly, without contacting the
-        // daemon; it installs the autostart (systemd unit on Linux, a boot-time
-        // scheduled task on Windows), so it needs root/Administrator like the daemon.
-        Command::RegisterDaemon => {
+        // manager; it installs the autostart (systemd unit on Linux, a boot-time
+        // scheduled task on Windows), so it needs root/Administrator like the manager.
+        Command::RegisterManager => {
             require_root();
             service::register()
         }
-        Command::UnregisterDaemon => {
+        Command::UnregisterManager => {
             require_root();
             service::unregister()
         }
-        // Internal helper: the daemon re-invokes us dropped to the desktop user
-        // to apply proxy settings. Runs directly, without contacting the daemon.
+        // Internal helper: the manager re-invokes us dropped to the desktop user
+        // to apply proxy settings. Runs directly, without contacting the manager.
         Command::ApplyProxy { mode, url } => {
             let connected = matches!(mode.as_str(), "on" | "true" | "1");
             proxy::apply_in_process(connected, url.as_deref().unwrap_or_default())
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn init_daemon_logging() {
+fn init_manager_logging() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -81,7 +81,7 @@ fn require_root() {
 
     // VPN mode needs Administrator for WinTUN, routing, and WFP. A Windows
     // service running as LocalSystem is the eventual model; for now we require
-    // the daemon to be launched elevated and bail clearly otherwise.
+    // the manager to be launched elevated and bail clearly otherwise.
     let elevated = unsafe {
         let mut token: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {

@@ -27,7 +27,7 @@ use crate::{
     timeout::{BROKER_RPC_TIMEOUT, RpcTransportExt},
 };
 
-// The descriptor *types* live in geph5-misc-rpc (so the daemon/CLI can configure
+// The descriptor *types* live in geph5-misc-rpc (so the manager/CLI can configure
 // an engine without depending on it); the behavior that turns them into live
 // transports stays here on the `ConfigHelperExt` extension trait. Re-exported so
 // `geph5_client::broker` paths keep working.

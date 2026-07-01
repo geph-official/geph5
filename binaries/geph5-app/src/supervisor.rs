@@ -1,7 +1,7 @@
 //! Child `geph5-client` process lifecycle: build its config, spawn it, kill it,
 //! restart it, and hand out a control-protocol client pointed at it.
 //!
-//! Adapted from gephgui-wry's `src/daemon.rs` (spawn `--config <file>`, poll the
+//! Adapted from gephgui-wry's `src/manager.rs` (spawn `--config <file>`, poll the
 //! control port until reachable), but here the supervisor manages the child as a
 //! sibling `geph5-client` binary rather than re-executing itself.
 
@@ -26,24 +26,24 @@ const CONFIG_TEMPLATE: &str = include_str!("../default-config.yaml");
 
 // ---- control-plane endpoints ----
 //
-// The daemon<->CLI/GUI and daemon<->engine channels are namespaced, local-only,
+// The manager<->CLI/GUI and manager<->engine channels are namespaced, local-only,
 // access-controlled streams: unix domain sockets on unix, Windows named pipes on
 // Windows. Neither squats a TCP port, and both are permissioned (filesystem mode
 // / pipe security descriptor) rather than reachable by anything that can open a
 // loopback socket.
 
-/// Socket the daemon serves the CLI/GUI control protocol on. Lives directly in
+/// Socket the manager serves the CLI/GUI control protocol on. Lives directly in
 /// the (root-owned) runtime dir; chmod'd 0666 so unprivileged clients can reach
-/// the root daemon.
+/// the root manager.
 #[cfg(unix)]
-pub fn daemon_control_path() -> std::path::PathBuf {
+pub fn manager_control_path() -> std::path::PathBuf {
     paths::runtime_dir().join("control.sock")
 }
 
-/// Socket the engine child serves its control protocol on (daemon-only). It
-/// lives in a `engine/` subdir of the runtime dir, which the daemon chowns to
+/// Socket the engine child serves its control protocol on (manager-only). It
+/// lives in a `engine/` subdir of the runtime dir, which the manager chowns to
 /// the unprivileged service user so the child can bind here — without giving the
-/// service user write access to the runtime root (which holds the daemon's own,
+/// service user write access to the runtime root (which holds the manager's own,
 /// root-owned, control socket).
 #[cfg(unix)]
 pub fn engine_control_path() -> std::path::PathBuf {
@@ -51,39 +51,39 @@ pub fn engine_control_path() -> std::path::PathBuf {
 }
 
 /// Socket the permanent, secret-less *query* engine serves its control protocol
-/// on (daemon-only). Same service-user-owned-subdir scheme as the engine socket.
+/// on (manager-only). Same service-user-owned-subdir scheme as the engine socket.
 #[cfg(unix)]
 pub fn query_control_path() -> std::path::PathBuf {
     paths::runtime_dir().join("query").join("query.sock")
 }
 
-/// Dialer for the daemon's control endpoint (used by the CLI client).
+/// Dialer for the manager's control endpoint (used by the CLI client).
 #[cfg(unix)]
-pub fn daemon_control_dialer() -> sillad::unix::UnixDialer {
+pub fn manager_control_dialer() -> sillad::unix::UnixDialer {
     sillad::unix::UnixDialer {
-        path: daemon_control_path(),
+        path: manager_control_path(),
     }
 }
 
-/// Named pipe the daemon serves the CLI/GUI control protocol on.
+/// Named pipe the manager serves the CLI/GUI control protocol on.
 #[cfg(windows)]
-pub const DAEMON_CONTROL_PIPE: &str = r"\\.\pipe\geph-daemon-control";
-/// Named pipe the engine child serves its control protocol on (daemon-only).
+pub const MANAGER_CONTROL_PIPE: &str = r"\\.\pipe\geph-manager-control";
+/// Named pipe the engine child serves its control protocol on (manager-only).
 #[cfg(windows)]
 pub const ENGINE_CONTROL_PIPE: &str = r"\\.\pipe\geph-engine-control";
-/// Named pipe the permanent, secret-less query engine serves on (daemon-only).
+/// Named pipe the permanent, secret-less query engine serves on (manager-only).
 #[cfg(windows)]
 pub const QUERY_CONTROL_PIPE: &str = r"\\.\pipe\geph-query-control";
 
-/// Dialer for the daemon's control endpoint (used by the CLI client).
+/// Dialer for the manager's control endpoint (used by the CLI client).
 #[cfg(windows)]
-pub fn daemon_control_dialer() -> sillad::windows_pipe::NamedPipeDialer {
+pub fn manager_control_dialer() -> sillad::windows_pipe::NamedPipeDialer {
     sillad::windows_pipe::NamedPipeDialer {
-        name: DAEMON_CONTROL_PIPE.to_string(),
+        name: MANAGER_CONTROL_PIPE.to_string(),
     }
 }
 
-/// Persisted daemon settings.
+/// Persisted manager settings.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
     /// The logged-in secret, if any.
@@ -266,7 +266,7 @@ const ENGINE_BIN: &str = if cfg!(windows) { "geph5-client.exe" } else { "geph5-c
 /// app-id built from a relative name won't match the running image (the engine
 /// would then be blocked by its own kill switch). The resolution order is:
 ///   1. `GEPH_CLIENT_BIN` (an uninstalled build, e.g. `target/debug/geph5-client`);
-///   2. a companion binary next to the daemon (cargo-install / the installer put
+///   2. a companion binary next to the manager (cargo-install / the installer put
 ///      `geph5` and `geph5-client` in the same directory);
 ///   3. the bare name as a last resort (PATH lookup at spawn; no app-id match).
 pub fn engine_bin_path() -> std::path::PathBuf {
@@ -402,10 +402,10 @@ pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<Child> {
 }
 
 /// Spawn the **tunnel** engine on Windows. In full-tunnel mode (`binds = Some`)
-/// the daemon owns the WinTUN device, so the child is driven through stdio
+/// the manager owns the WinTUN device, so the child is driven through stdio
 /// (`--stdio-vpn`, 16-bit length-prefixed packets) and pinned to the physical
 /// interface via `GEPH_VPN_BIND_IF4/6`; the returned stdio handles are wired to the
-/// daemon's packet pump. In proxy mode (`binds = None`) it spawns an ordinary
+/// manager's packet pump. In proxy mode (`binds = None`) it spawns an ordinary
 /// child and returns no stdio.
 #[cfg(windows)]
 pub fn spawn_tunnel_windows(
@@ -546,13 +546,13 @@ fn spawn_engine(
 }
 
 /// Windows: assign an engine child to a process-lifetime job object configured with
-/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the child cannot outlive the daemon.
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the child cannot outlive the manager.
 ///
-/// The daemon only kills its children via the Ctrl-C teardown in `daemon.rs`, but a
+/// The manager only kills its children via the Ctrl-C teardown in `manager.rs`, but a
 /// hard `TerminateProcess` — which is exactly what Task Scheduler's `/End` does when
-/// an installer upgrade runs `unregister-daemon` — bypasses that, orphaning
+/// an installer upgrade runs `unregister-manager` — bypasses that, orphaning
 /// `geph5-client.exe` and leaving it holding its own file (breaking the overwrite).
-/// With the child in this job, the daemon's death (by *any* means) closes the job's
+/// With the child in this job, the manager's death (by *any* means) closes the job's
 /// last handle and the OS reaps the child. The Windows analogue of the Linux
 /// `PR_SET_PDEATHSIG` armed on the tun-fd children in `child_pre_exec`.
 #[cfg(windows)]
@@ -566,7 +566,7 @@ fn assign_child_to_reaper_job(child: &Child) {
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
 
-    // Created once and never closed — it must stay open for the daemon's whole life,
+    // Created once and never closed — it must stay open for the manager's whole life,
     // since closing the last handle is precisely what triggers the kill. Stored as
     // usize because the raw HANDLE pointer is not Send/Sync.
     static JOB: OnceLock<usize> = OnceLock::new();
@@ -575,7 +575,7 @@ fn assign_child_to_reaper_job(child: &Child) {
         if job.is_null() {
             tracing::warn!(
                 err = %std::io::Error::last_os_error(),
-                "CreateJobObject failed; engine children may orphan if the daemon is killed"
+                "CreateJobObject failed; engine children may orphan if the manager is killed"
             );
             return 0;
         }
@@ -602,7 +602,7 @@ fn assign_child_to_reaper_job(child: &Child) {
         tracing::warn!(
             pid = child.id(),
             err = %std::io::Error::last_os_error(),
-            "AssignProcessToJobObject failed; this engine child may orphan if the daemon is killed"
+            "AssignProcessToJobObject failed; this engine child may orphan if the manager is killed"
         );
     }
 }

@@ -1,5 +1,5 @@
 //! The control protocol spoken between the `geph` CLI (client) and the
-//! `geph daemon` supervisor (server), over a unix domain socket (loopback TCP on
+//! `geph manager` supervisor (server), over a unix domain socket (loopback TCP on
 //! Windows).
 //!
 //! This is deliberately a *small, stable* surface of its own, distinct from
@@ -49,7 +49,7 @@ pub struct AccountInfo {
     pub bw_limit_mb: Option<u32>,
 }
 
-/// Current daemon status.
+/// Current manager status.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Status {
     pub state: ConnState,
@@ -59,16 +59,16 @@ pub struct Status {
     pub total_tx_bytes: f64,
 }
 
-/// The calling client's desktop session, so the (possibly root) daemon knows
+/// The calling client's desktop session, so the (possibly root) manager knows
 /// *whose* system proxy to configure. The proxy-setting code lives only in the
-/// daemon; clients merely forward their identity — for the CLI that's the uid it
+/// manager; clients merely forward their identity — for the CLI that's the uid it
 /// runs as plus a few environment variables, no proxy logic of their own.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SessionContext {
     /// The user id whose session proxy should be configured.
     #[serde(default)]
     pub uid: u32,
-    /// Primary gid; the daemon derives it from the uid when absent.
+    /// Primary gid; the manager derives it from the uid when absent.
     #[serde(default)]
     pub gid: Option<u32>,
     /// Home directory; derived from the uid when absent.
@@ -182,11 +182,12 @@ pub trait GephCtlProtocol {
     /// Most recent `count` log lines from the child.
     async fn logs(&self, count: usize) -> Result<Vec<String>, String>;
 
-    /// Escape hatch: forward a raw JSON-RPC call to the underlying geph5-client
-    /// control protocol (`conn_info`, `stat_num`, `stat_history`, `net_status`,
-    /// `recent_logs`, `broker_rpc`, `start_registration`, …). Richer clients
-    /// such as the GUI use this to reach the full engine surface without every
-    /// client reimplementing it.
+    /// Escape hatch: forward a raw JSON-RPC call to the control protocol of the
+    /// underlying geph5-client — the "daemon" this method is named for
+    /// (`conn_info`, `stat_num`, `stat_history`, `net_status`, `recent_logs`,
+    /// `broker_rpc`, `start_registration`, …). Richer clients such as the GUI
+    /// use this to reach the full engine surface without every client
+    /// reimplementing it.
     async fn daemon_rpc(
         &self,
         method: String,

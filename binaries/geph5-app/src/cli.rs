@@ -11,16 +11,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Run the privileged supervising daemon (must be run as root).
-    Daemon,
+    /// Run the privileged supervising manager (must be run as root).
+    Manager,
 
-    /// Register the daemon to run in the background across logins and reboots
+    /// Register the manager to run in the background across logins and reboots
     /// (systemd on Linux, a boot-time scheduled task on Windows; must be run as
     /// root/Administrator).
-    RegisterDaemon,
-    /// Remove the daemon's background registration (must be run as
+    RegisterManager,
+    /// Remove the manager's background registration (must be run as
     /// root/Administrator).
-    UnregisterDaemon,
+    UnregisterManager,
 
     /// Log in with an account secret. Reads from stdin if omitted.
     Login {
@@ -78,14 +78,14 @@ pub enum Command {
         state: Option<String>,
     },
 
-    /// Show recent daemon logs.
+    /// Show recent logs from the engine, via the manager.
     Logs {
         /// Number of log lines to show.
         #[arg(short = 'n', long, default_value_t = 20)]
         count: usize,
     },
 
-    /// Internal: apply system proxy settings for the current user. The daemon
+    /// Internal: apply system proxy settings for the current user. The manager
     /// re-invokes this dropped to the desktop user; not for direct use.
     #[command(name = "__apply-proxy", hide = true)]
     ApplyProxy {

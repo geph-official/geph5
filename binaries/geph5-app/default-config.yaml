@@ -1,4 +1,4 @@
-# Base template for the child geph5-client config. The supervising `geph daemon`
+# Base template for the child geph5-client config. The supervising `geph manager`
 # deserializes this into a geph5_client::Config and then overrides the dynamic
 # fields (credentials, exit_constraint, dry_run, listen ports, cache) before
 # spawning the child process.

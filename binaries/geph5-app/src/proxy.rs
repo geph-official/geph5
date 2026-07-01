@@ -1,9 +1,9 @@
 //! Native system-proxy configuration — no external tools.
 //!
-//! The proxy-setting code lives **only here, in the daemon**, so no client has
-//! to duplicate it. Because proxy settings are per-user but the daemon may run
+//! The proxy-setting code lives **only here, in the manager**, so no client has
+//! to duplicate it. Because proxy settings are per-user but the manager may run
 //! as root, the client passes its [`SessionContext`] (uid + a few env vars) and
-//! the daemon configures *that* user's session: when running as root it
+//! the manager configures *that* user's session: when running as root it
 //! re-invokes itself (`geph __apply-proxy …`) dropped to the target user, so the
 //! work happens with the right HOME / session bus / file ownership.
 //!
@@ -13,7 +13,7 @@
 //!     without libgio still runs — GNOME proxy is simply skipped).
 //!   * KDE via `~/.config/kioslaverc`.
 //!
-//! On Windows the same split applies: the daemon runs as LocalSystem, but the
+//! On Windows the same split applies: the manager runs as LocalSystem, but the
 //! WinINET proxy settings live in the interactive user's hive
 //! (`HKCU\…\Internet Settings`) and the change-notification must fire in that
 //! user's session. So `apply_for_session` re-launches `geph __apply-proxy` in
@@ -22,7 +22,7 @@
 
 use crate::protocol::SessionContext;
 
-/// Daemon-side entry point: configure `session`'s system proxy. When we're root
+/// Manager-side entry point: configure `session`'s system proxy. When we're root
 /// the work is done as the target user; when we already are that user it runs in
 /// process. Best-effort across desktops; only genuine failures return `Err`.
 pub fn apply_for_session(
@@ -350,10 +350,10 @@ mod windows {
             .collect()
     }
 
-    /// Daemon-side (LocalSystem): run the proxy edit inside the interactive
+    /// Manager-side (LocalSystem): run the proxy edit inside the interactive
     /// desktop user's session, so it writes *that* user's `HKCU` and the WinINET
     /// refresh reaches *that* session's apps. The Windows analogue of Linux's
-    /// privilege-dropping re-invoke; `session` is unused because the daemon
+    /// privilege-dropping re-invoke; `session` is unused because the manager
     /// targets the active console session itself. Best-effort: a machine with no
     /// interactive user logged in is a no-op, not an error.
     pub fn apply_for_session(

@@ -4,7 +4,7 @@
 //! Implemented as a `sillad::Dialer` — sillad's extension point for custom dial
 //! behavior — so the interface-binding policy lives here in the engine.
 //!
-//! When the daemon spawns the engine in full-tunnel mode it sets
+//! When the manager spawns the engine in full-tunnel mode it sets
 //! `GEPH_VPN_BIND_IF4` / `GEPH_VPN_BIND_IF6` to the physical interface indices.
 //! With those set, [`BoundTcpDialer`] pins each socket to that interface before
 //! connecting (Windows `IP_UNICAST_IF`, macOS `IP_BOUND_IF`), so the engine's own
@@ -25,7 +25,7 @@ use pin_project::pin_project;
 use sillad::{Pipe, dialer::Dialer};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-/// Whether full-tunnel socket binding is active (the daemon set the bind-index
+/// Whether full-tunnel socket binding is active (the manager set the bind-index
 /// env). Used to decide whether the broker's non-sillad HTTP clients must be
 /// routed through the loopback forwarder. Cached.
 pub fn binding_active() -> bool {
@@ -150,7 +150,7 @@ fn should_retry_connect(_: &std::io::Error) -> bool {
     false
 }
 
-// IP_UNICAST_IF pinning. The bind index is read once from the daemon-supplied
+// IP_UNICAST_IF pinning. The bind index is read once from the manager-supplied
 // env; absent (or 0), `connect_unicast_if` returns None and the caller falls back
 // to an ordinary connect.
 #[cfg(windows)]
@@ -229,7 +229,7 @@ mod windows_bind {
 }
 
 // IP_BOUND_IF pinning — the macOS analogue of `windows_bind`. The bind index is
-// read once from the daemon-supplied env; absent (or 0), `connect_bound_if`
+// read once from the manager-supplied env; absent (or 0), `connect_bound_if`
 // returns None and the caller falls back to an ordinary connect.
 #[cfg(target_os = "macos")]
 mod macos_bind {

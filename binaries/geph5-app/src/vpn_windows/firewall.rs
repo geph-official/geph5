@@ -7,10 +7,10 @@
 //!
 //!   - a dynamic WFP engine + a dedicated sublayer (so everything we add is
 //!     removed atomically when the handle closes / on `remove`, and — because the
-//!     session is dynamic — automatically by the kernel if the daemon dies);
+//!     session is dynamic — automatically by the kernel if the manager dies);
 //!   - at `FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6`, in descending filter weight:
 //!       * permit loopback;
-//!       * permit the geph engine + daemon by app-id (their `IP_UNICAST_IF`-bound
+//!       * permit the geph engine + manager by app-id (their `IP_UNICAST_IF`-bound
 //!         bridge/exit traffic + the broker loopback-forwarder traffic);
 //!       * permit on-WinTUN-interface (by LUID) — this is what keeps normal
 //!         tunneled traffic flowing, since all of it egresses the tun;
@@ -20,10 +20,10 @@
 //!       * if `allow_lan`, permit RFC1918 / link-local / ULA destinations;
 //!       * default block → fail-closed.
 //!
-//! The daemon holds the engine handle, so the filters persist across engine-child
-//! restarts (fail-closed during the gap). A daemon-held *dynamic* session is torn
-//! down if the daemon itself dies; a persistent (boot-time) session that survives
-//! daemon death is the hardening follow-up.
+//! The manager holds the engine handle, so the filters persist across engine-child
+//! restarts (fail-closed during the gap). A manager-held *dynamic* session is torn
+//! down if the manager itself dies; a persistent (boot-time) session that survives
+//! manager death is the hardening follow-up.
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
@@ -48,7 +48,7 @@ pub trait Firewall {
     fn preflight(&self) -> anyhow::Result<()>;
 
     /// Install the kill switch. `geph_app_ids` are the full image paths permitted
-    /// to egress the physical NIC (the engine child, and the daemon itself).
+    /// to egress the physical NIC (the engine child, and the manager itself).
     /// `wintun_luid` is the WinTUN interface LUID.
     fn install(
         &mut self,
@@ -64,7 +64,7 @@ pub trait Firewall {
 /// The WFP-backed kill switch. See the module docs for the intended filter set.
 ///
 /// The engine handle is stored as a `usize` (not the raw `HANDLE`, which is a
-/// `*mut c_void` and thus `!Send`) so this can live in the daemon's
+/// `*mut c_void` and thus `!Send`) so this can live in the manager's
 /// `tokio::Mutex`-guarded state across `.await` points. `0` means "not open".
 pub struct WfpKillSwitch {
     engine: usize,
@@ -78,7 +78,7 @@ impl WfpKillSwitch {
 
 impl Firewall for WfpKillSwitch {
     fn preflight(&self) -> anyhow::Result<()> {
-        // WFP requires Administrator; the daemon already enforces elevation at
+        // WFP requires Administrator; the manager already enforces elevation at
         // startup (see `main::require_root`), so nothing more is needed here.
         Ok(())
     }
