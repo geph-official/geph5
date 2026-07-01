@@ -48,6 +48,12 @@ pub enum Command {
     /// List available exits.
     Exits,
 
+    /// Show or set whether the local SOCKS5/HTTP proxies are enabled at all.
+    Proxy {
+        /// `on` or `off`. Omit to show the current setting.
+        state: Option<String>,
+    },
+
     /// Show or set whether the system proxy is auto-configured while connected.
     AutoProxy {
         /// `on` or `off`. Omit to show the current setting.

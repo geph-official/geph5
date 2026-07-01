@@ -82,6 +82,31 @@ pub struct SessionContext {
     pub xdg_runtime_dir: Option<String>,
 }
 
+/// Local-proxy configuration. `None` at the settings level means no local proxy
+/// listeners at all — the engine binds no ports.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ProxySettings {
+    /// Whether to point the desktop's system proxy at the tunnel while connected.
+    pub autoconf: bool,
+    /// Bind the proxies on all interfaces (0.0.0.0) instead of loopback.
+    pub listen_all: bool,
+    /// SOCKS5 proxy port.
+    pub socks5_port: u16,
+    /// HTTP proxy port.
+    pub http_port: u16,
+}
+
+impl Default for ProxySettings {
+    fn default() -> Self {
+        Self {
+            autoconf: true,
+            listen_all: false,
+            socks5_port: 9909,
+            http_port: 9910,
+        }
+    }
+}
+
 /// Persisted settings, as exposed to the CLI.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SettingsView {
@@ -89,8 +114,8 @@ pub struct SettingsView {
     pub exit_constraint: ExitConstraint,
     /// Whether the user wants the tunnel up.
     pub connected: bool,
-    /// Whether the system proxy is auto-configured while connected.
-    pub auto_proxy: bool,
+    /// Local-proxy configuration; `None` means no local proxy listeners.
+    pub proxy: Option<ProxySettings>,
     /// Whether full-tunnel VPN mode is enabled.
     pub vpn: bool,
     /// Whether private/LAN addresses bypass the tunnel.
@@ -130,9 +155,15 @@ pub trait GephCtlProtocol {
     /// Change the exit constraint (restart child if currently connected).
     async fn set_exit_constraint(&self, constraint: ExitConstraint) -> Result<(), String>;
 
-    /// Enable or disable the auto-proxy preference. If currently connected, the
-    /// change is applied to `session`'s system proxy immediately.
-    async fn set_auto_proxy(&self, enabled: bool, session: SessionContext) -> Result<(), String>;
+    /// Set the full local-proxy configuration (`None` = no local proxy listeners
+    /// at all). Restarts the tunnel child if connected, and applies/clears
+    /// `session`'s system proxy according to the autoconf preference (and VPN
+    /// mode).
+    async fn set_proxy_settings(
+        &self,
+        proxy: Option<ProxySettings>,
+        session: SessionContext,
+    ) -> Result<(), String>;
 
     /// Enable or disable full-tunnel VPN mode. Restarts the tunnel if
     /// currently connected.

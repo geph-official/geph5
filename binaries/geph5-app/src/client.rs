@@ -87,12 +87,18 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             let status = flatten(client.status().await)?;
             print_status(&status);
             let settings = flatten(client.get_settings().await)?;
+            let mode = match (settings.vpn, settings.proxy.is_some()) {
+                (true, true) => "vpn+proxy",
+                (true, false) => "vpn",
+                (false, true) => "proxy",
+                (false, false) => "none",
+            };
             println!(
                 "Mode:  {} | lan-access {} | allow-direct {} | auto-proxy {}",
-                if settings.vpn { "vpn" } else { "proxy" },
+                mode,
                 on_off(settings.allow_lan),
                 on_off(settings.allow_direct),
-                on_off(settings.auto_proxy),
+                on_off(settings.proxy.as_ref().is_some_and(|p| p.autoconf)),
             );
         }
 
@@ -123,14 +129,54 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             }
         }
 
-        Command::AutoProxy { state } => match state {
+        Command::Proxy { state } => match state {
             None => {
                 let settings = flatten(client.get_settings().await)?;
-                println!("auto-proxy is {}", on_off(settings.auto_proxy));
+                match settings.proxy {
+                    Some(p) => {
+                        let host = if p.listen_all { "0.0.0.0" } else { "127.0.0.1" };
+                        println!(
+                            "proxy is on (socks5 {host}:{}, http {host}:{})",
+                            p.socks5_port, p.http_port
+                        );
+                    }
+                    None => println!("proxy is off"),
+                }
             }
             Some(s) => {
                 let enabled = parse_on_off(&s)?;
-                flatten(client.set_auto_proxy(enabled, current_session()).await)?;
+                let settings = flatten(client.get_settings().await)?;
+                let proxy = if enabled {
+                    // Keep an existing config; otherwise start from the defaults.
+                    Some(settings.proxy.unwrap_or_default())
+                } else {
+                    None
+                };
+                flatten(client.set_proxy_settings(proxy, current_session()).await)?;
+                println!("proxy set to {}", on_off(enabled));
+            }
+        },
+
+        Command::AutoProxy { state } => match state {
+            None => {
+                let settings = flatten(client.get_settings().await)?;
+                match settings.proxy {
+                    Some(p) => println!("auto-proxy is {}", on_off(p.autoconf)),
+                    None => println!("auto-proxy is off (proxy is off)"),
+                }
+            }
+            Some(s) => {
+                let enabled = parse_on_off(&s)?;
+                let settings = flatten(client.get_settings().await)?;
+                let Some(mut proxy) = settings.proxy else {
+                    anyhow::bail!("the proxy is off entirely; enable it first with `proxy on`");
+                };
+                proxy.autoconf = enabled;
+                flatten(
+                    client
+                        .set_proxy_settings(Some(proxy), current_session())
+                        .await,
+                )?;
                 println!("auto-proxy set to {}", on_off(enabled));
             }
         },

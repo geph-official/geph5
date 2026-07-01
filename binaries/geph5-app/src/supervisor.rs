@@ -16,14 +16,10 @@ use geph5_broker_protocol::{Credential, ExitConstraint};
 use geph5_misc_rpc::client_control::ControlClient;
 use serde::{Deserialize, Serialize};
 
-use crate::paths;
+use crate::{paths, protocol::ProxySettings};
 
-/// SOCKS5 proxy the connected child exposes.
-pub const SOCKS5_ADDR: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9909);
-/// HTTP proxy the connected child exposes.
-pub const HTTP_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9910);
-/// PAC (proxy auto-config) endpoint the connected child serves.
+/// PAC (proxy auto-config) endpoint the connected child serves. Always loopback:
+/// it exists only for `apply_proxy` to hand the local desktop session.
 pub const PAC_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12223);
 
 const CONFIG_TEMPLATE: &str = include_str!("../default-config.yaml");
@@ -99,9 +95,10 @@ pub struct Settings {
     /// Whether the user wants the tunnel up.
     #[serde(default)]
     pub connected: bool,
-    /// Whether to point the desktop's system proxy at the tunnel while connected.
-    #[serde(default = "default_true")]
-    pub auto_proxy: bool,
+    /// Local-proxy configuration; `None` means the engine binds no proxy ports
+    /// at all.
+    #[serde(default)]
+    pub proxy: Option<ProxySettings>,
     /// Full-tunnel VPN mode: capture all traffic via a tun device (Linux) or a
     /// WinTUN device (Windows).
     #[serde(default)]
@@ -125,12 +122,13 @@ fn default_true() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
+        // Fresh installs: full-tunnel VPN by default, no local proxy listeners.
         Settings {
             secret: None,
             exit_constraint: ExitConstraint::Auto,
             connected: false,
-            auto_proxy: true,
-            vpn: false,
+            proxy: None,
+            vpn: true,
             allow_lan: true,
             allow_direct: false,
         }
@@ -193,9 +191,26 @@ fn build_tunnel_config(settings: &Settings) -> anyhow::Result<String> {
         cfg.control_listen_unix = None;
         cfg.control_listen_pipe = Some(ENGINE_CONTROL_PIPE.to_string());
     }
-    cfg.socks5_listen = Some(SOCKS5_ADDR);
-    cfg.http_proxy_listen = Some(HTTP_ADDR);
-    cfg.pac_listen = Some(PAC_ADDR);
+    match &settings.proxy {
+        Some(p) => {
+            let ip: IpAddr = if p.listen_all {
+                Ipv4Addr::UNSPECIFIED.into()
+            } else {
+                Ipv4Addr::LOCALHOST.into()
+            };
+            cfg.socks5_listen = Some(SocketAddr::new(ip, p.socks5_port));
+            cfg.http_proxy_listen = Some(SocketAddr::new(ip, p.http_port));
+            // PAC is always up alongside the proxies so autoconf can be toggled
+            // live without a child restart.
+            cfg.pac_listen = Some(PAC_ADDR);
+        }
+        None => {
+            // Local proxy off: the engine binds no ports at all.
+            cfg.socks5_listen = None;
+            cfg.http_proxy_listen = None;
+            cfg.pac_listen = None;
+        }
+    }
     // Key the cache by the secret so different accounts never share auth tokens
     // (the engine stores its auth_token under a fixed key, so a shared cache
     // would let account B reuse account A's token). Mirrors geph5-client's own

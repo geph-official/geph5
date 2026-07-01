@@ -16,8 +16,8 @@ use tokio::sync::Mutex;
 
 use crate::{
     protocol::{
-        AccountInfo, ConnState, ExitInfo, GephCtlProtocol, GephCtlService, SessionContext,
-        SettingsView, Status,
+        AccountInfo, ConnState, ExitInfo, GephCtlProtocol, GephCtlService, ProxySettings,
+        SessionContext, SettingsView, Status,
     },
     proxy,
     supervisor::{self, Settings},
@@ -271,6 +271,12 @@ fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
     }
 }
 
+/// Whether the settings ask for the system proxy to be auto-configured: only
+/// meaningful when the local proxy is on at all.
+fn wants_auto_proxy(settings: &Settings) -> bool {
+    settings.proxy.as_ref().is_some_and(|p| p.autoconf)
+}
+
 /// Configure (or clear) the given session's system proxy off the reactor thread
 /// (it may spawn a privilege-dropping helper). Best-effort: failures are logged.
 async fn apply_proxy(session: SessionContext, connected: bool) {
@@ -345,7 +351,7 @@ impl GephCtlProtocol for DaemonImpl {
             inner.settings.connected = false;
             inner.settings.save().map_err(|e| format!("{e:?}"))?;
             Self::reconcile_tunnel(&mut inner).await?;
-            inner.settings.auto_proxy
+            wants_auto_proxy(&inner.settings)
         };
         if auto_proxy {
             apply_proxy(session, false).await;
@@ -376,7 +382,7 @@ impl GephCtlProtocol for DaemonImpl {
             Self::reconcile_tunnel(&mut inner).await?;
             // In full-tunnel VPN mode the proxy is redundant (everything is
             // already routed), so only auto-configure it in proxy mode.
-            inner.settings.auto_proxy && !inner.settings.vpn
+            wants_auto_proxy(&inner.settings) && !inner.settings.vpn
         };
         if apply {
             apply_proxy(session, true).await;
@@ -401,7 +407,7 @@ impl GephCtlProtocol for DaemonImpl {
             inner.settings.connected = false;
             inner.settings.save().map_err(|e| format!("{e:?}"))?;
             Self::reconcile_tunnel(&mut inner).await?;
-            inner.settings.auto_proxy
+            wants_auto_proxy(&inner.settings)
         };
         if auto_proxy {
             apply_proxy(session, false).await;
@@ -464,7 +470,7 @@ impl GephCtlProtocol for DaemonImpl {
             logged_in: inner.settings.secret.is_some(),
             exit_constraint: inner.settings.exit_constraint.clone(),
             connected: inner.settings.connected,
-            auto_proxy: inner.settings.auto_proxy,
+            proxy: inner.settings.proxy.clone(),
             vpn: inner.settings.vpn,
             allow_lan: inner.settings.allow_lan,
             allow_direct: inner.settings.allow_direct,
@@ -487,18 +493,34 @@ impl GephCtlProtocol for DaemonImpl {
         Ok(())
     }
 
-    async fn set_auto_proxy(&self, enabled: bool, session: SessionContext) -> Result<(), String> {
-        let connected = {
+    async fn set_proxy_settings(
+        &self,
+        proxy: Option<ProxySettings>,
+        session: SessionContext,
+    ) -> Result<(), String> {
+        let apply = {
             let mut inner = self.inner.lock().await;
-            tracing::debug!(enabled, "setting changed: auto_proxy");
-            inner.settings.auto_proxy = enabled;
-            inner.settings.save().map_err(|e| format!("{e:?}"))?;
-            inner.settings.connected
+            // The GUI pushes all settings before every connect; skip the tunnel
+            // restart (and proxy churn) when nothing actually changed.
+            if inner.settings.proxy == proxy {
+                None
+            } else {
+                tracing::debug!(?proxy, "setting changed: proxy");
+                inner.settings.proxy = proxy;
+                inner.settings.save().map_err(|e| format!("{e:?}"))?;
+                if inner.settings.connected {
+                    // Rebinds (or unbinds) the proxy listeners with the new config.
+                    Self::reconcile_tunnel(&mut inner).await?;
+                    Some(wants_auto_proxy(&inner.settings) && !inner.settings.vpn)
+                } else {
+                    None
+                }
+            }
         };
-        // Reflect the change in the live proxy if we're connected: enabling sets
-        // it for the caller's session, disabling clears it.
-        if connected {
-            apply_proxy(session, enabled).await;
+        // Reflect the change in the live system proxy: enabling sets it for the
+        // caller's session, disabling (or turning the proxy off) clears it.
+        if let Some(on) = apply {
+            apply_proxy(session, on).await;
         }
         Ok(())
     }
