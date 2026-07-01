@@ -600,20 +600,23 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        // If either handler can't be installed, fall back to the other.
-        let mut term = signal(SignalKind::terminate()).ok();
-        let mut int = signal(SignalKind::interrupt()).ok();
-        match (term.as_mut(), int.as_mut()) {
-            (Some(t), Some(i)) => {
-                tokio::select! { _ = t.recv() => {}, _ = i.recv() => {} }
+        // Await one delivery of `kind`, or pend forever if it can't be installed.
+        async fn on(kind: SignalKind) {
+            match signal(kind) {
+                Ok(mut s) => {
+                    s.recv().await;
+                }
+                Err(_) => std::future::pending::<()>().await,
             }
-            (Some(t), None) => {
-                t.recv().await;
-            }
-            (None, Some(i)) => {
-                i.recv().await;
-            }
-            (None, None) => std::future::pending::<()>().await,
+        }
+        // Every way a foreground daemon is normally told to stop. Missing any
+        // strands the kill switch / routes and blackholes the machine, since Drop
+        // doesn't run on an uncaught signal.
+        tokio::select! {
+            _ = on(SignalKind::hangup()) => {},     // terminal close
+            _ = on(SignalKind::interrupt()) => {},  // Ctrl-C
+            _ = on(SignalKind::terminate()) => {},  // kill / launchd stop
+            _ = on(SignalKind::quit()) => {},       // Ctrl-\
         }
     }
     #[cfg(windows)]
