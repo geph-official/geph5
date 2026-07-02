@@ -29,7 +29,7 @@ pub async fn bw_accounting_loop(account: BwAccount, stream: picomux::Stream) -> 
             let (token, sig): (ClientToken, SingleUnblindedSignature) =
                 stdcode::deserialize(&BASE64_STANDARD_NO_PAD.decode(buf.trim())?)?;
             tracing::debug!("obtained token, crediting bandwidth");
-            account.credit_bw(token, sig).await?;
+            account.credit_bw(token, sig).await;
         }
     };
     let write_fut = async {
@@ -91,22 +91,49 @@ impl BwAccount {
     }
 
     /// Process a bandwidth token, crediting bandwidth as needed.
-    pub async fn credit_bw(
-        &self,
-        token: ClientToken,
-        sig: SingleUnblindedSignature,
-    ) -> anyhow::Result<()> {
+    ///
+    /// Never returns an error for broker trouble: a transient broker failure
+    /// here used to kill the whole accounting loop, whose closed stream the
+    /// client then treated as session death — resetting every stream on an
+    /// otherwise-healthy session. Transient transport errors are retried a
+    /// few times; a persistently unreachable broker or a rejected token means
+    /// the credit is skipped (the client's balance stays low and it will
+    /// simply submit another token), but the loop lives on.
+    pub async fn credit_bw(&self, token: ClientToken, sig: SingleUnblindedSignature) {
         if let Some(broker) = &CONFIG_FILE.wait().broker {
-            let transport = BrokerRpcTransport::new(&broker.url);
-            let client = BrokerClient(transport);
-            client.consume_bw_token(token, sig).await??;
+            let mut delay = Duration::from_secs(1);
+            for attempt in 0..4 {
+                let transport = BrokerRpcTransport::new(&broker.url);
+                let client = BrokerClient(transport);
+                match client.consume_bw_token(token, sig.clone()).await {
+                    Ok(Ok(())) => break,
+                    Ok(Err(err)) => {
+                        // The broker rejected the token (e.g. double spend):
+                        // retrying cannot help, and crediting would be wrong.
+                        tracing::warn!(err = debug(err), "broker rejected bw token, not crediting");
+                        return;
+                    }
+                    Err(err) => {
+                        // Transport-level failure: the broker may just be
+                        // having a moment. Retry with backoff.
+                        if attempt == 3 {
+                            tracing::warn!(
+                                err = debug(err),
+                                "broker unreachable, skipping bw token credit"
+                            );
+                            return;
+                        }
+                        tracing::debug!(err = debug(err), attempt, "bw token redemption failed, retrying");
+                        tokio::time::sleep(delay).await;
+                        delay *= 2;
+                    }
+                }
+            }
         };
 
         self.bytes_left
             .fetch_add(10_000_000, std::sync::atomic::Ordering::SeqCst);
         self.change_event.notify_one();
-
-        Ok(())
     }
 
     /// Consumes bandwidth, returning the remaining bandwidth
