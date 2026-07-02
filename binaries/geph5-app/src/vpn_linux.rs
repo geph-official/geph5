@@ -1,13 +1,28 @@
-//! Linux full-tunnel VPN: a dedicated service user, a tun device, uid-marked
+//! Linux full-tunnel VPN: a dedicated service user, a tun device, uid-range
 //! policy routing, and an always-on nftables kill switch.
 //!
-//! There is no address whitelisting. The engine runs as the `geph5-daemon` uid
-//! (named for the geph5-client daemon it runs); nftables marks every packet
-//! *not* from that uid and an `ip rule` routes marked
-//! packets into the tun. The engine's own traffic (bridges/exits + bootstrap DNS,
-//! and the in-engine LAN passthrough) is unmarked → physical NIC → no loop. The
-//! kill switch drops anything else that would egress a physical interface, so a
-//! crash of geph5-client (or even the manager) fails closed.
+//! There is no address whitelisting and no packet marking. The engine runs as
+//! the `geph5-daemon` uid (named for the geph5-client daemon it runs), and
+//! `ip rule uidrange` sends that uid's traffic (bridges/exits + bootstrap DNS,
+//! and the in-engine LAN passthrough) out via the main table — physical NIC,
+//! no loop — while a lower-priority catch-all rule routes *everything else*
+//! into the tun.
+//!
+//! Routing by "everything except the engine's uid" rather than positively
+//! matching non-engine traffic matters for packets that have no owning socket
+//! at all: RSTs the kernel emits for closed sockets, TIME_WAIT ACKs, and other
+//! kernel-originated responses. A socket-keyed match (nft `meta skuid`, the
+//! old fwmark scheme) simply skips those, so they used to escape out the
+//! physical NIC (a leak past the kill switch's conntrack exemption) and never
+//! reached the in-engine IP stack — which, deaf to the RSTs, kept
+//! retransmitting into dead flows every RTO for up to an hour each. With the
+//! uid-range scheme they fall through to the catch-all and land in the tun
+//! like everything else.
+//!
+//! The kill switch drops anything else that would egress a physical
+//! interface, so a crash of geph5-client (or even the manager) fails closed:
+//! if the tun's routing table empties, the catch-all rule no longer matches
+//! and traffic falls through to the main table, where nftables drops it.
 
 pub use imp::*;
 
@@ -29,16 +44,14 @@ mod imp {
     const TUN_V6: &str = "fd00:6765::1/64";
     const TUN_MTU: &str = "16384";
     const RT_TABLE: &str = "26469";
-    const FWMARK: &str = "0x6765";
-    const FWMARK_MASK: &str = "0x6765/0xffff";
-    const RULE_PRIO: &str = "100";
 
-    // IPv6 policy-routing rule priorities (see `setup_ipv6`). Lower = evaluated
-    // first. The engine's own v6 is matched (and made direct/unreachable) before
-    // the catch-all that sends everything else into the tun.
-    const V6_PRIO_GEPH_DIRECT: &str = "90";
-    const V6_PRIO_GEPH_GUARD: &str = "95";
-    const V6_PRIO_TUN_ALL: &str = "120";
+    // Policy-routing rule priorities, used for both address families. Lower =
+    // evaluated first. The engine's own traffic is matched (and made
+    // direct-or-unreachable) before the catch-all that sends everything else
+    // into the tun.
+    const PRIO_GEPH_DIRECT: &str = "90";
+    const PRIO_GEPH_GUARD: &str = "95";
+    const PRIO_TUN_ALL: &str = "120";
 
     // From <linux/if_tun.h>: TUNSETIFF = _IOW('T', 202, int). Kept as a plain
     // integer and cast with `as _` at the call site, because `libc::ioctl`'s
@@ -101,58 +114,56 @@ mod imp {
 
         run("ip", &["link", "set", TUN_IFACE, "up"])?;
         run("ip", &["link", "set", TUN_IFACE, "mtu", TUN_MTU])?;
-        run("ip", &["addr", "replace", TUN_V4, "dev", TUN_IFACE])?;
-        run("ip", &["route", "replace", "default", "dev", TUN_IFACE, "table", RT_TABLE])?;
-        run("ip", &["rule", "add", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO])?;
 
-        // IPv6 needs a different mechanism than v4 — best-effort (see setup_ipv6).
-        setup_ipv6(geph_uid);
+        // v4 is mandatory: without these rules there is no tunnel at all (the
+        // kill switch below would just drop everything).
+        setup_rules("-4", geph_uid).context("installing v4 uid policy routing")?;
+        // v6 is best-effort: hosts frequently have broken or absent v6, and the
+        // kill switch still fails closed for any v6 the rules don't cover.
+        let _ = setup_rules("-6", geph_uid);
 
         firewall_install(geph_uid).context("installing nft kill switch")?;
         Ok(VpnHandle { tun })
     }
 
-    /// Route IPv6 into the tunnel.
+    /// Install the uid-range policy routing for one address family:
     ///
-    /// v4 works by letting the host's main table emit the packet (every host has
-    /// a v4 default route) and then having the nft marker re-route non-engine
-    /// packets into the tun. v6 can't rely on that: hosts frequently have no v6
-    /// default route, so an app's `connect()` to a v6 address fails at route
-    /// lookup *before* any packet exists to mark — so v6 is silently dead even
-    /// though the exit can egress it. So for v6 we route by uid directly: send
-    /// every *non-engine* v6 packet into the tun, while keeping the engine's own
-    /// v6 on the physical NIC — or unreachable, if the host has no native v6 — so
-    /// it can never loop back through the tunnel into itself.
+    ///   prio 90: engine uid → main table (physical NIC, so the engine's own
+    ///            bridge/exit traffic never loops back through the tun)
+    ///   prio 95: engine uid → unreachable (guard: if the main table can't
+    ///            route it — e.g. no native v6 — fail rather than fall through
+    ///            to the tun and loop into ourselves)
+    ///   prio 120: everything else → the tun table. This is a *fallthrough*
+    ///            catch-all, deliberately not keyed on socket uid or fwmark:
+    ///            it also catches kernel-originated socketless packets (RSTs
+    ///            for closed sockets, TIME_WAIT ACKs), which must reach the
+    ///            in-engine IP stack for it to learn that flows have died. If
+    ///            the tun table is empty (engine dead), the lookup falls
+    ///            through to main and the nft kill switch drops the traffic.
     ///
-    /// All best-effort: on failure we leave v6 alone (the kill switch still drops
-    /// any non-tunneled v6, so there's no leak), and the catch-all that funnels
-    /// everything into the tun is installed only once the engine is safely
-    /// excluded above it.
-    fn setup_ipv6(geph_uid: u32) {
-        let _ = run("ip", &["-6", "addr", "replace", TUN_V6, "dev", TUN_IFACE]);
-        let _ = run("ip", &["-6", "route", "replace", "default", "dev", TUN_IFACE, "table", RT_TABLE]);
-
+    /// The catch-all is installed only after the engine is safely excluded
+    /// above it.
+    fn setup_rules(family: &str, geph_uid: u32) -> anyhow::Result<()> {
         let uids = format!("{geph_uid}-{geph_uid}");
-        // Engine's own v6: physical NIC if the host has v6, else unreachable.
-        let direct = run("ip", &["-6", "rule", "add", "uidrange", &uids, "table", "main", "priority", V6_PRIO_GEPH_DIRECT]).is_ok();
-        let guard = run("ip", &["-6", "rule", "add", "uidrange", &uids, "type", "unreachable", "priority", V6_PRIO_GEPH_GUARD]).is_ok();
-        // Everything else: into the tun.
-        if direct && guard {
-            let _ = run("ip", &["-6", "rule", "add", "table", RT_TABLE, "priority", V6_PRIO_TUN_ALL]);
-        }
+        let addr = if family == "-6" { TUN_V6 } else { TUN_V4 };
+        run("ip", &[family, "addr", "replace", addr, "dev", TUN_IFACE])?;
+        run("ip", &[family, "route", "replace", "default", "dev", TUN_IFACE, "table", RT_TABLE])?;
+
+        run("ip", &[family, "rule", "add", "uidrange", &uids, "table", "main", "priority", PRIO_GEPH_DIRECT])?;
+        run("ip", &[family, "rule", "add", "uidrange", &uids, "type", "unreachable", "priority", PRIO_GEPH_GUARD])?;
+        run("ip", &[family, "rule", "add", "table", RT_TABLE, "priority", PRIO_TUN_ALL])?;
+        Ok(())
     }
 
     /// Remove all VPN routing/firewall state. Error-tolerant / idempotent.
     pub fn teardown() {
         firewall_remove();
-        let _ = run("ip", &["rule", "del", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO]);
-        // v6 policy rules by priority (plus the legacy v6 fwmark rule, for upgrades).
-        let _ = run("ip", &["-6", "rule", "del", "fwmark", FWMARK_MASK, "table", RT_TABLE, "priority", RULE_PRIO]);
-        for prio in [V6_PRIO_GEPH_DIRECT, V6_PRIO_GEPH_GUARD, V6_PRIO_TUN_ALL] {
-            let _ = run("ip", &["-6", "rule", "del", "priority", prio]);
+        for family in ["-4", "-6"] {
+            for prio in [PRIO_GEPH_DIRECT, PRIO_GEPH_GUARD, PRIO_TUN_ALL] {
+                let _ = run("ip", &[family, "rule", "del", "priority", prio]);
+            }
+            let _ = run("ip", &[family, "route", "flush", "table", RT_TABLE]);
         }
-        let _ = run("ip", &["route", "flush", "table", RT_TABLE]);
-        let _ = run("ip", &["-6", "route", "flush", "table", RT_TABLE]);
         let _ = run("ip", &["link", "del", TUN_IFACE]);
     }
 
@@ -203,37 +214,34 @@ mod imp {
     }
 
     fn firewall_install(geph_uid: u32) -> anyhow::Result<()> {
-        // Two chains, using `meta skuid` (owning socket's uid for locally-generated
-        // packets):
-        //   - marker (output route hook): mark everything NOT from geph; the mark
-        //     triggers a re-route into the tun table. This must be at `output`,
-        //     where skuid is available and the route lookup can be redone.
-        //   - killswitch (POSTROUTING filter hook): the leak guard. It must be at
-        //     postrouting, NOT output: the mark-based re-route is applied only
-        //     *after* the output hooks, so at the output filter hook `oifname` is
-        //     still the physical NIC and an `oifname "geph-tun"` accept never
-        //     matches (everything would be dropped). At postrouting the interface
-        //     is final, and skuid is still available for local traffic.
+        // A single killswitch chain at the POSTROUTING filter hook: the leak
+        // guard behind the uid-range policy routing. Anything leaving on a
+        // physical interface that isn't the engine's own traffic (skuid of the
+        // geph uid) is a leak and gets dropped — the policy rules route all
+        // other traffic (socketless kernel packets included) into the tun, so
+        // nothing legitimate can end up here. This also fails closed: if the
+        // engine dies and the tun table empties, app traffic falls through to
+        // the main table, arrives here, and is dropped.
+        //
+        // No `ct state` exemption: it used to admit kernel-generated
+        // socketless packets (RSTs, TIME_WAIT ACKs) of conntrack-established
+        // flows out the physical NIC, which both leaked flow metadata and
+        // starved the in-engine IP stack of the RSTs it needs to reap dead
+        // flows.
         let ruleset = format!(
             "table inet geph
 delete table inet geph
 table inet geph {{
-\tchain marker {{
-\t\ttype route hook output priority mangle; policy accept;
-\t\tmeta skuid != {uid} meta mark set {mark}
-\t}}
 \tchain killswitch {{
 \t\ttype filter hook postrouting priority filter; policy accept;
 \t\toifname \"lo\" accept
 \t\toifname \"{iface}\" accept
 \t\tmeta skuid {uid} accept
-\t\tct state established,related accept
 \t\tcounter drop
 \t}}
 }}
 ",
             uid = geph_uid,
-            mark = FWMARK,
             iface = TUN_IFACE,
         );
         nft_apply(&ruleset)
