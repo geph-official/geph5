@@ -6,14 +6,14 @@
 //! sibling `geph5-client` binary rather than re-executing itself.
 
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     process::{Child, Command},
     time::Duration,
 };
 
 use anyhow::Context as _;
 use geph5_broker_protocol::{Credential, ExitConstraint};
-use geph5_misc_rpc::client_control::ControlClient;
+use geph5_misc_rpc::{client_config::BrokerSource, client_control::ControlClient};
 use serde::{Deserialize, Serialize};
 
 use crate::{paths, protocol::ProxySettings};
@@ -173,7 +173,10 @@ fn config_from_template() -> anyhow::Result<geph5_misc_rpc::client_config::Confi
 
 /// Config for the **tunnel** engine: the real, credentialed engine that brings up
 /// the proxy/tunnel. Only ever spawned while connected.
-fn build_tunnel_config(settings: &Settings) -> anyhow::Result<String> {
+pub(crate) fn build_tunnel_config(
+    settings: &Settings,
+    pre_resolve_broker_fronts: bool,
+) -> anyhow::Result<String> {
     let mut cfg = config_from_template()?;
     cfg.credentials = Credential::Secret(settings.secret.clone().unwrap_or_default());
     cfg.exit_constraint = settings.exit_constraint.clone();
@@ -218,8 +221,103 @@ fn build_tunnel_config(settings: &Settings) -> anyhow::Result<String> {
     let secret = settings.secret.as_deref().unwrap_or_default();
     let cache_tag = blake3::hash(secret.as_bytes()).to_hex();
     cfg.cache = Some(paths::cache_dir().join(format!("db-{cache_tag}")));
+    if pre_resolve_broker_fronts && let Some(broker) = cfg.broker.as_mut() {
+        pre_resolve_fronted_broker_sources(broker);
+    }
     let val = serde_json::to_value(&cfg).context("could not serialize child config")?;
     serde_yaml::to_string(&val).context("could not serialize child config")
+}
+
+fn pre_resolve_fronted_broker_sources(source: &mut BrokerSource) {
+    match source {
+        BrokerSource::Fronted {
+            front,
+            override_dns,
+            ..
+        } if override_dns.is_none() => match resolve_front_override_dns(front) {
+            Ok(addrs) => {
+                tracing::info!(
+                    front = %front,
+                    addr_count = addrs.len(),
+                    "pre-resolved fronted broker source for VPN bootstrap"
+                );
+                *override_dns = Some(addrs);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    front = %front,
+                    err = %err,
+                    "could not pre-resolve fronted broker source for VPN bootstrap"
+                );
+            }
+        },
+        BrokerSource::Race(sources) => {
+            for source in sources {
+                pre_resolve_fronted_broker_sources(source);
+            }
+        }
+        BrokerSource::PriorityRace(sources) => {
+            for source in sources.values_mut() {
+                pre_resolve_fronted_broker_sources(source);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn resolve_front_override_dns(front: &str) -> anyhow::Result<Vec<SocketAddr>> {
+    let (host, port) = front_lookup_target(front)?;
+    let mut addrs = Vec::new();
+    for addr in (host.as_str(), port)
+        .to_socket_addrs()
+        .with_context(|| format!("could not resolve {host}:{port}"))?
+    {
+        if !addrs.contains(&addr) {
+            addrs.push(addr);
+        }
+    }
+    if addrs.is_empty() {
+        anyhow::bail!("front resolved to no socket addresses");
+    }
+    Ok(addrs)
+}
+
+fn front_lookup_target(front: &str) -> anyhow::Result<(String, u16)> {
+    let url = url::Url::parse(front).context("front is not a valid URL")?;
+    let host = url
+        .host_str()
+        .context("front URL has no hostname")?
+        .to_string();
+    let port = url
+        .port_or_known_default()
+        .context("front URL has no explicit or scheme-default port")?;
+    Ok((host, port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::front_lookup_target;
+
+    #[test]
+    fn front_lookup_target_uses_https_default_port() {
+        assert_eq!(
+            front_lookup_target("https://www.cdn77.com/").unwrap(),
+            ("www.cdn77.com".to_string(), 443)
+        );
+    }
+
+    #[test]
+    fn front_lookup_target_preserves_explicit_port() {
+        assert_eq!(
+            front_lookup_target("http://example.com:8080/path").unwrap(),
+            ("example.com".to_string(), 8080)
+        );
+    }
+
+    #[test]
+    fn front_lookup_target_rejects_urls_without_socket_target() {
+        assert!(front_lookup_target("file:///tmp/front").is_err());
+    }
 }
 
 /// Config for the **query** engine: a permanent, secret-less, dry-run engine that
@@ -336,12 +434,11 @@ fn staged_engine_bin() -> anyhow::Result<std::path::PathBuf> {
 /// (full-tunnel mode drives the engine through stdio rather than a tun fd).
 #[cfg(not(windows))]
 pub fn spawn_tunnel(
-    settings: &Settings,
+    config_yaml: String,
     service_user: Option<(u32, u32)>,
     vpn_fd: Option<i32>,
     bind_indices: Option<(u32, u32)>,
 ) -> anyhow::Result<Child> {
-    let config_yaml = build_tunnel_config(settings)?;
     #[cfg(unix)]
     let sock_dir = Some(
         engine_control_path()
@@ -409,7 +506,7 @@ pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<Child> {
 /// child and returns no stdio.
 #[cfg(windows)]
 pub fn spawn_tunnel_windows(
-    settings: &Settings,
+    config_yaml: String,
     binds: Option<(u32, u32)>,
 ) -> anyhow::Result<(
     Child,
@@ -418,7 +515,6 @@ pub fn spawn_tunnel_windows(
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
 
-    let config_yaml = build_tunnel_config(settings)?;
     let config_path = write_engine_config("child-config.yaml", config_yaml)?;
 
     let mut cmd = geph5_client_command()?;

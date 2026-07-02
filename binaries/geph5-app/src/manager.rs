@@ -131,10 +131,23 @@ impl ManagerImpl {
         {
             inner.vpn_pump = None;
         }
+        // First VPN bring-up is the last point where host DNS is available before
+        // the kill switch/routes go up, so pre-resolve fronted broker sources now.
+        let pre_resolve_broker_fronts =
+            inner.settings.connected && inner.settings.vpn && inner.vpn.is_none();
+        let tunnel_config = if inner.settings.connected {
+            Some(
+                supervisor::build_tunnel_config(&inner.settings, pre_resolve_broker_fronts)
+                    .map_err(|e| format!("{e:#}"))?,
+            )
+        } else {
+            None
+        };
         let service_user = reconcile_vpn(inner)?;
         if !inner.settings.connected {
             return Ok(());
         }
+        let tunnel_config = tunnel_config.expect("connected tunnel has a prepared config");
         #[cfg(not(windows))]
         let child = {
             let vpn_fd = inner.vpn.as_ref().map(|h| h.tun_fd());
@@ -145,14 +158,14 @@ impl ManagerImpl {
             let binds = inner.vpn.as_ref().map(|h| h.bind_indices());
             #[cfg(not(target_os = "macos"))]
             let binds: Option<(u32, u32)> = None;
-            supervisor::spawn_tunnel(&inner.settings, service_user, vpn_fd, binds)
+            supervisor::spawn_tunnel(tunnel_config, service_user, vpn_fd, binds)
                 .map_err(|e| format!("{e:?}"))?
         };
         #[cfg(windows)]
         let child = {
             let _ = service_user;
             let binds = inner.vpn.as_ref().map(|h| h.bind_indices());
-            let (child, stdio) = supervisor::spawn_tunnel_windows(&inner.settings, binds)
+            let (child, stdio) = supervisor::spawn_tunnel_windows(tunnel_config, binds)
                 .map_err(|e| format!("{e:?}"))?;
             // In VPN mode, wire the child's stdio to a fresh pump on the device.
             if let (Some((cin, cout)), Some(handle)) = (stdio, inner.vpn.as_ref()) {
