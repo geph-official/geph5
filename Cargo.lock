@@ -2233,6 +2233,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "windows-sys 0.59.0",
  "wintun",
 ]
@@ -3201,9 +3202,9 @@ checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
 name = "ipstack-geph"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c505327e3708a23b7a075243f363a3a0b2d6d114a0ef37447ed3786e6a69b702"
+checksum = "f2f03e7ad39dfe02e1de9c22b770cf5db555ef2e641c365d8d19d10198158727"
 dependencies = [
  "ahash",
  "anyhow",
