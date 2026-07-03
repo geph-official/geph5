@@ -335,6 +335,11 @@ impl ClientToken {
         Self(rand::random())
     }
 
+    /// Returns the raw 32 bytes of this token.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
     pub fn blind(self, subkey: &brs::PublicKey) -> (BlindedClientToken, brs::Secret) {
         let res = subkey
             .blind(

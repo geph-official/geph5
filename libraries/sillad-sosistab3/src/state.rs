@@ -171,6 +171,18 @@ impl State {
         let length = i32::from_le_bytes(enc_length);
         let actual_length = length.unsigned_abs() as usize;
 
+        // Reject absurd lengths to prevent memory-exhaustion from a
+        // malicious/buggy peer. 1 MiB is well above any legitimate frame.
+        const MAX_FRAME_LEN: usize = 1024 * 1024;
+        if actual_length > MAX_FRAME_LEN {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!(
+                    "frame length {actual_length} exceeds maximum of {MAX_FRAME_LEN}"
+                ),
+            ));
+        }
+
         // Check the length for sanity
         if actual_length + 16 > rest.len() {
             return Err(std::io::Error::new(

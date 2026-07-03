@@ -721,8 +721,20 @@ impl BrokerProtocol for BrokerImpl {
             .to_public_key()
             .blind_verify(token, &sig)
             .map_err(|_| AuthError::Forbidden)?;
-        // TODO prevent replays by writing to a DB. This requires something smarter than stuffing it into postgresql and causing a neverending log.
-        Ok(())
+        // Reject replays: the token is recorded as spent in postgres. A
+        // second submission of the same (token, sig) pair hits the primary
+        // key constraint and is refused.
+        match crate::database::bandwidth::record_spent_bw_token(token).await {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                tracing::warn!("replayed bw token rejected");
+                Err(AuthError::Forbidden)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to record spent bw token");
+                Err(AuthError::Forbidden)
+            }
+        }
     }
 
     async fn insert_exit(

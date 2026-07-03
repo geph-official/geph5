@@ -45,6 +45,12 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
             .execute(&*POSTGRES)
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
+        let res = sqlx::query(
+            "delete from spent_bw_tokens where consumed_at < now() - interval '7 days'",
+        )
+        .execute(&*POSTGRES)
+        .await?;
+        tracing::debug!(rows_affected = res.rows_affected(), "cleaned up spent bw tokens");
         if rand::random::<f64>() < 0.001 {
             sqlx::query("vacuum full exits_new")
                 .execute(&*POSTGRES)
