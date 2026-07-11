@@ -39,27 +39,6 @@ pub fn fake_dns_allocate(ctx: &AnyCtx<Config>, dns_name: &str) -> Ipv4Addr {
         })
 }
 
-/// If `pkt` is a DNS query asking for AAAA (IPv6) records, returns an empty
-/// NOERROR response (no answers) so the resolver falls back to A/IPv4. Returns
-/// `None` for any other query, which the caller should handle normally.
-///
-/// Used in VPN mode when the exit has no IPv6 connectivity: suppressing AAAA
-/// keeps applications on IPv4 instead of attempting (and waiting on)
-/// unreachable IPv6 addresses, which removes the Happy Eyeballs fallback delay.
-pub fn empty_aaaa_response(pkt: &[u8]) -> Option<Bytes> {
-    let pkt = Packet::parse(pkt).ok()?;
-    let asks_aaaa = pkt
-        .questions
-        .iter()
-        .any(|q| q.qtype == QTYPE::TYPE(simple_dns::TYPE::AAAA));
-    if !asks_aaaa {
-        return None;
-    }
-    let mut response = pkt.into_reply();
-    response.answers = vec![];
-    response.build_bytes_vec_compressed().ok().map(Bytes::from)
-}
-
 pub fn fake_dns_respond(ctx: &AnyCtx<Config>, pkt: &[u8]) -> anyhow::Result<Bytes> {
     let pkt = Packet::parse(pkt)?;
     tracing::trace!(pkt = debug(&pkt), "got DNS packet");

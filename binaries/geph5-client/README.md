@@ -20,7 +20,6 @@ broker_keys:
   master: "deadbeef..."
   mizaru_free: "deadbeef..."
   mizaru_plus: "deadbeef..."
-vpn: false
 spoof_dns: false
 passthrough_china: false
 credentials:

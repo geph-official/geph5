@@ -44,7 +44,6 @@ use crate::{
     spoof_dns::fake_dns_backtranslate,
     stats::{stat_incr_num, stat_set_num},
     traffcount::TRAFF_COUNT,
-    vpn::smart_vpn_whitelist,
 };
 
 use super::Config;
@@ -105,14 +104,13 @@ pub async fn open_conn(
         && whitelist_host(ctx, dest_host)
     {
         let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&dest_addr).await?.collect();
-        for addr in addrs.iter() {
-            smart_vpn_whitelist(ctx, addr.ip());
-        }
         tracing::debug!(
             dest_addr = debug(dest_addr),
             "passing through whitelisted address"
         );
-        return Ok(sillad::tcp::HappyEyeballsTcpDialer(addrs).dial().await?);
+        return Ok(Box::new(
+            crate::bound_dialer::connect_addrs(&addrs).await?,
+        ));
     }
 
     let cmd = RichTunnelCommand {
@@ -309,14 +307,27 @@ fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
     if ctx.init().passthrough_china && is_chinese_host(host) {
         return true;
     }
-    if let Ok(ip) = IpAddr::from_str(host) {
-        match ip {
+    // Let local/LAN addresses bypass the tunnel and connect directly, unless the
+    // user opted into a strict full tunnel.
+    if ctx.init().allow_lan
+        && let Ok(ip) = IpAddr::from_str(host)
+    {
+        return match ip {
             IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
-            IpAddr::V6(v6) => v6.is_loopback(),
-        }
-    } else {
-        false
+            // IPv6 private ranges: loopback (::1), unique-local (fc00::/7),
+            // link-local (fe80::/10).
+            IpAddr::V6(v6) => {
+                v6.is_loopback() || is_unique_local(v6) || (v6.segments()[0] & 0xffc0) == 0xfe80
+            }
+        };
     }
+    false
+}
+
+/// IPv6 unique-local address (fc00::/7). `Ipv6Addr::is_unique_local` is unstable,
+/// so check the prefix directly.
+fn is_unique_local(addr: std::net::Ipv6Addr) -> bool {
+    (addr.segments()[0] & 0xfe00) == 0xfc00
 }
 
 async fn run_session_once(
@@ -391,12 +402,6 @@ async fn run_session_once(
     proxy_loop(ctx.clone(), session, accounting_loop)
         .await
         .context(format!("inner connection to {addr} failed"))
-}
-
-pub async fn wait_until_tunnel_ready(ctx: &AnyCtx<Config>) {
-    while ctx.get(CURRENT_CONNECTED_INFOS).lock().is_empty() {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
 }
 
 fn start_mux(authed_pipe: impl Pipe) -> Arc<PicoMux> {

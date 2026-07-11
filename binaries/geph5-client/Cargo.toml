@@ -7,7 +7,6 @@ version.workspace = true
 repository.workspace = true
 
 [features]
-windivert = []
 aws_lambda = ["aws-config", "aws-sdk-lambda", "aws-smithy-runtime"]
 
 [lib]
@@ -49,8 +48,8 @@ event-listener = "5.4.1"
 futures-concurrency = "7.7.1"
 futures-intrusive = "0.5.0"
 futures-util = "0.3.32"
-geph5-broker-protocol = { version = "0.2", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.2", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.3", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.3", path = "../../libraries/geph5-misc-rpc" }
 geph5-rt = { path = "../../libraries/geph5-rt" }
 # geph5-ip-to-asn = { version = "0.2", path = "../../libraries/geph5-ip-to-asn"}
 hex = "0.4.3"
@@ -60,7 +59,7 @@ hyper = { version = "1.9.0", features = ["http1", "client", "server"] }
 hyper-rustls = { version = "0.24.2", features = ["webpki-roots"] }
 hyper-util = { version = "0.1.20" }
 ipnet = "2.12.0"
-ipstack-geph = "0.3.1"
+ipstack-geph = "0.3.2"
 isocountry = "0.3.2"
 itertools = "0.13.0"
 libc = "0.2.186"
@@ -75,7 +74,6 @@ ordered-float = "5.3.0"
 parking_lot = "0.12.5"
 picomux = { version = "0.1.18", path = "../../libraries/picomux" }
 pin-project = "1.1.11"
-pnet_packet = "0.35.0"
 prefix-trie = "0.7.0"
 psl = "2.1.206"
 rand = "0.8.6"
@@ -115,7 +113,6 @@ tokio-native-tls = "0.3.1"
 tower-service = "0.3.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json"] }
-tun = "0.6.1"
 x25519-dalek = { version = "2", default-features = false, features = ["serde"] }
 binary-search = "0.1.3"
 rlimit = "0.10.2"
@@ -123,11 +120,5 @@ async-channel = "2.5.0"
 native-tls = "0.2"
 tracing-oslog = "0.3.0"
 
-
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.9", features = [
-    "minwindef",
-    "mmsystem",
-    "timeapi",
-    "std",
-] }
+windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock"] }

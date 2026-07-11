@@ -9,10 +9,9 @@ use geph5_broker_protocol::{
 };
 use isocountry::CountryCode;
 use rand::seq::SliceRandom;
-use sillad::{
-    dialer::{DialerExt, DynDialer, FailingDialer},
-    tcp::TcpDialer,
-};
+use sillad::dialer::{DialerExt, DynDialer, FailingDialer};
+
+use crate::bound_dialer::BoundTcpDialer;
 use sillad_conntest::ConnTestDialer;
 use sillad_hex::HexDialer;
 use sillad_meeklike::MeeklikeDialer;
@@ -25,7 +24,6 @@ use crate::{
     device_metadata::get_device_metadata,
     dial_logging::logged,
     route_cache::{read_cached_exit_route, write_cached_exit_route},
-    vpn::smart_vpn_whitelist,
 };
 
 fn route_subtree_json(route: &RouteDescriptor) -> String {
@@ -56,7 +54,6 @@ pub async fn get_dialer(
             ping_count: 1,
             lower: Box::new(RouteDescriptor::Tcp(dest_addr)),
         };
-        smart_vpn_whitelist(ctx, dest_addr.ip());
         return Ok((
             pubkey,
             ExitDescriptor {
@@ -78,7 +75,7 @@ pub async fn get_dialer(
                         inner: logged(
                             "tcp",
                             route_subtree_json(&RouteDescriptor::Tcp(dest_addr)),
-                            TcpDialer { dest_addr },
+                            BoundTcpDialer { dest_addr },
                         )
                         .dynamic(),
                     },
@@ -189,7 +186,6 @@ fn dialer_from_exit_route(
         route,
     } = exit_route;
 
-    smart_vpn_whitelist(ctx, exit.c2e_listen.ip());
     tracing::debug!(exit = ?exit, "exit route obtained: {}", serde_json::to_string(&route)?);
 
     let combined_routes = combine_exit_route(exit.clone(), route, ctx.init().allow_direct);
@@ -245,12 +241,11 @@ fn route_to_dialer(ctx: &AnyCtx<Config>, route: &RouteDescriptor) -> DynDialer {
 
     match route {
         RouteDescriptor::Tcp(addr) => {
-            smart_vpn_whitelist(ctx, addr.ip());
             let addr = *addr;
             logged(
                 "tcp",
                 route_subtree_json(route),
-                TcpDialer { dest_addr: addr },
+                BoundTcpDialer { dest_addr: addr },
             )
             .dynamic()
         }
@@ -360,6 +355,7 @@ mod tests {
             pac_listen: None,
             control_listen: None,
             control_listen_unix: None,
+            control_listen_pipe: None,
             exit_constraint: ExitConstraint::Auto,
             allow_direct: false,
             cache: None,
@@ -367,10 +363,9 @@ mod tests {
             tunneled_broker: None,
             broker_keys: None,
             port_forward: vec![],
-            vpn: false,
-            vpn_fd: None,
             spoof_dns: false,
             passthrough_china: false,
+            allow_lan: true,
             dry_run: true,
             credentials: Default::default(),
             sess_metadata: serde_json::Value::Null,

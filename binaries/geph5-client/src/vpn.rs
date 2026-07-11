@@ -1,51 +1,31 @@
-//! This module provides functionality for setting up a system-level VPN.
-#[cfg(target_os = "linux")]
-mod linux;
+//! VPN plumbing for the stdio interface and the iOS/Android FFI.
+//!
+//! On desktop platforms, this module runs the IP stack and exposes channels
+//! for pushing packets in and pulling packets out. The stdio binary reads
+//! from / writes to stdin and stdout, while the iOS and Android apps drive
+//! the same channels through `send_pkt` / `recv_pkt` and (on Android) a
+//! `vpn_fd` file descriptor. There is no longer any platform-specific
+//! system-level packet capture here.
+
 use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 
 use ipstack_geph::{IpStack, IpStackConfig};
-#[cfg(target_os = "linux")]
-use linux::*;
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
-mod dummy;
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-use dummy::*;
-
-use std::{net::IpAddr, time::Instant};
+use std::time::Instant;
 
 use anyctx::AnyCtx;
 use anyhow::Context;
 use futures_concurrency::future::Race as _;
-use futures_util::TryFutureExt as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[cfg(target_os = "windows")]
-mod windows;
-#[cfg(target_os = "windows")]
-use windows::*;
-
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-pub use macos::*;
-
 use crate::{
-    Config, client::CtxField, litecopy::litecopy, session::open_conn, spoof_dns::fake_dns_respond,
+    client::CtxField, litecopy::litecopy, session::open_conn, spoof_dns::fake_dns_respond,
     taskpool::add_task,
 };
 
-/// Whitelist a vpn address if needed
-pub fn smart_vpn_whitelist(ctx: &AnyCtx<Config>, addr: IpAddr) {
-    if ctx.init().vpn {
-        vpn_whitelist(addr);
-    }
-}
-
 /// Force a particular packet to be sent through VPN mode, regardless of whether VPN mode is on.
-pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
+pub async fn send_vpn_packet(ctx: &AnyCtx<crate::Config>, bts: Bytes) {
     tracing::trace!(
         len = bts.len(),
         chan_len = ctx.get(VPN_CAPTURE_CHAN).0.len(),
@@ -59,7 +39,7 @@ pub async fn send_vpn_packet(ctx: &AnyCtx<Config>, bts: Bytes) {
 }
 
 /// Receive a packet from VPN mode, regardless of whether VPN mode is on.
-pub async fn recv_vpn_packet(ctx: &AnyCtx<Config>) -> Bytes {
+pub async fn recv_vpn_packet(ctx: &AnyCtx<crate::Config>) -> Bytes {
     ctx.get(VPN_INJECT_CHAN).1.recv().await.unwrap()
 }
 
@@ -69,7 +49,7 @@ static VPN_CAPTURE_CHAN: CtxField<(Sender<(Bytes, Instant)>, Receiver<(Bytes, In
 static VPN_INJECT_CHAN: CtxField<(Sender<Bytes>, Receiver<Bytes>)> =
     |_| async_channel::bounded(100);
 
-pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
+pub async fn vpn_loop(ctx: &AnyCtx<crate::Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = async_channel::bounded(100);
     let (send_injected, recv_injected) = async_channel::bounded(100);
 
@@ -89,17 +69,15 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
         recv_captured,
         send_injected,
     );
-    let _shuffle = if ctx.init().vpn {
-        geph5_rt::spawn(
-            packet_shuffle(ctx.clone(), send_captured, recv_injected)
-                .inspect_err(|e| tracing::warn!(e = debug(e), "packet_shuffle stopped")),
-        )
-    } else {
+    let _shuffle = {
         let ctx = ctx.clone();
         geph5_rt::spawn(async move {
             let up_loop = async {
                 loop {
-                    let (bts, time) = ctx.get(VPN_CAPTURE_CHAN).1.recv().await?;
+                    let (bts, time) = match ctx.get(VPN_CAPTURE_CHAN).1.recv().await {
+                        Ok(v) => v,
+                        Err(_) => break,
+                    };
 
                     tracing::trace!(
                         len = bts.len(),
@@ -107,15 +85,22 @@ pub async fn vpn_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         packet = display(hex::encode(&bts)),
                         "vpn shuffling up"
                     );
-                    send_captured.send(bts).await?;
+                    if send_captured.send(bts).await.is_err() {
+                        break;
+                    }
                 }
             };
             let dn_loop = async {
                 loop {
-                    let bts = recv_injected.recv().await?;
+                    let bts = match recv_injected.recv().await {
+                        Ok(v) => v,
+                        Err(_) => break,
+                    };
                     tracing::trace!(len = bts.len(), "vpn shuffling down");
 
-                    let _ = ctx.get(VPN_INJECT_CHAN).0.send(bts).await;
+                    if ctx.get(VPN_INJECT_CHAN).0.send(bts).await.is_err() {
+                        break;
+                    }
                 }
             };
             (up_loop, dn_loop).race().await

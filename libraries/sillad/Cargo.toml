@@ -17,3 +17,16 @@ rand = "0.8.6"
 socket2 = "0.5.10"
 tokio = { version = "1.52", features = ["net", "time", "io-util"] }
 tracing = "0.1.44"
+
+# Windows named pipes: tokio's named-pipe types implement tokio-io directly, so
+# no bridge is needed. windows-sys is only used for the raw CreateNamedPipeW +
+# security-descriptor setup that tokio's ServerOptions doesn't expose.
+[target.'cfg(windows)'.dependencies]
+tokio = { version = "1.52", features = ["net", "io-util"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+] }

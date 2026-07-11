@@ -4,19 +4,18 @@ use anyhow::Context;
 use bytes::Bytes;
 use futures_concurrency::future::Race as _;
 use futures_util::{FutureExt, TryFutureExt, future::Shared, task::noop_waker};
-use geph5_broker_protocol::{Credential, ExitConstraint, UserInfo};
+use geph5_broker_protocol::UserInfo;
 use geph5_misc_rpc::client_control::{ControlClient, ControlService};
 use geph5_rt::Immortal;
 use nanorpc::DynRpcTransport;
 use sillad::Pipe;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::sync::Arc;
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-use serde::{Deserialize, Serialize};
 
 use crate::{
     auth::{auth_loop, get_auth_token},
-    broker::{BrokerSource, TunneledBrokerSource, broker_client},
+    broker::broker_client,
     bw_token::bw_token_refresh_loop,
     control_prot::{ControlProtocolImpl, DummyControlProtocolTransport},
     http_proxy::http_proxy_serve,
@@ -28,75 +27,12 @@ use crate::{
     vpn::{recv_vpn_packet, send_vpn_packet, vpn_loop},
 };
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Config {
-    pub socks5_listen: Option<SocketAddr>,
-    pub http_proxy_listen: Option<SocketAddr>,
-    pub pac_listen: Option<SocketAddr>,
-
-    pub control_listen: Option<SocketAddr>,
-    #[serde(default)]
-    pub control_listen_unix: Option<PathBuf>,
-    pub exit_constraint: ExitConstraint,
-    #[serde(default)]
-    pub allow_direct: bool,
-
-    pub cache: Option<PathBuf>,
-
-    pub broker: Option<BrokerSource>,
-    #[serde(alias = "tunneled_broker_source")]
-    pub tunneled_broker: Option<TunneledBrokerSource>,
-    pub broker_keys: Option<BrokerKeys>,
-
-    #[serde(default)]
-    pub port_forward: Vec<PortForwardCfg>,
-
-    #[serde(default)]
-    pub vpn: bool,
-    #[serde(default)]
-    pub vpn_fd: Option<i32>,
-    #[serde(default)]
-    pub spoof_dns: bool,
-    #[serde(default)]
-    pub passthrough_china: bool,
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default)]
-    pub credentials: Credential,
-
-    #[serde(default)]
-    pub sess_metadata: serde_json::Value,
-    pub task_limit: Option<u32>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PortForwardCfg {
-    pub listen: SocketAddr,
-    pub connect: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-/// Broker keys, in hexadecimal format.
-pub struct BrokerKeys {
-    pub master: String,
-    pub mizaru_free: String,
-    pub mizaru_plus: String,
-    pub mizaru_bw: String,
-}
-
-impl Config {
-    /// Create an "inert" version of this config that does not start any processes.
-    pub fn inert(&self) -> Self {
-        let mut this = self.clone();
-        this.dry_run = true;
-        this.socks5_listen = None;
-        this.http_proxy_listen = None;
-        this.pac_listen = None;
-        this.control_listen = None;
-        this.control_listen_unix = None;
-        this
-    }
-}
+// `Config` and its broker-source descriptors live in `geph5-misc-rpc` so that
+// tools which only configure or drive an engine (the `geph` daemon/CLI) can
+// depend on that lightweight crate instead of this whole engine. Re-exported
+// here so `geph5_client::Config` etc. keep working. The behavior over
+// `BrokerSource` lives in `broker.rs` as extension traits.
+pub use geph5_misc_rpc::client_config::{BrokerKeys, Config};
 
 #[derive(Clone)]
 pub struct Client {
@@ -107,6 +43,13 @@ pub struct Client {
 impl Client {
     /// Starts the client logic in the loop, returning the handle.
     pub fn start(cfg: Config) -> Self {
+        Self::start_with_vpn_fd(cfg, None)
+    }
+
+    /// Starts the client logic in the loop with an optional platform-VPN file
+    /// descriptor wired into the VPN channels. The fd is consumed by this call.
+    #[cfg(unix)]
+    pub fn start_with_vpn_fd(cfg: Config, vpn_fd: Option<i32>) -> Self {
         let ctx = AnyCtx::new(cfg.clone());
         // Initialize logging once we have context so JSON logs go to SQLite
         let _ = logging::init_logging(&ctx);
@@ -119,8 +62,7 @@ impl Client {
         });
         tracing::info!("raised file descriptor limit to {}", fd_limit);
 
-        #[cfg(unix)]
-        if let Some(fd) = cfg.vpn_fd {
+        if let Some(fd) = vpn_fd {
             let ctx_clone = ctx.clone();
             geph5_rt::spawn(async move {
                 // Create an async file descriptor from the raw fd
@@ -137,12 +79,20 @@ impl Client {
                     loop {
                         match reader.read(&mut buf).await {
                             Ok(n) if n > 0 => {
+                                // macOS utun prepends a 4-byte address-family
+                                // header to every packet; strip it to recover the
+                                // raw IP packet the IP stack expects.
+                                #[cfg(target_os = "macos")]
+                                let pkt = {
+                                    if n <= 4 {
+                                        continue;
+                                    }
+                                    bytes::Bytes::copy_from_slice(&buf[4..n])
+                                };
+                                #[cfg(not(target_os = "macos"))]
+                                let pkt = bytes::Bytes::copy_from_slice(&buf[..n]);
                                 // Send the packet to the VPN
-                                send_vpn_packet(
-                                    &ctx_clone,
-                                    bytes::Bytes::copy_from_slice(&buf[..n]),
-                                )
-                                .await;
+                                send_vpn_packet(&ctx_clone, pkt).await;
                             }
                             Ok(0) => {
                                 // EOF
@@ -165,6 +115,22 @@ impl Client {
                         // Receive a packet from the VPN
                         let packet = recv_vpn_packet(&ctx_clone).await;
 
+                        // macOS utun expects a 4-byte address-family header before
+                        // the IP packet, written as a single datagram. Pick AF from
+                        // the IP version nibble (AF_INET=2, AF_INET6=30).
+                        #[cfg(target_os = "macos")]
+                        let packet = {
+                            let af: u32 = if packet.first().map(|b| b >> 4) == Some(6) {
+                                30
+                            } else {
+                                2
+                            };
+                            let mut framed = Vec::with_capacity(4 + packet.len());
+                            framed.extend_from_slice(&af.to_be_bytes());
+                            framed.extend_from_slice(&packet);
+                            bytes::Bytes::from(framed)
+                        };
+
                         // Write the packet to the file descriptor
                         if let Err(e) = writer.write_all(&packet).await {
                             tracing::error!("Error writing to VPN fd: {}", e);
@@ -185,6 +151,27 @@ impl Client {
             })
             .detach();
         }
+        let task = geph5_rt::spawn(client_main(ctx.clone()).map_err(Arc::new));
+        Client {
+            task: task.shared(),
+            ctx,
+        }
+    }
+
+    /// Starts the client logic in the loop. Non-Unix targets never get a VPN fd.
+    #[cfg(not(unix))]
+    pub fn start_with_vpn_fd(cfg: Config, _vpn_fd: Option<i32>) -> Self {
+        let ctx = AnyCtx::new(cfg.clone());
+        let _ = logging::init_logging(&ctx);
+        let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
+            if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
+                binary_search::Direction::Low(())
+            } else {
+                binary_search::Direction::High(())
+            }
+        });
+        tracing::info!("raised file descriptor limit to {}", fd_limit);
+
         let task = geph5_rt::spawn(client_main(ctx.clone()).map_err(Arc::new));
         Client {
             task: task.shared(),
@@ -275,7 +262,19 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         }
         std::future::pending().await
     };
-    let rpc_serve = (tcp_rpc_serve, unix_rpc_serve).race();
+    let pipe_rpc_serve = async {
+        #[cfg(windows)]
+        if let Some(name) = ctx.init().control_listen_pipe.as_ref() {
+            nanorpc_sillad::rpc_serve(
+                sillad::windows_pipe::NamedPipeListener::bind(name, None)?,
+                ControlService(ControlProtocolImpl { ctx: ctx.clone() }),
+            )
+            .await?;
+            return anyhow::Ok(());
+        }
+        std::future::pending().await
+    };
+    let rpc_serve = (tcp_rpc_serve, unix_rpc_serve, pipe_rpc_serve).race();
     if ctx.init().dry_run {
         rpc_serve.await
     } else {

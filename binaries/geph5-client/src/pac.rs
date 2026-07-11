@@ -42,7 +42,12 @@ async fn serve_pac(
     _req: Request<hyper::body::Incoming>,
     ctx: AnyCtx<Config>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
-    let pac_addr = ctx.init().http_proxy_listen.unwrap();
+    let mut pac_addr = ctx.init().http_proxy_listen.unwrap();
+    // A wildcard bind address is not a dialable address; the PAC is served to
+    // local browsers, so point them at loopback.
+    if pac_addr.ip().is_unspecified() {
+        pac_addr.set_ip(std::net::Ipv4Addr::LOCALHOST.into());
+    }
     Ok(Response::new(Full::new(Bytes::from(format!(
         "function FindProxyForURL(url, host){{return 'PROXY {}';}}",
         pac_addr

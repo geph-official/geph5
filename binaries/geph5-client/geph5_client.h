@@ -12,9 +12,13 @@
  * @brief Starts the Geph5 client with the provided configuration
  * 
  * @param cfg JSON string containing client configuration
+ * @param vpn_fd An already-open platform-VPN file descriptor to wire into the
+ *               daemon, or -1 if none should be attached. On non-Unix targets
+ *               this argument is ignored. The fd is taken over by the daemon
+ *               on success (do not close it on the caller side afterwards).
  * @return int 0 on success, non-zero on failure
  */
-int start_client(const char* cfg);
+int start_client(const char* cfg, int vpn_fd);
 
 /**
  * @brief Sends an RPC request to the daemon
