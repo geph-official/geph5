@@ -2,6 +2,9 @@
 name = "geph5-stats"
 version = "0.1.0"
 edition = "2024"
+description = "Serializable statistics types shared between the geph5 client and broker"
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

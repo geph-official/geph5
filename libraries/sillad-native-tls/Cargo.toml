@@ -1,15 +1,15 @@
 [package]
 name = "sillad-native-tls"
 edition = "2024"
-version = "0.2.14"
+version = "0.3.0"
 description = "A native-tls wrapper within the sillad framework"
 repository.workspace = true
 license.workspace = true
 
 [dependencies]
 async-trait = "0.1.89"
-geph5-rt = { version = "0.1", path = "../geph5-rt" }
-sillad = { version = "0.2", path = "../sillad" }
+geph5-rt = { version = "0.3", path = "../geph5-rt" }
+sillad = { version = "0.3", path = "../sillad" }
 native-tls={version="0.2.18", features=["vendored"]}
 tokio-native-tls = "0.3.1"
 tokio = { version = "1.52", features = ["io-util"] }

@@ -1,6 +1,6 @@
 [package]
 name = "picomux"
-version = "0.1.18"
+version = "0.2.0"
 edition = "2024"
 repository = "https://github.com/geph-official/geph5"
 license = "ISC"
@@ -14,7 +14,7 @@ bytes = "1.11.1"
 dashmap = "6.1.0"
 futures-util = "0.3.32"
 futures-concurrency = "7.7.1"
-geph5-rt = { version = "0.1", path = "../geph5-rt" }
+geph5-rt = { version = "0.3", path = "../geph5-rt" }
 tokio = { version = "1.52", features = ["io-util", "time"] }
 oneshot = "0.1.13"
 parking_lot = "0.12.5"
@@ -26,7 +26,7 @@ tracing-test = "0.2.6"
 tap = "1.0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-sillad = { version = "0.2", path = "../sillad" }
+sillad = { version = "0.3", path = "../sillad" }
 futures-intrusive = "0.5.0"
 async-channel = "2.5.0"
 pin-project = "1.1.11"

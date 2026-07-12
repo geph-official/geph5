@@ -13,11 +13,11 @@ path = "src/main.rs"
 [dependencies]
 geph5-broker-protocol = { version = "0.3", path = "../../libraries/geph5-broker-protocol" }
 geph5-misc-rpc = { version = "0.3", path = "../../libraries/geph5-misc-rpc" }
-geph5-rt = { path = "../../libraries/geph5-rt" }
+geph5-rt = { version = "0.3", path = "../../libraries/geph5-rt" }
 
 nanorpc = "0.1.13"
-nanorpc-sillad = { version = "0.1", path = "../../libraries/nanorpc-sillad" }
-sillad = { version = "0.2.10", path = "../../libraries/sillad" }
+nanorpc-sillad = { version = "0.2", path = "../../libraries/nanorpc-sillad" }
+sillad = { version = "0.3", path = "../../libraries/sillad" }
 
 anyhow = "1.0.102"
 async-trait = "0.1.89"

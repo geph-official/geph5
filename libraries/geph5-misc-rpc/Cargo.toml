@@ -19,8 +19,8 @@ bytes = { version = "1.11.1", features = ["serde"] }
 ed25519-dalek = {version="2", default-features=false, features=["serde"]}
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
 blake3 = { version = "1.8.5", features = ["serde"] }
-sillad = { version="0.2", path = "../sillad" }
-geph5-rt = { version = "0.1", path = "../geph5-rt" }
+sillad = { version="0.3", path = "../sillad" }
+geph5-rt = { version = "0.3", path = "../geph5-rt" }
 tokio = { version = "1.52", features = ["io-util"] }
 chacha20poly1305 = "0.10.1"
 smallvec = "1.15.1"
@@ -29,4 +29,4 @@ pin-project = "1.1.11"
 socksv5 = "0.3"
 tachyonix = "0.3.1"
 geph5-broker-protocol = { version="0.3", path = "../geph5-broker-protocol" }
-sillad-meeklike = {version="0.1", path="../sillad-meeklike"}
+sillad-meeklike = {version="0.2", path="../sillad-meeklike"}

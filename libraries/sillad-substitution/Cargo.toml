@@ -9,6 +9,6 @@ license.workspace = true
 [dependencies]
 async-trait = "0.1.89"
 pin-project = "1.1.11"
-sillad = { version = "0.2", path = "../sillad" }
-geph5-rt = { version = "0.1", path = "../geph5-rt" }
+sillad = { version = "0.3", path = "../sillad" }
+geph5-rt = { version = "0.3", path = "../geph5-rt" }
 tokio = { version = "1.52", features = ["io-util"] }

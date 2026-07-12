@@ -1,7 +1,7 @@
 [package]
 name = "sillad-meeklike"
 edition = "2024"
-version = "0.1.3"
+version = "0.2.0"
 description = "A meek-like HTTP polling protocol within the sillad framework"
 repository.workspace = true
 license.workspace = true
@@ -17,7 +17,7 @@ chacha20poly1305 = {version="0.10.1", features=["reduced-round"]}
 dashmap = "5.5.3"
 event-listener = "5.4.1"
 futures-concurrency = "7.7.1"
-geph5-rt = { version = "0.1", path = "../geph5-rt" }
+geph5-rt = { version = "0.3", path = "../geph5-rt" }
 hex = "0.4.3"
 http-body-util = "0.1.3"
 hyper = { version = "1.9.0", features = ["http1", "client", "server"] }
@@ -27,7 +27,7 @@ pin-project = "1.1.11"
 rand = "0.8.6"
 scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
-sillad = { version = "0.2", path = "../sillad" }
+sillad = { version = "0.3", path = "../sillad" }
 stdcode = "0.1.14"
 tokio = { version = "1.52", features = ["io-util", "time"] }
 tokio-util = { version = "0.7", features = ["compat"] }

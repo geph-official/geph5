@@ -1,6 +1,6 @@
 [package]
 name = "geph5-rt"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "tokio-based runtime helpers for geph5: cancel-on-drop tasks, immortal/respawn loops, a task reaper, a timeout combinator, and buffer-pooled reads"
 repository.workspace = true

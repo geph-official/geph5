@@ -2,7 +2,7 @@
 name = "sillad-sosistab3"
 edition = "2024"
 description = "A scramblesuit-like obfuscation protocol within the sillad framework"
-version = "0.2.18"
+version = "0.3.0"
 repository.workspace = true
 license.workspace = true
 
@@ -12,8 +12,8 @@ blake3 = "1.8.5"
 chacha20poly1305 = "0.10.1"
 rand = "0.8.6" 
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
-sillad = { version = "0.2", path = "../sillad" }
-geph5-rt = { version = "0.1", path = "../geph5-rt" }
+sillad = { version = "0.3", path = "../sillad" }
+geph5-rt = { version = "0.3", path = "../geph5-rt" }
 tokio = { version = "1.52", features = ["io-util", "time"] }
 pin-project = "1.1.11"
 smallvec = "1.15.1"
