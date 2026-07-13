@@ -1,6 +1,6 @@
 [package]
 name = "geph5-stats"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Serializable statistics types shared between the geph5 client and broker"
 repository.workspace = true
