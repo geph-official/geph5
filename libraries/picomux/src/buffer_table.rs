@@ -1,6 +1,10 @@
 use std::{
+    collections::HashMap,
     hash::BuildHasherDefault,
-    sync::{Arc, Mutex, OnceLock, Weak},
+    sync::{
+        Arc, Mutex, OnceLock, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -26,10 +30,30 @@ struct RegistryEntry {
     tombstones: Weak<Tombstones>,
 }
 
-static REGISTRY: OnceLock<Mutex<Vec<RegistryEntry>>> = OnceLock::new();
+/// Registry of live buffer tables, keyed by a unique table id so an entry can be
+/// removed the moment its table is gone. Previously this was an append-only `Vec`
+/// pruned only inside `global_buffer_table_stats()`; a process that never called
+/// that (any client) leaked one entry per mux for its whole lifetime.
+static REGISTRY: OnceLock<Mutex<HashMap<u64, RegistryEntry>>> = OnceLock::new();
+static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(0);
 
-fn registry() -> &'static Mutex<Vec<RegistryEntry>> {
-    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+fn registry() -> &'static Mutex<HashMap<u64, RegistryEntry>> {
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Removes a table's registry entry when the last `BufferTable` clone is dropped.
+/// Held in an `Arc` inside `BufferTable`, so registration is reference-counted
+/// across clones and cleaned up deterministically rather than lazily.
+struct RegistrationGuard {
+    id: u64,
+}
+
+impl Drop for RegistrationGuard {
+    fn drop(&mut self) {
+        if let Some(reg) = REGISTRY.get() {
+            reg.lock().unwrap().remove(&self.id);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -42,22 +66,22 @@ pub struct GlobalBufferTableStats {
 }
 
 pub fn global_buffer_table_stats() -> GlobalBufferTableStats {
-    let mut guard = registry().lock().unwrap();
+    let guard = registry().lock().unwrap();
     let mut stats = GlobalBufferTableStats::default();
-    guard.retain(|entry| {
-        let Some(inner) = entry.inner.upgrade() else {
-            return false;
-        };
-        let Some(tombstones) = entry.tombstones.upgrade() else {
-            return false;
+    for entry in guard.values() {
+        // Entries are removed on table drop, so the weaks normally upgrade; skip
+        // any caught mid-drop rather than counting a dead table.
+        let (Some(inner), Some(tombstones)) =
+            (entry.inner.upgrade(), entry.tombstones.upgrade())
+        else {
+            continue;
         };
         stats.live_tables += 1;
         stats.active_streams += inner.len();
         stats.active_stream_capacity += inner.capacity();
         stats.tombstones += tombstones.len();
         stats.tombstone_capacity += tombstones.capacity();
-        true
-    });
+    }
     stats
 }
 
@@ -67,6 +91,8 @@ pub struct BufferTable {
     inner: Arc<Inner>,
     tombstones: Arc<Tombstones>,
     next_prune: Arc<parking_lot::Mutex<Instant>>,
+    // Deregisters this table from REGISTRY when the last clone drops.
+    _registration: Arc<RegistrationGuard>,
 }
 
 impl BufferTable {
@@ -77,16 +103,21 @@ impl BufferTable {
         let tombstones = Arc::new(DashMap::with_hasher(
             BuildHasherDefault::<AHasher>::default(),
         ));
-        registry().lock().unwrap().push(RegistryEntry {
-            inner: Arc::downgrade(&inner),
-            tombstones: Arc::downgrade(&tombstones),
-        });
+        let id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
+        registry().lock().unwrap().insert(
+            id,
+            RegistryEntry {
+                inner: Arc::downgrade(&inner),
+                tombstones: Arc::downgrade(&tombstones),
+            },
+        );
         Self {
             inner,
             tombstones,
             next_prune: Arc::new(parking_lot::Mutex::new(
                 Instant::now() + TOMBSTONE_PRUNE_INTERVAL,
             )),
+            _registration: Arc::new(RegistrationGuard { id }),
         }
     }
 
