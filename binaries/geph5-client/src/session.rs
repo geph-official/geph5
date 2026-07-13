@@ -100,7 +100,13 @@ pub async fn open_conn(
         dest_addr.to_string()
     };
 
-    if let Some((dest_host, _)) = dest_addr.rsplit_once(":")
+    // Whitelisted (China/LAN) passthrough bypasses the tunnel with a direct
+    // connection. It is only valid for TCP: `connect_addrs` opens a TCP socket,
+    // so routing a UDP flow here would frame datagrams into a byte stream the
+    // peer never understands. UDP to a whitelisted host falls through to the
+    // tunnel instead.
+    if protocol == "tcp"
+        && let Some((dest_host, _)) = dest_addr.rsplit_once(":")
         && whitelist_host(ctx, dest_host)
     {
         let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&dest_addr).await?.collect();
@@ -301,9 +307,16 @@ async fn session_worker(ctx: AnyCtx<Config>, worker_id: usize) -> Infallible {
 }
 
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
-    if host.is_empty() || host.contains("[") {
+    if host.is_empty() {
         return false;
     }
+    // Callers pass IPv6 literals bracketed (e.g. "[fd00::5]"); strip the
+    // brackets so `IpAddr::from_str` below can parse them. Without this the
+    // allow_lan IPv6 arms were unreachable and IPv6 LAN traffic was tunneled.
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
     if ctx.init().passthrough_china && is_chinese_host(host) {
         return true;
     }
