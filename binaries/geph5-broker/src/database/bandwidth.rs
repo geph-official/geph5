@@ -1,40 +1,64 @@
 use geph5_broker_protocol::BwConsumptionInfo;
 use mizaru2::ClientToken;
 use sha2::{Digest, Sha256};
+use tokio::sync::OnceCell;
 
 use super::POSTGRES;
 
-/// Ensure the `spent_bw_tokens` table exists. Idempotent.
+/// Ensure the `spent_bw_tokens` table exists. Runs at most once per process,
+/// rather than on every redemption (the previous per-call DDL added a catalog
+/// round-trip to the hot path).
 async fn ensure_spent_bw_tokens_schema() -> anyhow::Result<()> {
-    sqlx::query(
-        r#"CREATE TABLE IF NOT EXISTS spent_bw_tokens (
-            token_hash bytea primary key,
-            consumed_at timestamptz not null default now()
-        )"#,
-    )
-    .execute(&*POSTGRES)
-    .await?;
-    Ok(())
+    static DONE: OnceCell<()> = OnceCell::const_new();
+    DONE.get_or_try_init(|| async {
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS spent_bw_tokens (
+                token_hash bytea primary key,
+                consumed_at timestamptz not null default now()
+            )"#,
+        )
+        .execute(&*POSTGRES)
+        .await?;
+        anyhow::Ok(())
+    })
+    .await
+    .copied()
 }
 
 /// Record a bandwidth token as spent. Returns `Ok(true)` if this is the first
 /// time the token is seen (i.e. it is fresh and should be credited), and
 /// `Ok(false)` if the token has already been consumed (a replay that must be
 /// rejected).
+///
+/// A transient database error is retried a few times before giving up, so a
+/// momentary hiccup (deadlock, pool timeout) does not get reported to the exit
+/// as a permanent rejection — which would burn a legitimate, unspent token.
 pub async fn record_spent_bw_token(token: ClientToken) -> anyhow::Result<bool> {
     ensure_spent_bw_tokens_schema().await?;
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     let token_hash: Vec<u8> = hasher.finalize().to_vec();
-    let inserted: Option<(Vec<u8>,)> = sqlx::query_as(
-        "INSERT INTO spent_bw_tokens (token_hash) VALUES ($1)
-         ON CONFLICT (token_hash) DO NOTHING
-         RETURNING token_hash",
-    )
-    .bind(&token_hash)
-    .fetch_optional(&*POSTGRES)
-    .await?;
-    Ok(inserted.is_some())
+
+    let mut last_err = None;
+    for attempt in 0..3 {
+        match sqlx::query_as::<_, (Vec<u8>,)>(
+            "INSERT INTO spent_bw_tokens (token_hash) VALUES ($1)
+             ON CONFLICT (token_hash) DO NOTHING
+             RETURNING token_hash",
+        )
+        .bind(&token_hash)
+        .fetch_optional(&*POSTGRES)
+        .await
+        {
+            Ok(inserted) => return Ok(inserted.is_some()),
+            Err(err) => {
+                tracing::warn!(attempt, error = %err, "transient error recording spent bw token, retrying");
+                last_err = Some(err);
+                tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt + 1))).await;
+            }
+        }
+    }
+    Err(last_err.unwrap().into())
 }
 
 pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumptionInfo>> {

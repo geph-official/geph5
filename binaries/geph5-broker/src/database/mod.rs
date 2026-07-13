@@ -45,12 +45,13 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
             .execute(&*POSTGRES)
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
-        let res = sqlx::query(
-            "delete from spent_bw_tokens where consumed_at < now() - interval '7 days'",
-        )
-        .execute(&*POSTGRES)
-        .await?;
-        tracing::debug!(rows_affected = res.rows_affected(), "cleaned up spent bw tokens");
+        // NOTE: spent_bw_tokens is intentionally never garbage-collected. The
+        // bandwidth tokens are blind-signed by a single, non-rotating key and
+        // carry no epoch/expiry, so a (token, sig) pair stays valid forever.
+        // Pruning the spent-record therefore reopens replay: an old token could
+        // be redeemed again once its row disappeared. The record must live at
+        // least as long as the token is honored — i.e. forever, until the
+        // signing key rotates.
         if rand::random::<f64>() < 0.001 {
             sqlx::query("vacuum full exits_new")
                 .execute(&*POSTGRES)
