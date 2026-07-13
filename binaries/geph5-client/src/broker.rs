@@ -1,5 +1,5 @@
-mod bind_forward;
-mod fronted_http;
+pub(crate) mod bind_forward;
+pub(crate) mod fronted_http;
 mod priority_race;
 mod race;
 mod tunneled_http;

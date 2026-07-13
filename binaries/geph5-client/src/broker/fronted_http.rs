@@ -110,7 +110,11 @@ fn random_padding_header() -> String {
     BASE64_STANDARD_NO_PAD.encode(bytes)
 }
 
-struct OverrideDnsResolve(Vec<SocketAddr>);
+/// A `reqwest` DNS resolver that returns a fixed set of `SocketAddr`s regardless
+/// of the name. reqwest honours the port in the returned addresses when the URL
+/// carries no explicit port, which is how callers point a client at the loopback
+/// forwarder (or at fixed override-DNS addresses). Reused by the device-IP probe.
+pub(crate) struct OverrideDnsResolve(pub(crate) Vec<SocketAddr>);
 
 impl Resolve for OverrideDnsResolve {
     fn resolve(&self, _name: reqwest::dns::Name) -> reqwest::dns::Resolving {

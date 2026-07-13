@@ -49,11 +49,32 @@ async fn fetch_ip_from_service() -> anyhow::Result<String> {
 
     let _guard = SEMAPH.acquire().await.unwrap();
     // we MUST use ipv4 here, because the server cannot handle Ipv6 addresses yet
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .local_address(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
         .no_proxy()
-        .timeout(Duration::from_secs(5))
-        .build()?;
+        .timeout(Duration::from_secs(5));
+
+    // In full-tunnel VPN mode the OS default route points into the tun, so an
+    // ordinary socket to checkip would report the *exit's* IP, not the device's.
+    // Route it through the same bound loopback forwarder the broker uses, whose
+    // upstream is dialed on the physical NIC — so we observe the real device IP.
+    // (On Linux the engine's own sockets already bypass the tun by uid, so the
+    // binding env is unset and this branch is skipped.)
+    if crate::bound_dialer::binding_active() {
+        let dests: Vec<std::net::SocketAddr> = tokio::net::lookup_host("checkip.amazonaws.com:443")
+            .await?
+            .filter(|a| a.is_ipv4())
+            .collect();
+        anyhow::ensure!(!dests.is_empty(), "could not resolve checkip over the tunnel");
+        let loopback = crate::broker::bind_forward::forward_addrs(dests)
+            .await
+            .context("could not set up device-ip egress forwarder")?;
+        builder = builder.dns_resolver(std::sync::Arc::new(
+            crate::broker::fronted_http::OverrideDnsResolve(vec![loopback]),
+        ));
+    }
+
+    let client = builder.build()?;
     let response = client
         .get("https://checkip.amazonaws.com")
         .send()
