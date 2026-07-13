@@ -102,20 +102,42 @@ impl BwAccount {
     pub async fn credit_bw(&self, token: ClientToken, sig: SingleUnblindedSignature) {
         if let Some(broker) = &CONFIG_FILE.wait().broker {
             let mut delay = Duration::from_secs(1);
+            // Whether an earlier attempt reached the broker ambiguously: a
+            // transport error or timeout that may have committed the spend on
+            // the broker before its response was lost. `consume_bw_token` is at
+            // most once (the broker rejects a second submission of the same
+            // token), so if a later attempt comes back "already spent" *after*
+            // such an ambiguous failure, that rejection is our own earlier
+            // submission landing — not a replay — and we must still credit.
+            // Without this, every lost response silently burns a paid token.
+            let mut ambiguous_prior = false;
             for attempt in 0..4 {
                 let transport = BrokerRpcTransport::new(&broker.url);
                 let client = BrokerClient(transport);
                 match client.consume_bw_token(token, sig.clone()).await {
                     Ok(Ok(())) => break,
                     Ok(Err(err)) => {
-                        // The broker rejected the token (e.g. double spend):
-                        // retrying cannot help, and crediting would be wrong.
+                        if ambiguous_prior {
+                            // A prior attempt may have committed this token before
+                            // we lost its response; crediting completes that
+                            // at-most-once redemption rather than double-spending.
+                            tracing::debug!(
+                                err = debug(err),
+                                "bw token reported spent after an ambiguous retry; crediting our own earlier submission"
+                            );
+                            break;
+                        }
+                        // First clean contact with the broker rejected the token
+                        // (genuine double spend): retrying cannot help, and
+                        // crediting would be wrong.
                         tracing::warn!(err = debug(err), "broker rejected bw token, not crediting");
                         return;
                     }
                     Err(err) => {
-                        // Transport-level failure: the broker may just be
-                        // having a moment. Retry with backoff.
+                        // Transport-level failure: the broker may just be having
+                        // a moment — but it may also have committed the spend
+                        // before we lost the response. Remember that, then retry.
+                        ambiguous_prior = true;
                         if attempt == 3 {
                             tracing::warn!(
                                 err = debug(err),
