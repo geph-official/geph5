@@ -92,12 +92,6 @@ pub trait BrokerProtocol {
     /// Reports a batch of stats, authenticated with the bridge or exit token.
     async fn report_stats(&self, stats: Mac<Vec<StatEvent>>) -> Result<(), GenericError>;
 
-    /// Deprecated, unauthenticated; kept for old fleet members. Use report_stats instead.
-    async fn incr_stat(&self, stat: String, value: i32);
-
-    /// Deprecated, unauthenticated; kept for old fleet members. Use report_stats instead.
-    async fn set_stat(&self, stat: String, value: f64);
-
     async fn upload_available(&self, data: AvailabilityData);
 
     async fn get_puzzle(&self) -> (String, u16);

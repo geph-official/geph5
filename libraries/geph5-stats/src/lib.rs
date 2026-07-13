@@ -130,12 +130,6 @@ impl StatsdUdpSink {
             let _ = self.sock.send_to(buf.as_bytes(), self.dest);
         }
     }
-
-    /// Sends a raw, classic (untagged) statsd line. Used for backwards compatibility
-    /// with the legacy set_stat/incr_stat paths during the fleet transition.
-    pub fn send_raw_line(&self, line: &str) {
-        let _ = self.sock.send_to(line.as_bytes(), self.dest);
-    }
 }
 
 /// Accumulates stats locally so that semi-trusted nodes (bridges, exits) can ship

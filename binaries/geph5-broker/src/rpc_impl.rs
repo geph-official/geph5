@@ -316,6 +316,38 @@ fn exit_rendezvous_score(rendezvous_key: blake3::Hash, exit: &ExitDescriptor) ->
 /// How long the broker waits for a TCP connection when sanity-checking an exit's listeners.
 const EXIT_SANITY_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Whether `ip` is a public, globally-routable unicast address. The exit
+/// sanity-check dials addresses that the (semi-trusted) exit fully controls, so
+/// anything that is not public — loopback, private/RFC1918, CGNAT, link-local,
+/// ULA, multicast, unspecified — must be refused. Otherwise a malicious exit
+/// could aim the broker's connect at internal services (SSRF).
+fn is_public_routable(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || v4.is_unspecified()
+                // 100.64.0.0/10 (CGNAT / RFC 6598)
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 0x40)
+                // 0.0.0.0/8 (this network)
+                || v4.octets()[0] == 0)
+        }
+        IpAddr::V6(v6) => {
+            !(v6.is_loopback()
+                || v6.is_multicast()
+                || v6.is_unspecified()
+                // fc00::/7 unique-local
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                // fe80::/10 link-local
+                || (v6.segments()[0] & 0xffc0) == 0xfe80)
+        }
+    }
+}
+
 /// Minimally sanity-check that an exit is actually reachable before adding it to the list, by
 /// opening a plain TCP connection to each of its advertised listening ports. Returns an error if
 /// any of them cannot be connected to, so a broken or unreachable exit never makes it into the DB.
@@ -324,6 +356,11 @@ async fn sanity_check_exit(descriptor: &ExitDescriptor) -> Result<(), GenericErr
         ("c2e_listen", descriptor.c2e_listen),
         ("b2e_listen", descriptor.b2e_listen),
     ] {
+        if !is_public_routable(addr.ip()) {
+            return Err(GenericError(format!(
+                "exit {label} at {addr} is not a publicly-routable address; refusing to connect"
+            )));
+        }
         match tokio::net::TcpStream::connect(addr)
             .timeout(EXIT_SANITY_CHECK_TIMEOUT)
             .await
@@ -840,20 +877,6 @@ impl BrokerProtocol for BrokerImpl {
             sink.send_many(&events);
         }
         Ok(())
-    }
-
-    // Legacy untagged stats from not-yet-upgraded fleet members; the classic
-    // "geph5."-prefixed lines are what the old Telegraf templates parse.
-    async fn incr_stat(&self, stat: String, value: i32) {
-        if let Some(sink) = STATS_SINK.as_ref() {
-            sink.send_raw_line(&format!("geph5.{stat}:{value}|c"));
-        }
-    }
-
-    async fn set_stat(&self, stat: String, value: f64) {
-        if let Some(sink) = STATS_SINK.as_ref() {
-            sink.send_raw_line(&format!("geph5.{stat}:{value}|g"));
-        }
     }
 
     async fn upload_available(&self, data: AvailabilityData) {
