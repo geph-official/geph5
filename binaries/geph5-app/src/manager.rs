@@ -61,8 +61,18 @@ impl ManagerImpl {
     pub async fn start() -> anyhow::Result<Self> {
         // Purge any VPN state stranded by a prior crash / `kill -9` (whose Drop
         // never ran), so we never start on a half-configured, blackholed machine.
+        // Runs regardless of the persisted state — in particular when we start
+        // disconnected/proxy, where nothing else would ever remove a stranded
+        // Linux nft kill switch (its catch-all drop would blackhole the host).
         #[cfg(target_os = "macos")]
         vpn::cleanup_stale();
+        #[cfg(all(unix, not(target_os = "macos")))]
+        vpn::teardown();
+        // Windows: the WFP kill switch is non-dynamic (survives a manager crash to
+        // stay fail-closed), so a restart in a disconnected state must purge it or
+        // the host stays blackholed.
+        #[cfg(windows)]
+        vpn::cleanup_stale_startup();
         let settings = Settings::load()?;
         let this = ManagerImpl {
             inner: std::sync::Arc::new(Mutex::new(Inner {
@@ -102,8 +112,13 @@ impl ManagerImpl {
         // Run it as the service user (like the tunnel engine) so its broker
         // traffic is unmarked and the VPN kill switch lets it out. (No service
         // user on Windows — loop prevention there is socket binding, not uid.)
+        //
+        // Fail closed: this engine is network-facing (it makes broker RPCs over
+        // fronted TLS), so it must never fall back to running as root. If the
+        // unprivileged service user cannot be established, don't start it.
         #[cfg(unix)]
-        let service_user = vpn::ensure_service_user().ok();
+        let service_user =
+            Some(vpn::ensure_service_user().map_err(|e| format!("vpn service user: {e:#}"))?);
         #[cfg(windows)]
         let service_user: Option<(u32, u32)> = None;
         let child = supervisor::spawn_query(service_user).map_err(|e| format!("{e:?}"))?;
@@ -116,13 +131,28 @@ impl ManagerImpl {
     /// Bring the **tunnel** engine into line with `settings.connected`: kill any
     /// existing one, reconcile the VPN tunnel/kill-switch, then (if connected)
     /// spawn a fresh tunnel engine. The query engine is untouched.
+    ///
+    /// `force_vpn_rebuild` tears down and re-creates the live VPN handle even if
+    /// one already exists — used when the physical network changed and the
+    /// routes/pin are stale. The old handle is kept up through the slow steps
+    /// (child kill, config build) and swapped only inside `reconcile_vpn`, so the
+    /// kill switch is never lifted for longer than the back-to-back teardown+setup.
     async fn reconcile_tunnel(inner: &mut Inner) -> Result<(), String> {
+        Self::reconcile_tunnel_inner(inner, false).await
+    }
+
+    async fn reconcile_tunnel_inner(
+        inner: &mut Inner,
+        force_vpn_rebuild: bool,
+    ) -> Result<(), String> {
         // Kill the tunnel FIRST, before reconcile_vpn possibly tears the tun
         // device down. Otherwise the still-running engine's read on the tun fd
         // fails with EBADFD ("File descriptor in bad state") as the device
         // vanishes, logging a spurious error on every disconnect.
         if let Some(child) = inner.tunnel.take() {
-            supervisor::kill_child(child);
+            // Reaping waits on the child (a blocking syscall); do it off the
+            // async runtime so it can't stall a reactor worker.
+            geph5_rt::spawn_blocking(move || supervisor::kill_child(child)).await;
         }
         // Windows: stop the old packet pump (closing its WinTUN session and
         // joining its threads) before reconciling the device. The device,
@@ -136,14 +166,20 @@ impl ManagerImpl {
         let pre_resolve_broker_fronts =
             inner.settings.connected && inner.settings.vpn && inner.vpn.is_none();
         let tunnel_config = if inner.settings.connected {
-            Some(
-                supervisor::build_tunnel_config(&inner.settings, pre_resolve_broker_fronts)
-                    .map_err(|e| format!("{e:#}"))?,
-            )
+            // build_tunnel_config resolves fronted-broker DNS with a blocking
+            // getaddrinfo; run it off the async runtime so a slow resolver can't
+            // starve a reactor worker.
+            let settings = inner.settings.clone();
+            let cfg = geph5_rt::spawn_blocking(move || {
+                supervisor::build_tunnel_config(&settings, pre_resolve_broker_fronts)
+            })
+            .await
+            .map_err(|e| format!("{e:#}"))?;
+            Some(cfg)
         } else {
             None
         };
-        let service_user = reconcile_vpn(inner)?;
+        let service_user = reconcile_vpn(inner, force_vpn_rebuild)?;
         if !inner.settings.connected {
             return Ok(());
         }
@@ -224,8 +260,15 @@ impl ManagerImpl {
 /// Bring the VPN tunnel/kill-switch into line with the desired state
 /// (`connected && vpn`). On Unix it also resolves the service user the child runs
 /// as; on Windows there is no service user (it returns `None`).
-fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
+fn reconcile_vpn(inner: &mut Inner, force_vpn_rebuild: bool) -> Result<Option<(u32, u32)>, String> {
     let want_vpn = inner.settings.connected && inner.settings.vpn;
+    // A forced rebuild drops the existing handle here, immediately before setup
+    // re-creates it — so the kill switch is only down for the back-to-back
+    // teardown+setup rather than the whole reconcile. Dropping restores real DNS
+    // before setup re-captures it, keeping the DNS backup correct.
+    if want_vpn && force_vpn_rebuild {
+        let _ = inner.vpn.take();
+    }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         if want_vpn {
@@ -241,8 +284,11 @@ fn reconcile_vpn(inner: &mut Inner) -> Result<Option<(u32, u32)>, String> {
             if inner.vpn.take().is_some() {
                 vpn::teardown();
             }
-            // Best-effort: still run the child unprivileged in proxy mode.
-            Ok(vpn::ensure_service_user().ok())
+            // Fail closed: the proxy-mode tunnel engine is network-facing, so it
+            // must run unprivileged rather than silently falling back to root.
+            Ok(Some(
+                vpn::ensure_service_user().map_err(|e| format!("vpn service user: {e:#}"))?,
+            ))
         }
     }
     #[cfg(target_os = "macos")]
@@ -490,85 +536,60 @@ impl GephCtlProtocol for ManagerImpl {
         })
     }
 
+    // Setters below only persist the new value. A settings change never mutates
+    // the live tunnel/VPN/proxy state; it takes effect on the next `connect` or
+    // `reconnect`. This keeps a single, well-defined moment where the tunnel,
+    // the kill-switch firewall, and the system proxy are all (re)built together
+    // from a consistent snapshot — avoiding mid-session states where e.g. the
+    // firewall's allow_lan rules diverge from settings, or turning VPN off tears
+    // down routing while the session still reports connected.
+
     async fn set_exit_constraint(
         &self,
         constraint: geph5_broker_protocol::ExitConstraint,
     ) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        tracing::debug!(?constraint, "setting changed: exit_constraint");
+        tracing::debug!(?constraint, "setting changed: exit_constraint (applies on next connect)");
         inner.settings.exit_constraint = constraint;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
-        // Only the connected child needs restarting; a disconnected one rebuilds
-        // from settings on the next connect().
-        if inner.settings.connected {
-            Self::reconcile_tunnel(&mut inner).await?;
-        }
         Ok(())
     }
 
     async fn set_proxy_settings(
         &self,
         proxy: Option<ProxySettings>,
-        session: SessionContext,
+        _session: SessionContext,
     ) -> Result<(), String> {
-        let apply = {
-            let mut inner = self.inner.lock().await;
-            // The GUI pushes all settings before every connect; skip the tunnel
-            // restart (and proxy churn) when nothing actually changed.
-            if inner.settings.proxy == proxy {
-                None
-            } else {
-                tracing::debug!(?proxy, "setting changed: proxy");
-                inner.settings.proxy = proxy;
-                inner.settings.save().map_err(|e| format!("{e:?}"))?;
-                if inner.settings.connected {
-                    // Rebinds (or unbinds) the proxy listeners with the new config.
-                    Self::reconcile_tunnel(&mut inner).await?;
-                    Some(wants_auto_proxy(&inner.settings) && !inner.settings.vpn)
-                } else {
-                    None
-                }
-            }
-        };
-        // Reflect the change in the live system proxy: enabling sets it for the
-        // caller's session, disabling (or turning the proxy off) clears it.
-        if let Some(on) = apply {
-            apply_proxy(session, on).await;
+        let mut inner = self.inner.lock().await;
+        if inner.settings.proxy != proxy {
+            tracing::debug!(?proxy, "setting changed: proxy (applies on next connect)");
+            inner.settings.proxy = proxy;
+            inner.settings.save().map_err(|e| format!("{e:?}"))?;
         }
         Ok(())
     }
 
     async fn set_vpn_mode(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        tracing::debug!(enabled, "setting changed: vpn");
+        tracing::debug!(enabled, "setting changed: vpn (applies on next connect)");
         inner.settings.vpn = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
-        // reconcile_tunnel reconciles the VPN tunnel/kill-switch with settings.vpn.
-        if inner.settings.connected {
-            Self::reconcile_tunnel(&mut inner).await?;
-        }
         Ok(())
     }
 
     async fn set_allow_lan(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        tracing::debug!(enabled, "setting changed: allow_lan");
+        tracing::debug!(enabled, "setting changed: allow_lan (applies on next connect)");
         inner.settings.allow_lan = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
-        if inner.settings.connected {
-            Self::reconcile_tunnel(&mut inner).await?;
-        }
         Ok(())
     }
 
     async fn set_allow_direct(&self, enabled: bool) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
-        tracing::debug!(enabled, "setting changed: allow_direct");
+        tracing::debug!(enabled, "setting changed: allow_direct (applies on next connect)");
         inner.settings.allow_direct = enabled;
         inner.settings.save().map_err(|e| format!("{e:?}"))?;
-        if inner.settings.connected {
-            Self::reconcile_tunnel(&mut inner).await?;
-        }
         Ok(())
     }
 
@@ -745,9 +766,47 @@ pub async fn run_manager() -> anyhow::Result<()> {
                     }
                     vpn::VpnAction::Rebuild => {
                         tracing::warn!("physical network changed; rebuilding VPN");
-                        inner.vpn = None; // drop → tear down stale routes/kill-switch
-                        let _ = ManagerImpl::reconcile_tunnel(&mut inner).await;
+                        // Do NOT drop the handle here: keep the old kill switch up
+                        // through the child kill and config build. reconcile swaps
+                        // the VPN handle back-to-back (drop old, setup new), so the
+                        // kill switch is never lifted for a real-IP leak window.
+                        let _ = ManagerImpl::reconcile_tunnel_inner(&mut inner, true).await;
                     }
+                }
+            }
+        })
+        .detach();
+    }
+    // Windows has no routing-socket notification like macOS, so poll the physical
+    // default-route interface and rebuild the VPN when it changes (dock/undock,
+    // Wi-Fi↔Ethernet, sleep/wake). Without this the engine stays pinned to a now
+    // invalid interface index and every dial fails while the kill switch stays up
+    // (blackhole) until a manual reconnect.
+    #[cfg(windows)]
+    {
+        let inner = manager.inner.clone();
+        geph5_rt::spawn(async move {
+            loop {
+                geph5_rt::sleep(Duration::from_secs(10)).await;
+                // Resolve the current physical interface off the lock (it shells
+                // out to PowerShell), then compare under the lock.
+                let current = match geph5_rt::spawn_blocking(vpn::physical_iface).await {
+                    Ok(phys) => phys,
+                    Err(_) => continue, // no default route right now; retry later
+                };
+                let mut inner = inner.lock().await;
+                if !(inner.settings.connected && inner.settings.vpn) {
+                    continue;
+                }
+                let stale = match inner.vpn.as_ref() {
+                    Some(handle) => handle.bind_indices() != (current.index4, current.index6),
+                    None => continue,
+                };
+                if stale {
+                    tracing::warn!("physical network changed (Windows); rebuilding VPN");
+                    // Leak-free rebuild: keep the old kill switch up until reconcile
+                    // swaps the handle back-to-back (see the macOS Rebuild path).
+                    let _ = ManagerImpl::reconcile_tunnel_inner(&mut inner, true).await;
                 }
             }
         })
