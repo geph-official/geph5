@@ -17,6 +17,7 @@ use std::time::Instant;
 use anyctx::AnyCtx;
 use anyhow::Context;
 use futures_concurrency::future::Race as _;
+use futures_concurrency::future::TryJoin as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
@@ -143,11 +144,13 @@ pub async fn vpn_loop(ctx: &AnyCtx<crate::Config>) -> anyhow::Result<()> {
                     tracing::trace!(peer_addr = display(peer_addr), "dialed through VPN");
                     let (read_tunneled, write_tunneled) = tokio::io::split(tunneled);
                     let (read_captured, write_captured) = tokio::io::split(captured);
+                    // try_join, not race: a half-close in one direction must not
+                    // drop the other; an error in either still short-circuits.
                     (
                         litecopy(read_tunneled, write_captured),
                         litecopy(read_captured, write_tunneled),
                     )
-                        .race()
+                        .try_join()
                         .await?;
                     anyhow::Ok(())
                 });

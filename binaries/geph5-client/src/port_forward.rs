@@ -1,5 +1,4 @@
 use anyctx::AnyCtx;
-use futures_concurrency::future::Race;
 use futures_concurrency::future::TryJoin;
 use sillad::listener::Listener;
 
@@ -35,11 +34,13 @@ pub async fn port_forward(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                     );
                     let (read_listened, write_listened) = tokio::io::split(listened);
                     let (read_connected, write_connected) = tokio::io::split(connected);
+                    // try_join, not race: a half-close in one direction must not
+                    // drop the other; an error in either still short-circuits.
                     (
                         litecopy(read_listened, write_connected),
                         litecopy(read_connected, write_listened),
                     )
-                        .race()
+                        .try_join()
                         .await?;
                     anyhow::Ok(())
                 }));

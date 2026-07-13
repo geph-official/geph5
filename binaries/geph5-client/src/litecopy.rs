@@ -1,5 +1,10 @@
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
+/// Copy one direction of a duplex stream until EOF, then propagate the EOF by
+/// shutting down the writer (half-close). Callers run the two directions with
+/// `try_join` so that one side reaching EOF does not tear down the other —
+/// otherwise a peer that half-closes after sending its request would truncate
+/// the response still streaming back.
 pub async fn litecopy<R, W>(mut reader: R, mut writer: W) -> Result<u64, std::io::Error>
 where
     R: AsyncRead + Unpin,
@@ -13,7 +18,12 @@ where
                 writer.write_all(&val).await?;
                 n += val.len() as u64;
             }
-            None => return Ok(n),
+            None => {
+                // Forward the half-close so the peer learns this direction
+                // ended; ignore the error if it is already gone.
+                let _ = writer.shutdown().await;
+                return Ok(n);
+            }
         }
     }
 }

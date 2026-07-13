@@ -18,7 +18,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, sync::OnceLock};
 
 use anyhow::Context;
-use futures_concurrency::future::Race as _;
+use futures_concurrency::future::TryJoin as _;
 use sillad::{
     listener::Listener,
     tcp::{TcpListener, TcpPipe},
@@ -82,11 +82,13 @@ async fn splice(downstream: TcpPipe, dests: &[SocketAddr]) -> anyhow::Result<()>
         .context("forwarder upstream dial failed")?;
     let (read_down, write_down) = tokio::io::split(downstream);
     let (read_up, write_up) = tokio::io::split(upstream);
+    // try_join, not race: a half-close in one direction must not drop the other;
+    // an error in either still short-circuits.
     (
         litecopy(read_down, write_up),
         litecopy(read_up, write_down),
     )
-        .race()
+        .try_join()
         .await?;
     Ok(())
 }

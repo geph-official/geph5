@@ -5,6 +5,7 @@ use anyhow::Context;
 
 use async_channel as channel;
 use futures_concurrency::future::Race as _;
+use futures_concurrency::future::TryJoin as _;
 use sillad::listener::Listener as _;
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, read_handshake,
@@ -57,11 +58,15 @@ pub async fn socks5_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
                         .await?;
                         tracing::trace!(remote_addr = display(&remote_addr), "connection opened");
                         let (read_stream, write_stream) = tokio::io::split(stream);
+                        // try_join, not race: a half-close in one direction must
+                        // not drop the other direction (which may still be
+                        // carrying the response). An error in either still
+                        // short-circuits.
                         (
                             litecopy(read_stream, write_client),
                             litecopy(read_client, write_stream),
                         )
-                            .race()
+                            .try_join()
                             .await?;
                         anyhow::Ok(())
                     }
