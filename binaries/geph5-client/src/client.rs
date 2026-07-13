@@ -62,99 +62,23 @@ impl Client {
         });
         tracing::info!("raised file descriptor limit to {}", fd_limit);
 
-        if let Some(fd) = vpn_fd {
-            let ctx_clone = ctx.clone();
-            geph5_rt::spawn(async move {
-                // Create an async file descriptor from the raw fd
-                let file: std::fs::File = unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) };
-                let async_fd = geph5_rt::asyncfd::AsyncFdStream::new(file)
-                    .expect("could not wrap VPN fd in AsyncFdStream");
-
-                // Split the file descriptor for reading and writingz
-                let (mut reader, mut writer) = tokio::io::split(async_fd);
-
-                // Spawn a task for reading from fd and sending to VPN
-                let read_task = async {
-                    let mut buf = vec![0u8; 65535]; // Buffer for reading packets
-                    loop {
-                        match reader.read(&mut buf).await {
-                            Ok(n) if n > 0 => {
-                                // macOS utun prepends a 4-byte address-family
-                                // header to every packet; strip it to recover the
-                                // raw IP packet the IP stack expects.
-                                #[cfg(target_os = "macos")]
-                                let pkt = {
-                                    if n <= 4 {
-                                        continue;
-                                    }
-                                    bytes::Bytes::copy_from_slice(&buf[4..n])
-                                };
-                                #[cfg(not(target_os = "macos"))]
-                                let pkt = bytes::Bytes::copy_from_slice(&buf[..n]);
-                                // Send the packet to the VPN
-                                send_vpn_packet(&ctx_clone, pkt).await;
-                            }
-                            Ok(0) => {
-                                // EOF
-                                tracing::warn!("VPN fd reached EOF");
-                                break;
-                            }
-                            Err(e) => {
-                                tracing::error!("Error reading from VPN fd: {}", e);
-                                break;
-                            }
-                            _ => break,
-                        }
-                    }
-                    anyhow::Ok(())
-                };
-
-                // Spawn a task for receiving from VPN and writing to fd
-                let write_task = async {
-                    loop {
-                        // Receive a packet from the VPN
-                        let packet = recv_vpn_packet(&ctx_clone).await;
-
-                        // macOS utun expects a 4-byte address-family header before
-                        // the IP packet, written as a single datagram. Pick AF from
-                        // the IP version nibble (AF_INET=2, AF_INET6=30).
-                        #[cfg(target_os = "macos")]
-                        let packet = {
-                            let af: u32 = if packet.first().map(|b| b >> 4) == Some(6) {
-                                30
-                            } else {
-                                2
-                            };
-                            let mut framed = Vec::with_capacity(4 + packet.len());
-                            framed.extend_from_slice(&af.to_be_bytes());
-                            framed.extend_from_slice(&packet);
-                            bytes::Bytes::from(framed)
-                        };
-
-                        // Write the packet to the file descriptor
-                        if let Err(e) = writer.write_all(&packet).await {
-                            tracing::error!("Error writing to VPN fd: {}", e);
-                            break;
-                        }
-
-                        if let Err(e) = writer.flush().await {
-                            tracing::error!("Error flushing VPN fd: {}", e);
-                            break;
-                        }
-                    }
-                    anyhow::Ok(())
-                };
-
-                // Wait for either task to complete (or fail)
-                let _ = (read_task, write_task).race().await;
-                tracing::warn!("VPN fd handler exited");
-            })
-            .detach();
-        }
-        let task = geph5_rt::spawn(client_main(ctx.clone()).map_err(Arc::new));
+        let client_ctx = ctx.clone();
+        // Race the platform-VPN packet pump against the main client logic rather
+        // than detaching it. A detached task's panic (e.g. an unwrappable fd) was
+        // swallowed by the runtime, leaving the engine reporting healthy while no
+        // packets flowed; folding the pump into the client task surfaces any such
+        // failure through wait_until_dead / check_dead.
+        let combined = async move {
+            let main_fut = client_main(ctx.clone());
+            match vpn_fd {
+                Some(fd) => (main_fut, run_vpn_fd_handler(ctx, fd)).race().await,
+                None => main_fut.await,
+            }
+        };
+        let task = geph5_rt::spawn(combined.map_err(Arc::new));
         Client {
             task: task.shared(),
-            ctx,
+            ctx: client_ctx,
         }
     }
 
@@ -236,6 +160,91 @@ impl Client {
 }
 
 pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
+
+/// Pump packets between a platform-supplied VPN file descriptor and the engine's
+/// VPN channels until one direction ends. Returns an error if the fd cannot be
+/// wrapped for async I/O, so the caller (which races this against the main
+/// client logic) can surface the failure rather than losing it in a detached
+/// task.
+#[cfg(unix)]
+async fn run_vpn_fd_handler(ctx: AnyCtx<Config>, fd: i32) -> anyhow::Result<()> {
+    // Create an async file descriptor from the raw fd.
+    let file: std::fs::File = unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) };
+    let async_fd = geph5_rt::asyncfd::AsyncFdStream::new(file)
+        .context("could not wrap VPN fd in AsyncFdStream")?;
+
+    // Split the file descriptor for reading and writing.
+    let (mut reader, mut writer) = tokio::io::split(async_fd);
+
+    let read_task = async {
+        let mut buf = vec![0u8; 65535]; // Buffer for reading packets
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(n) if n > 0 => {
+                    // macOS utun prepends a 4-byte address-family header to every
+                    // packet; strip it to recover the raw IP packet the IP stack
+                    // expects.
+                    #[cfg(target_os = "macos")]
+                    let pkt = {
+                        if n <= 4 {
+                            continue;
+                        }
+                        bytes::Bytes::copy_from_slice(&buf[4..n])
+                    };
+                    #[cfg(not(target_os = "macos"))]
+                    let pkt = bytes::Bytes::copy_from_slice(&buf[..n]);
+                    send_vpn_packet(&ctx, pkt).await;
+                }
+                Ok(0) => {
+                    tracing::warn!("VPN fd reached EOF");
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Error reading from VPN fd: {}", e);
+                    break;
+                }
+                _ => break,
+            }
+        }
+        anyhow::Ok(())
+    };
+
+    let write_task = async {
+        loop {
+            let packet = recv_vpn_packet(&ctx).await;
+
+            // macOS utun expects a 4-byte address-family header before the IP
+            // packet, written as a single datagram. Pick AF from the IP version
+            // nibble (AF_INET=2, AF_INET6=30).
+            #[cfg(target_os = "macos")]
+            let packet = {
+                let af: u32 = if packet.first().map(|b| b >> 4) == Some(6) {
+                    30
+                } else {
+                    2
+                };
+                let mut framed = Vec::with_capacity(4 + packet.len());
+                framed.extend_from_slice(&af.to_be_bytes());
+                framed.extend_from_slice(&packet);
+                bytes::Bytes::from(framed)
+            };
+
+            if let Err(e) = writer.write_all(&packet).await {
+                tracing::error!("Error writing to VPN fd: {}", e);
+                break;
+            }
+            if let Err(e) = writer.flush().await {
+                tracing::error!("Error flushing VPN fd: {}", e);
+                break;
+            }
+        }
+        anyhow::Ok(())
+    };
+
+    let res = (read_task, write_task).race().await;
+    tracing::warn!("VPN fd handler exited");
+    res
+}
 
 async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
     let tcp_rpc_serve = async {
