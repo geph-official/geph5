@@ -705,19 +705,21 @@ fn assign_child_to_reaper_job(child: &Child) {
 
 #[cfg(unix)]
 fn chown_path(path: &std::path::Path, uid: u32, gid: u32) -> std::io::Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-    let c = std::ffi::CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::other("path has NUL"))?;
-    if unsafe { libc::chown(c.as_ptr(), uid, gid) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
+    // lchown, not chown: operate on the path itself and never follow a symlink.
+    // The recursed directory is owned and writable by the unprivileged engine,
+    // so a symlink it plants there (e.g. cache/x -> /etc/shadow) must not be able
+    // to redirect this root-run chown onto an arbitrary file.
+    std::os::unix::fs::lchown(path, Some(uid), Some(gid))
 }
 
 #[cfg(unix)]
 fn chown_recursive(path: &std::path::Path, uid: u32, gid: u32) -> std::io::Result<()> {
+    // symlink_metadata (lstat) so a symlink is classified as a symlink, not as
+    // whatever it points at — otherwise a symlink-to-directory would be followed
+    // by the `is_dir()` check and recursed into.
+    let meta = std::fs::symlink_metadata(path)?;
     chown_path(path, uid, gid)?;
-    if path.is_dir() {
+    if meta.file_type().is_dir() {
         for entry in std::fs::read_dir(path)? {
             chown_recursive(&entry?.path(), uid, gid)?;
         }
