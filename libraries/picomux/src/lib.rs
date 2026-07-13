@@ -232,32 +232,9 @@ async fn picomux_inner(
                 let mut target_remote_window = MAX_WINDOW;
 
                 let mut bw_estimate = BwEstimate::new(1_000_000.0);
-                let mut frames_received: u64 = 0;
                 loop {
                     let min_quantum = (target_remote_window / 10).clamp(1, 500);
-                    // STALL-DIAG: an actively-downloading stream that goes
-                    // silent for a long time *despite the peer having send
-                    // window available* means the peer stopped producing —
-                    // either its upstream has nothing (fine) or its data path
-                    // wedged (bug). Log the flow-control state so stalls can
-                    // be attributed.
-                    let frame = loop {
-                        match buffer_recv.recv().timeout(Duration::from_secs(15)).await {
-                            Some(frame) => break frame,
-                            None => {
-                                if frames_received >= 50 {
-                                    tracing::warn!(
-                                        stream_id,
-                                        frames_received,
-                                        remote_window,
-                                        target_remote_window,
-                                        "STALL-DIAG: active stream receive-idle >15s"
-                                    );
-                                }
-                            }
-                        }
-                    };
-                    frames_received += 1;
+                    let frame = buffer_recv.recv().await;
                     if frame.header.command == CMD_FIN {
                         anyhow::bail!("received remote FIN");
                     }
@@ -331,30 +308,7 @@ async fn picomux_inner(
                         },
                         body,
                     };
-                    // STALL-DIAG: we have data ready to send but no send
-                    // window: the peer has not granted us MORE. A long block
-                    // here is precisely the "upload direction wedged
-                    // per-stream" failure (e.g. HTTP/2 WINDOW_UPDATEs from the
-                    // app never leave, so the server freezes the transfer).
-                    let mut waited = 0u32;
-                    loop {
-                        match buffer_table
-                            .wait_send_window(stream_id)
-                            .timeout(Duration::from_secs(5))
-                            .await
-                        {
-                            Some(()) => break,
-                            None => {
-                                waited += 5;
-                                tracing::warn!(
-                                    stream_id,
-                                    waited_secs = waited,
-                                    body_len = frame.body.len(),
-                                    "STALL-DIAG: blocked waiting for send window (peer not granting MORE)"
-                                );
-                            }
-                        }
-                    }
+                    buffer_table.wait_send_window(stream_id).await;
                     outgoing.send(frame).await?;
                 }
             }
