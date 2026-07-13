@@ -610,6 +610,7 @@ anchor "{PF_ANCHOR}" {{
   pass quick on {utun} all
   pass out quick on {phys} proto {{ tcp udp icmp }} from any to any user {uid} keep state
   pass out quick on {phys} proto udp from any port 68 to any port 67
+  pass out quick on {phys} proto udp from any port 546 to any port 547
   block drop quick on {phys} proto {{ tcp udp }} from any to any port 53
 {lan}  block drop out on {phys} all
 }}
