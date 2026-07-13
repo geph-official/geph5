@@ -42,14 +42,28 @@ async fn serve_pac(
     _req: Request<hyper::body::Incoming>,
     ctx: AnyCtx<Config>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
-    let mut pac_addr = ctx.init().http_proxy_listen.unwrap();
-    // A wildcard bind address is not a dialable address; the PAC is served to
-    // local browsers, so point them at loopback.
-    if pac_addr.ip().is_unspecified() {
-        pac_addr.set_ip(std::net::Ipv4Addr::LOCALHOST.into());
-    }
+    // A wildcard bind address is not dialable; the PAC is served to local
+    // browsers, so point them at loopback.
+    let to_loopback = |mut addr: std::net::SocketAddr| {
+        if addr.ip().is_unspecified() {
+            addr.set_ip(std::net::Ipv4Addr::LOCALHOST.into());
+        }
+        addr
+    };
+    // pac_listen can be configured independently of http_proxy_listen; do not
+    // assume an HTTP proxy exists (unwrapping it panicked the request task).
+    // Prefer HTTP, fall back to SOCKS, and otherwise tell the browser to go
+    // direct rather than crash.
+    let init = ctx.init();
+    let directive = if let Some(http) = init.http_proxy_listen {
+        format!("PROXY {}", to_loopback(http))
+    } else if let Some(socks) = init.socks5_listen {
+        let socks = to_loopback(socks);
+        format!("SOCKS5 {socks}; SOCKS {socks}")
+    } else {
+        "DIRECT".to_string()
+    };
     Ok(Response::new(Full::new(Bytes::from(format!(
-        "function FindProxyForURL(url, host){{return 'PROXY {}';}}",
-        pac_addr
+        "function FindProxyForURL(url, host){{return '{directive}';}}"
     )))))
 }
