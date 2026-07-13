@@ -13,6 +13,11 @@ use geph5_broker_protocol::{Credential, ExitConstraint};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
+// Reject unknown fields so a stale config from before the VPN refactor — which
+// carried `vpn`/`vpn_fd` keys that no longer exist — fails loudly instead of
+// silently parsing and running proxy-only (the old fields were ignored, so a
+// user who expected a system tunnel would have leaked outside it).
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub socks5_listen: Option<SocketAddr>,
     pub http_proxy_listen: Option<SocketAddr>,
