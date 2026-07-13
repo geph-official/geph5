@@ -176,8 +176,21 @@ FROM bridge_pool_delays"#,
                 .collect();
             anyhow::Ok(
                 raw.into_iter()
-                    .map(|row| {
-                        let control_listen: SocketAddr = row.0.parse().unwrap();
+                    .filter_map(|row| {
+                        // Skip (rather than panic on) a row whose listen column is
+                        // not a valid SocketAddr; one bad row must not take down
+                        // route resolution for every client.
+                        let control_listen: SocketAddr = match row.0.parse() {
+                            Ok(addr) => addr,
+                            Err(err) => {
+                                tracing::warn!(
+                                    listen = %row.0,
+                                    %err,
+                                    "skipping bridge with unparseable listen address"
+                                );
+                                return None;
+                            }
+                        };
                         let (china_success_count, china_fail_count) = probe_map
                             .get(&listen_host(&control_listen))
                             .copied()
@@ -187,7 +200,7 @@ FROM bridge_pool_delays"#,
                             matched_delay.map(|m| m.delay_ms),
                             control_listen.ip(),
                         );
-                        BridgeMetadata {
+                        Some(BridgeMetadata {
                             descriptor: geph5_broker_protocol::BridgeDescriptor {
                                 control_listen,
                                 control_cookie: row.1,
@@ -198,7 +211,7 @@ FROM bridge_pool_delays"#,
                             is_plus: matched_delay.map(|m| m.is_plus).unwrap_or(false),
                             china_success_count: china_success_count as _,
                             china_fail_count: china_fail_count as _,
-                        }
+                        })
                     })
                     .collect(),
             )
