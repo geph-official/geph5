@@ -5,9 +5,13 @@
 //! mechanism on Windows that can express the precise filters this design needs
 //! *without* mutating the machine's global firewall policy:
 //!
-//!   - a dynamic WFP engine + a dedicated sublayer (so everything we add is
-//!     removed atomically when the handle closes / on `remove`, and — because the
-//!     session is dynamic — automatically by the kernel if the manager dies);
+//!   - a non-dynamic WFP engine + a dedicated sublayer, so the filters live in
+//!     BFE independently of the install handle and survive the manager process
+//!     itself: a manager crash leaves the machine fail-closed (no leak) instead
+//!     of the kernel lifting the kill switch. They are removed explicitly on
+//!     `remove` and purged on the next start; being non-persistent, the kernel
+//!     clears any a crash left behind on reboot (so the machine is never
+//!     permanently wedged);
 //!   - at `FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6`, in descending filter weight:
 //!       * permit loopback;
 //!       * permit the geph engine + manager by app-id (their `IP_UNICAST_IF`-bound
@@ -20,10 +24,9 @@
 //!       * if `allow_lan`, permit RFC1918 / link-local / ULA destinations;
 //!       * default block → fail-closed.
 //!
-//! The manager holds the engine handle, so the filters persist across engine-child
-//! restarts (fail-closed during the gap). A manager-held *dynamic* session is torn
-//! down if the manager itself dies; a persistent (boot-time) session that survives
-//! manager death is the hardening follow-up.
+//! The filters persist across engine-child restarts *and* across a manager crash
+//! (fail-closed during either gap). `remove` and the next-start purge delete them
+//! explicitly; a reboot clears any that a crash left behind.
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
@@ -63,16 +66,16 @@ pub trait Firewall {
 
 /// The WFP-backed kill switch. See the module docs for the intended filter set.
 ///
-/// The engine handle is stored as a `usize` (not the raw `HANDLE`, which is a
-/// `*mut c_void` and thus `!Send`) so this can live in the manager's
-/// `tokio::Mutex`-guarded state across `.await` points. `0` means "not open".
+/// The filters are installed under a non-dynamic session and persist in BFE after
+/// the install handle is closed, so no `!Send` handle is held across the manager's
+/// `.await` points — we only track whether they are installed.
 pub struct WfpKillSwitch {
-    engine: usize,
+    installed: bool,
 }
 
 impl WfpKillSwitch {
     pub fn new() -> Self {
-        WfpKillSwitch { engine: 0 }
+        WfpKillSwitch { installed: false }
     }
 }
 
@@ -89,40 +92,43 @@ impl Firewall for WfpKillSwitch {
         wintun_luid: u64,
         allow_lan: bool,
     ) -> anyhow::Result<()> {
-        if self.engine != 0 {
+        if self.installed {
             return Ok(()); // already installed
         }
-        // Drop any leftover sublayer from a previous (non-dynamic) run first.
+        // Drop any leftover sublayer from a previous run — including one a crashed
+        // manager left behind (non-dynamic filters outlive the process).
         purge_stale();
 
-        let engine = open_dynamic_engine()?;
-        // From here on, any early return must close the engine so we don't leak a
-        // half-installed sublayer.
+        let engine = open_engine()?;
+        // build_filters adds a non-dynamic sublayer + filters that persist after
+        // the handle is closed, so close it either way. On error, purge the
+        // possibly half-installed sublayer so we don't leave stray filters behind.
         let result = build_filters(engine, geph_app_ids, wintun_luid, allow_lan);
+        unsafe { FwpmEngineClose0(engine) };
         match result {
             Ok(()) => {
-                self.engine = engine as usize;
+                self.installed = true;
                 tracing::info!(
                     wintun_luid,
                     allow_lan,
                     app_ids = ?geph_app_ids,
-                    "WFP kill switch installed (fail-closed; DNS-leak guard active)"
+                    "WFP kill switch installed (fail-closed; DNS-leak guard active; survives manager crash)"
                 );
                 Ok(())
             }
             Err(e) => {
-                unsafe { FwpmEngineClose0(engine) };
+                purge_stale();
                 Err(e)
             }
         }
     }
 
     fn remove(&mut self) {
-        if self.engine != 0 {
-            // Closing the dynamic engine handle atomically removes our sublayer
-            // and every filter under it.
-            unsafe { FwpmEngineClose0(self.engine as HANDLE) };
-            self.engine = 0;
+        if self.installed {
+            // Non-dynamic filters do not vanish when a handle closes; delete our
+            // sublayer (and every filter under it) explicitly.
+            purge_stale();
+            self.installed = false;
             tracing::info!("WFP kill switch removed");
         }
     }
@@ -139,7 +145,7 @@ impl Drop for WfpKillSwitch {
 /// session. A dynamic session is already gone once its owner dies, so this is
 /// usually a no-op; failures (most commonly "not found") are ignored.
 pub fn purge_stale() {
-    let engine = match open_dynamic_engine() {
+    let engine = match open_engine() {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -151,9 +157,11 @@ pub fn purge_stale() {
     }
 }
 
-/// Open a dynamic WFP engine session. Dynamic means everything added under it is
-/// torn down when the handle is closed or the process exits.
-fn open_dynamic_engine() -> anyhow::Result<HANDLE> {
+/// Open a non-dynamic WFP engine session. Objects added under a non-dynamic
+/// session persist in BFE after the handle is closed and after the creating
+/// process exits (until deleted explicitly or the machine reboots) — which is
+/// what keeps the kill switch fail-closed across a manager crash.
+fn open_engine() -> anyhow::Result<HANDLE> {
     let mut name = wide("Geph kill switch");
     let mut engine: HANDLE = std::ptr::null_mut();
     let code = unsafe {
@@ -162,7 +170,7 @@ fn open_dynamic_engine() -> anyhow::Result<HANDLE> {
             name: name.as_mut_ptr(),
             description: std::ptr::null_mut(),
         };
-        session.flags = FWPM_SESSION_FLAG_DYNAMIC;
+        // Non-dynamic (flags = 0): the objects outlive this session handle.
         FwpmEngineOpen0(
             std::ptr::null(),
             RPC_C_AUTHN_WINNT,
@@ -204,7 +212,21 @@ fn build_filters(
     for path in geph_app_ids {
         match app_id_blob(path) {
             Ok(blob) => app_blobs.push(blob),
-            Err(e) => tracing::warn!(path = %path.display(), err = %e, "skipping app-id (kill switch)"),
+            Err(e) => {
+                // Fail closed rather than install a default-block kill switch that
+                // cannot permit the geph engine's own image: an unresolvable
+                // app-id (e.g. a bare/relative name) would leave the engine
+                // blocked by its own filter (WSAEACCES self-block → blackhole).
+                // Free what we resolved and abort the install; the connect attempt
+                // then fails cleanly instead of wedging connectivity.
+                for blob in app_blobs {
+                    unsafe { FwpmFreeMemory0(&mut (blob as *mut core::ffi::c_void)) };
+                }
+                anyhow::bail!(
+                    "could not resolve WFP app-id for {}: {e}",
+                    path.display()
+                );
+            }
         }
     }
 

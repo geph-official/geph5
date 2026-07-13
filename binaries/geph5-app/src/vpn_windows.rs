@@ -205,6 +205,19 @@ pub fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandle> {
     })
 }
 
+/// Startup purge of VPN state a prior crashed manager left behind. The kill switch
+/// is now non-dynamic (it stays installed across a crash so the machine remains
+/// fail-closed), so a manager that restarts *disconnected* must delete it here or
+/// the host stays blackholed. Best-effort; safe to call when nothing is stranded.
+pub fn cleanup_stale_startup() {
+    match unsafe { wintun::load() } {
+        Ok(wintun) => cleanup_stale(&wintun),
+        // Even if wintun can't load, still remove the (crash-persisted) kill
+        // switch so the host isn't left blackholed.
+        Err(_) => firewall::purge_stale(),
+    }
+}
+
 /// Best-effort removal of leftover state from a previous run.
 fn cleanup_stale(wintun: &Wintun) {
     if let Ok(adapter) = Adapter::open(wintun, TUN_NAME) {

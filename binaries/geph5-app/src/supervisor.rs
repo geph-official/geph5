@@ -366,7 +366,8 @@ const ENGINE_BIN: &str = if cfg!(windows) { "geph5-client.exe" } else { "geph5-c
 ///   1. `GEPH_CLIENT_BIN` (an uninstalled build, e.g. `target/debug/geph5-client`);
 ///   2. a companion binary next to the manager (cargo-install / the installer put
 ///      `geph5` and `geph5-client` in the same directory);
-///   3. the bare name as a last resort (PATH lookup at spawn; no app-id match).
+///   3. an executable of that name found on `PATH`, resolved to its concrete path;
+///   4. the bare name as a last resort (PATH lookup at spawn; no app-id match).
 pub fn engine_bin_path() -> std::path::PathBuf {
     if let Some(path) = std::env::var_os("GEPH_CLIENT_BIN") {
         return path.into();
@@ -378,7 +379,24 @@ pub fn engine_bin_path() -> std::path::PathBuf {
             }
         }
     }
+    // Resolve the bare name against PATH to a concrete path. On Windows the WFP
+    // kill switch derives its app-id permit from this path, and
+    // FwpmGetAppIdFromFileName0 cannot resolve a bare name — so a bare-name
+    // permit silently fails to match the spawned image and the engine blocks
+    // itself. Searching PATH makes the permit and the spawn use the same image.
+    if let Some(resolved) = which_in_path(ENGINE_BIN) {
+        return resolved;
+    }
     std::path::PathBuf::from(ENGINE_BIN)
+}
+
+/// Search `PATH` for an executable named `name`, returning the first concrete
+/// path that exists.
+fn which_in_path(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
 }
 
 /// A `Command` that runs the engine binary. On macOS the engine runs unprivileged
