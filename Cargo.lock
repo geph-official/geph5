@@ -2212,12 +2212,13 @@ dependencies = [
 
 [[package]]
 name = "geph5-app"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
  "clap",
+ "core-foundation 0.10.1",
  "geph5-broker-protocol",
  "geph5-misc-rpc",
  "geph5-rt",
@@ -2225,10 +2226,12 @@ dependencies = [
  "libc",
  "nanorpc",
  "nanorpc-sillad",
+ "scopeguard",
  "serde",
  "serde_json",
  "serde_yaml",
  "sillad",
+ "system-configuration-sys",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -2329,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2355,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2519,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-ip-to-asn"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2529,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2540,6 +2543,7 @@ dependencies = [
  "geph5-broker-protocol",
  "geph5-rt",
  "nanorpc",
+ "nanorpc-sillad",
  "pin-project",
  "serde",
  "serde_json",
@@ -2602,13 +2606,12 @@ dependencies = [
 
 [[package]]
 name = "geph5-rt"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-channel",
  "bytes",
  "futures-concurrency",
  "futures-util",
- "libc",
  "pin-project-lite",
  "rand 0.8.6",
  "tokio",
@@ -5524,6 +5527,16 @@ dependencies = [
  "once_cell",
  "rayon",
  "windows 0.52.0",
+]
+
+[[package]]
+name = "system-configuration-sys"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
 ]
 
 [[package]]
