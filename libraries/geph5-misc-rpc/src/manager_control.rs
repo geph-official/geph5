@@ -145,6 +145,28 @@ impl Default for ProxySettings {
     }
 }
 
+/// Complete desired configuration for the credentialed tunnel engine. Clients
+/// submit this as one coherent snapshot; the manager persists it and, when
+/// connected, reconciles the live engine and host networking exactly once.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TunnelSettings {
+    pub exit_constraint: ExitConstraint,
+    /// Local-proxy configuration; `None` means no local proxy listeners.
+    pub proxy: Option<ProxySettings>,
+    /// Whether full-tunnel VPN mode is enabled.
+    pub vpn: bool,
+    /// Whether private/LAN addresses bypass the tunnel.
+    pub allow_lan: bool,
+    /// Whether direct (non-bridge) connections to exits are allowed.
+    pub allow_direct: bool,
+    /// Whether destinations in mainland China bypass the tunnel.
+    #[serde(default)]
+    pub passthrough_china: bool,
+    /// Metadata attached to newly-created exit sessions.
+    #[serde(default)]
+    pub session_metadata: serde_json::Value,
+}
+
 /// Persisted settings, as exposed to clients.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SettingsView {
@@ -160,6 +182,26 @@ pub struct SettingsView {
     pub allow_lan: bool,
     /// Whether direct (non-bridge) connections to exits are allowed.
     pub allow_direct: bool,
+    /// Whether destinations in mainland China bypass the tunnel.
+    pub passthrough_china: bool,
+    /// Metadata attached to newly-created exit sessions.
+    pub session_metadata: serde_json::Value,
+}
+
+impl SettingsView {
+    /// Return the mutable tunnel-settings portion of this view, suitable for a
+    /// CLI read-modify-apply operation.
+    pub fn tunnel_settings(&self) -> TunnelSettings {
+        TunnelSettings {
+            exit_constraint: self.exit_constraint.clone(),
+            proxy: self.proxy.clone(),
+            vpn: self.vpn,
+            allow_lan: self.allow_lan,
+            allow_direct: self.allow_direct,
+            passthrough_china: self.passthrough_china,
+            session_metadata: self.session_metadata.clone(),
+        }
+    }
 }
 
 #[nanorpc_derive]
@@ -183,36 +225,20 @@ pub trait GephCtlProtocol {
     /// in VPN mode the tun device and kill switch stay up the whole time while
     /// only the engine child is restarted. Used for "reconnect" and for applying
     /// a new exit while connected. Errors if not currently connected.
-    async fn reconnect(&self) -> Result<(), String>;
+    async fn reconnect(&self, session: SessionContext) -> Result<(), String>;
 
     /// Current connection status.
     async fn status(&self) -> Result<Status, String>;
 
     /// Read persisted settings.
     async fn get_settings(&self) -> Result<SettingsView, String>;
-    /// Change the exit constraint (restart child if currently connected).
-    async fn set_exit_constraint(&self, constraint: ExitConstraint) -> Result<(), String>;
-
-    /// Set the full local-proxy configuration (`None` = no local proxy listeners
-    /// at all). Restarts the tunnel child if connected, and applies/clears
-    /// `session`'s system proxy according to the autoconf preference (and VPN
-    /// mode).
-    async fn set_proxy_settings(
+    /// Persist a complete settings snapshot and, when connected, immediately
+    /// run one full idempotent reconciliation using it.
+    async fn apply_settings(
         &self,
-        proxy: Option<ProxySettings>,
+        settings: TunnelSettings,
         session: SessionContext,
     ) -> Result<(), String>;
-
-    /// Enable or disable full-tunnel VPN mode. Restarts the tunnel if
-    /// currently connected.
-    async fn set_vpn_mode(&self, enabled: bool) -> Result<(), String>;
-
-    /// Enable or disable LAN passthrough. Restarts the tunnel if connected.
-    async fn set_allow_lan(&self, enabled: bool) -> Result<(), String>;
-
-    /// Allow or forbid direct (non-bridge) connections to exits. Restarts the
-    /// tunnel if connected.
-    async fn set_allow_direct(&self, enabled: bool) -> Result<(), String>;
 
     /// List available exits from the broker.
     async fn list_exits(&self) -> Result<Vec<ExitInfo>, String>;

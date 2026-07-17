@@ -60,6 +60,15 @@ pub(super) trait Firewall {
         allow_lan: bool,
     ) -> anyhow::Result<()>;
 
+    /// Atomically replace the complete owned filter set. If construction or
+    /// commit fails, WFP keeps the previously committed filters active.
+    fn replace(
+        &mut self,
+        geph_app_ids: &[std::path::PathBuf],
+        wintun_luid: u64,
+        allow_lan: bool,
+    ) -> anyhow::Result<()>;
+
     /// Remove the kill switch, restoring normal connectivity. Idempotent.
     fn remove(&mut self);
 }
@@ -93,18 +102,59 @@ impl Firewall for WfpKillSwitch {
         wintun_luid: u64,
         allow_lan: bool,
     ) -> anyhow::Result<()> {
-        if self.installed {
-            return Ok(()); // already installed
-        }
-        // Drop any leftover sublayer from a previous run — including one a crashed
-        // manager left behind (non-dynamic filters outlive the process).
-        purge_stale();
+        self.replace(geph_app_ids, wintun_luid, allow_lan)
+    }
 
+    fn replace(
+        &mut self,
+        geph_app_ids: &[std::path::PathBuf],
+        wintun_luid: u64,
+        allow_lan: bool,
+    ) -> anyhow::Result<()> {
         let engine = open_engine()?;
-        // build_filters adds a non-dynamic sublayer + filters that persist after
-        // the handle is closed, so close it either way. On error, purge the
-        // possibly half-installed sublayer so we don't leave stray filters behind.
-        let result = build_filters(engine, geph_app_ids, wintun_luid, allow_lan);
+        let owned_ids = match owned_filter_ids(engine) {
+            Ok(ids) => ids,
+            Err(error) => {
+                unsafe { FwpmEngineClose0(engine) };
+                return Err(error);
+            }
+        };
+        if let Err(error) = check(
+            unsafe { FwpmTransactionBegin0(engine, 0) },
+            "FwpmTransactionBegin0",
+        ) {
+            unsafe { FwpmEngineClose0(engine) };
+            return Err(error);
+        }
+        // Deleting and rebuilding our uniquely-owned sublayer occurs entirely in
+        // one WFP transaction. Until commit, the previously committed policy
+        // remains the one enforced by BFE.
+        for id in owned_ids {
+            if let Err(error) = check(
+                unsafe { FwpmFilterDeleteById0(engine, id) },
+                "FwpmFilterDeleteById0",
+            ) {
+                unsafe {
+                    let _ = FwpmTransactionAbort0(engine);
+                    FwpmEngineClose0(engine);
+                }
+                return Err(error);
+            }
+        }
+        unsafe {
+            let _ = FwpmSubLayerDeleteByKey0(engine, &SUBLAYER_KEY);
+        }
+        let result = build_filters(engine, geph_app_ids, wintun_luid, allow_lan).and_then(|()| {
+            check(
+                unsafe { FwpmTransactionCommit0(engine) },
+                "FwpmTransactionCommit0",
+            )
+        });
+        if result.is_err() {
+            unsafe {
+                let _ = FwpmTransactionAbort0(engine);
+            }
+        }
         unsafe { FwpmEngineClose0(engine) };
         match result {
             Ok(()) => {
@@ -113,14 +163,11 @@ impl Firewall for WfpKillSwitch {
                     wintun_luid,
                     allow_lan,
                     app_ids = ?geph_app_ids,
-                    "WFP kill switch installed (fail-closed; DNS-leak guard active; survives manager crash)"
+                    "WFP kill switch reconciled (fail-closed; DNS-leak guard active; survives manager crash)"
                 );
                 Ok(())
             }
-            Err(e) => {
-                purge_stale();
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -144,12 +191,69 @@ pub(super) fn purge_stale() {
         Ok(e) => e,
         Err(_) => return,
     };
-    // Delete the sublayer by key; this also removes filters bound to it. If it
-    // was never there, this returns FWP_E_SUBLAYER_NOT_FOUND — ignore.
+    // A sublayer cannot be deleted while filters still reference it. Enumerate
+    // both ALE layers and remove only filters carrying our unique sublayer key.
     unsafe {
+        if let Ok(ids) = owned_filter_ids(engine) {
+            for id in ids {
+                let _ = FwpmFilterDeleteById0(engine, id);
+            }
+        }
         let _ = FwpmSubLayerDeleteByKey0(engine, &SUBLAYER_KEY);
         FwpmEngineClose0(engine);
     }
+}
+
+fn owned_filter_ids(engine: HANDLE) -> anyhow::Result<Vec<u64>> {
+    let mut ids = Vec::new();
+    for layer in [
+        FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+        FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+    ] {
+        let mut template: FWPM_FILTER_ENUM_TEMPLATE0 = unsafe { std::mem::zeroed() };
+        template.layerKey = layer;
+        template.enumType = FWP_FILTER_ENUM_FULLY_CONTAINED;
+        let mut enum_handle: HANDLE = std::ptr::null_mut();
+        check(
+            unsafe { FwpmFilterCreateEnumHandle0(engine, &template, &mut enum_handle) },
+            "FwpmFilterCreateEnumHandle0",
+        )?;
+        loop {
+            let mut entries: *mut *mut FWPM_FILTER0 = std::ptr::null_mut();
+            let mut count = 0u32;
+            let code =
+                unsafe { FwpmFilterEnum0(engine, enum_handle, 64, &mut entries, &mut count) };
+            if let Err(error) = check(code, "FwpmFilterEnum0") {
+                unsafe {
+                    let _ = FwpmFilterDestroyEnumHandle0(engine, enum_handle);
+                }
+                return Err(error);
+            }
+            if count == 0 {
+                break;
+            }
+            for index in 0..count as usize {
+                let filter = unsafe { *entries.add(index) };
+                if !filter.is_null() && unsafe { guid_eq(&(*filter).subLayerKey, &SUBLAYER_KEY) } {
+                    ids.push(unsafe { (*filter).filterId });
+                }
+            }
+            unsafe {
+                FwpmFreeMemory0(&mut (entries as *mut core::ffi::c_void));
+            }
+        }
+        unsafe {
+            let _ = FwpmFilterDestroyEnumHandle0(engine, enum_handle);
+        }
+    }
+    Ok(ids)
+}
+
+fn guid_eq(left: &GUID, right: &GUID) -> bool {
+    left.data1 == right.data1
+        && left.data2 == right.data2
+        && left.data3 == right.data3
+        && left.data4 == right.data4
 }
 
 /// Open a non-dynamic WFP engine session. Objects added under a non-dynamic

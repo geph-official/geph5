@@ -212,22 +212,37 @@ mod linux {
                 return None;
             }
             macro_rules! sym {
-                ($name:literal) => {{
+                ($name:literal, $ty:ty) => {{
                     let p = libc::dlsym(handle, $name.as_ptr());
                     if p.is_null() {
                         return None;
                     }
-                    std::mem::transmute(p)
+                    std::mem::transmute::<*mut c_void, $ty>(p)
                 }};
             }
             Some(Gio {
-                schema_source_get_default: sym!(c"g_settings_schema_source_get_default"),
-                schema_source_lookup: sym!(c"g_settings_schema_source_lookup"),
-                schema_unref: sym!(c"g_settings_schema_unref"),
-                settings_new: sym!(c"g_settings_new"),
-                settings_set_string: sym!(c"g_settings_set_string"),
-                settings_sync: sym!(c"g_settings_sync"),
-                object_unref: sym!(c"g_object_unref"),
+                schema_source_get_default: sym!(
+                    c"g_settings_schema_source_get_default",
+                    unsafe extern "C" fn() -> *mut c_void
+                ),
+                schema_source_lookup: sym!(
+                    c"g_settings_schema_source_lookup",
+                    unsafe extern "C" fn(*mut c_void, *const c_char, c_int) -> *mut c_void
+                ),
+                schema_unref: sym!(
+                    c"g_settings_schema_unref",
+                    unsafe extern "C" fn(*mut c_void)
+                ),
+                settings_new: sym!(
+                    c"g_settings_new",
+                    unsafe extern "C" fn(*const c_char) -> *mut c_void
+                ),
+                settings_set_string: sym!(
+                    c"g_settings_set_string",
+                    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int
+                ),
+                settings_sync: sym!(c"g_settings_sync", unsafe extern "C" fn()),
+                object_unref: sym!(c"g_object_unref", unsafe extern "C" fn(*mut c_void)),
             })
         })
         .as_ref()
@@ -1522,15 +1537,11 @@ mod macos_proxy {
     fn enable(pac_url: &str) -> anyhow::Result<()> {
         let prior_snapshot = load_snapshot()?;
         let recovering = prior_snapshot.is_some();
-        let old_installed_url = prior_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.installed_url.clone());
         let mut snapshot = prior_snapshot.unwrap_or_else(|| ProxySnapshot::new(pac_url));
         let preferences = Preferences::open()?;
         let changed = preferences.edit_services(|service_id, dictionary| {
             let current = read_state(dictionary);
-            let known_service = snapshot.services.contains_key(service_id);
-            if !known_service {
+            if !snapshot.services.contains_key(service_id) {
                 let original = if !recovering && current.url.as_deref() == Some(pac_url) {
                     // A pre-snapshot Geph installation: do not preserve its stale
                     // loopback URL as the user's original setting.
@@ -1540,21 +1551,16 @@ mod macos_proxy {
                 };
                 snapshot.services.insert(service_id.to_string(), original);
             }
-            let still_owned = old_installed_url
-                .as_deref()
-                .is_some_and(|installed| current.url.as_deref() == Some(installed));
-            if recovering && known_service && !still_owned {
-                // The user or an administrator changed this service while Geph
-                // was down. Do not reassert over their choice.
+            let desired = PacState {
+                enabled: Some(1),
+                url: Some(pac_url.to_string()),
+            };
+            if current == desired {
                 return Ok(false);
             }
-            set_state(
-                dictionary,
-                &PacState {
-                    enabled: Some(1),
-                    url: Some(pac_url.to_string()),
-                },
-            );
+            // Connected state is authoritative. Preserve the original snapshot
+            // for disconnect, but repair any external PAC drift now.
+            set_state(dictionary, &desired);
             Ok(true)
         })?;
         snapshot.installed_url = pac_url.to_string();

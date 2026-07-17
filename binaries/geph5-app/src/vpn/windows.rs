@@ -156,7 +156,7 @@ pub(super) fn network_snapshot(handle: &VpnHandle) -> NetworkSnapshot {
 pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction {
     match physical_iface() {
         Ok(current) if current.bind_indices() != snapshot.bind_indices => {
-            super::NetworkAction::Rebuild
+            super::NetworkAction::Reconcile
         }
         _ => super::NetworkAction::Healthy,
     }
@@ -164,7 +164,7 @@ pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction 
 
 /// Discover the physical default-route interface(s) and gateway(s) via
 /// PowerShell's `Get-NetRoute`. The uniform VPN monitor compares this against
-/// the connected route and rebuilds the VPN if the default interface changes.
+/// the connected route and triggers full in-place reconciliation if it changes.
 pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
     let index4 = ps_u32(
         "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | \
@@ -222,8 +222,74 @@ pub(super) fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandl
     let _ = adapter.set_mtu(TUN_MTU);
     let _ = adapter.set_dns_servers(&sentinel_dns());
 
-    // `/1` split default routes into the tun.
+    // Kill switch before capture routes. (The engine's own broker/bridge/exit sockets reach the
+    // physical NIC per-process via IP_UNICAST_IF + the loopback forwarder, so
+    // there are no destination bypass routes to punch in here.)
+    let mut firewall = WfpKillSwitch::new();
+    firewall.preflight().context("kill switch preflight")?;
+    let luid = unsafe { adapter.get_luid().Value };
+    firewall
+        .install(&geph_app_ids(), luid, allow_lan)
+        .context("install kill switch")?;
+
+    ensure_split_routes()?;
+
+    scopeguard::ScopeGuard::into_inner(rollback);
+    Ok(VpnHandle {
+        wintun,
+        adapter,
+        phys,
+        firewall,
+    })
+}
+
+/// Reassert WinTUN, DNS, routes, and the complete WFP policy without replacing
+/// the live adapter. WFP is committed first, so route repair remains fail-closed.
+pub(super) fn reconcile(
+    handle: &mut VpnHandle,
+    phys: PhysIface,
+    allow_lan: bool,
+) -> anyhow::Result<()> {
+    run(
+        "netsh",
+        &[
+            "interface",
+            "ipv4",
+            "set",
+            "address",
+            &format!("name={TUN_NAME}"),
+            "source=static",
+            &format!("address={TUN_V4_ADDR}"),
+            &format!("mask={TUN_V4_MASK}"),
+        ],
+    )
+    .context("reassert tun IPv4 address")?;
+    let _ = handle.adapter.set_mtu(TUN_MTU);
+    let _ = handle.adapter.set_dns_servers(&sentinel_dns());
+    let luid = unsafe { handle.adapter.get_luid().Value };
+    handle
+        .firewall
+        .replace(&geph_app_ids(), luid, allow_lan)
+        .context("reconcile kill switch")?;
+    ensure_split_routes()?;
+    handle.phys = phys;
+    Ok(())
+}
+
+fn ensure_split_routes() -> anyhow::Result<()> {
     for prefix in V4_SPLIT {
+        // Delete+add converges on one exact route. WFP is already fail-closed.
+        let _ = run(
+            "netsh",
+            &[
+                "interface",
+                "ipv4",
+                "delete",
+                "route",
+                &format!("prefix={prefix}"),
+                &format!("interface={TUN_NAME}"),
+            ],
+        );
         run(
             "netsh",
             &[
@@ -244,6 +310,17 @@ pub(super) fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandl
             &[
                 "interface",
                 "ipv6",
+                "delete",
+                "route",
+                &format!("prefix={prefix}"),
+                &format!("interface={TUN_NAME}"),
+            ],
+        );
+        let _ = run(
+            "netsh",
+            &[
+                "interface",
+                "ipv6",
                 "add",
                 "route",
                 &format!("prefix={prefix}"),
@@ -252,24 +329,7 @@ pub(super) fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandl
             ],
         );
     }
-
-    // Kill switch. (The engine's own broker/bridge/exit sockets reach the
-    // physical NIC per-process via IP_UNICAST_IF + the loopback forwarder, so
-    // there are no destination bypass routes to punch in here.)
-    let mut firewall = WfpKillSwitch::new();
-    firewall.preflight().context("kill switch preflight")?;
-    let luid = unsafe { adapter.get_luid().Value };
-    firewall
-        .install(&geph_app_ids(), luid, allow_lan)
-        .context("install kill switch")?;
-
-    scopeguard::ScopeGuard::into_inner(rollback);
-    Ok(VpnHandle {
-        wintun,
-        adapter,
-        phys,
-        firewall,
-    })
+    Ok(())
 }
 
 /// Startup purge of VPN state a prior crashed manager left behind. The kill switch

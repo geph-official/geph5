@@ -20,8 +20,7 @@ use crate::{
 /// connection (DialerTransport has no pooling); this just avoids rebuilding the
 /// wrapper, matching the workspace's `LazyLock` idiom.
 fn manager_client() -> &'static GephCtlClient {
-    static CLIENT: LazyLock<GephCtlClient> =
-        LazyLock::new(manager_control::manager_control_client);
+    static CLIENT: LazyLock<GephCtlClient> = LazyLock::new(manager_control::manager_control_client);
     &CLIENT
 }
 
@@ -80,7 +79,7 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             println!("Disconnected.");
         }
         Command::Reconnect => {
-            flatten(client.reconnect().await)?;
+            flatten(client.reconnect(platform::current_session()).await)?;
             println!("Reconnecting…");
         }
         Command::Status => {
@@ -108,7 +107,14 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
         }
         Command::ExitConstraint(ExitConstraintCmd::Set(set)) => {
             let constraint = constraint_from_args(&set)?;
-            flatten(client.set_exit_constraint(constraint.clone()).await)?;
+            let view = flatten(client.get_settings().await)?;
+            let mut settings = view.tunnel_settings();
+            settings.exit_constraint = constraint.clone();
+            flatten(
+                client
+                    .apply_settings(settings, platform::current_session())
+                    .await,
+            )?;
             println!("Exit constraint set to {}.", render_constraint(&constraint));
         }
 
@@ -145,16 +151,18 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             }
             Some(s) => {
                 let enabled = parse_on_off(&s)?;
-                let settings = flatten(client.get_settings().await)?;
+                let view = flatten(client.get_settings().await)?;
+                let mut settings = view.tunnel_settings();
                 let proxy = if enabled {
                     // Keep an existing config; otherwise start from the defaults.
-                    Some(settings.proxy.unwrap_or_default())
+                    Some(settings.proxy.clone().unwrap_or_default())
                 } else {
                     None
                 };
+                settings.proxy = proxy;
                 flatten(
                     client
-                        .set_proxy_settings(proxy, platform::current_session())
+                        .apply_settings(settings, platform::current_session())
                         .await,
                 )?;
                 println!("proxy set to {}", on_off(enabled));
@@ -171,14 +179,16 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             }
             Some(s) => {
                 let enabled = parse_on_off(&s)?;
-                let settings = flatten(client.get_settings().await)?;
-                let Some(mut proxy) = settings.proxy else {
+                let view = flatten(client.get_settings().await)?;
+                let mut settings = view.tunnel_settings();
+                let Some(mut proxy) = settings.proxy.take() else {
                     anyhow::bail!("the proxy is off entirely; enable it first with `proxy on`");
                 };
                 proxy.autoconf = enabled;
+                settings.proxy = Some(proxy);
                 flatten(
                     client
-                        .set_proxy_settings(Some(proxy), platform::current_session())
+                        .apply_settings(settings, platform::current_session())
                         .await,
                 )?;
                 println!("auto-proxy set to {}", on_off(enabled));
@@ -192,7 +202,14 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             }
             Some(s) => {
                 let enabled = parse_on_off(&s)?;
-                flatten(client.set_vpn_mode(enabled).await)?;
+                let view = flatten(client.get_settings().await)?;
+                let mut settings = view.tunnel_settings();
+                settings.vpn = enabled;
+                flatten(
+                    client
+                        .apply_settings(settings, platform::current_session())
+                        .await,
+                )?;
                 println!("vpn set to {}", on_off(enabled));
             }
         },
@@ -204,7 +221,14 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             }
             Some(s) => {
                 let enabled = parse_on_off(&s)?;
-                flatten(client.set_allow_lan(enabled).await)?;
+                let view = flatten(client.get_settings().await)?;
+                let mut settings = view.tunnel_settings();
+                settings.allow_lan = enabled;
+                flatten(
+                    client
+                        .apply_settings(settings, platform::current_session())
+                        .await,
+                )?;
                 println!("lan-access set to {}", on_off(enabled));
             }
         },
@@ -216,7 +240,14 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             }
             Some(s) => {
                 let enabled = parse_on_off(&s)?;
-                flatten(client.set_allow_direct(enabled).await)?;
+                let view = flatten(client.get_settings().await)?;
+                let mut settings = view.tunnel_settings();
+                settings.allow_direct = enabled;
+                flatten(
+                    client
+                        .apply_settings(settings, platform::current_session())
+                        .await,
+                )?;
                 println!("allow-direct set to {}", on_off(enabled));
             }
         },

@@ -69,13 +69,15 @@ impl VpnHandle {
 /// Bring up tun + routing + kill switch for `geph_uid`. Idempotent.
 pub(super) fn setup(geph_uid: u32) -> anyhow::Result<VpnHandle> {
     firewall_preflight()?;
-    cleanup_stale();
     let rollback = scopeguard::guard((), |_| cleanup_stale());
 
     let tun = create_tun().context("creating tun device")?;
 
     run("ip", &["link", "set", TUN_IFACE, "up"])?;
     run("ip", &["link", "set", TUN_IFACE, "mtu", TUN_MTU])?;
+
+    // Establish fail-closed protection before installing capture routes.
+    firewall_install(geph_uid).context("installing nft kill switch")?;
 
     // v4 is mandatory: without these rules there is no tunnel at all (the
     // kill switch below would just drop everything).
@@ -84,10 +86,22 @@ pub(super) fn setup(geph_uid: u32) -> anyhow::Result<VpnHandle> {
     // kill switch still fails closed for any v6 the rules don't cover.
     let _ = setup_rules("-6", geph_uid);
 
-    firewall_install(geph_uid).context("installing nft kill switch")?;
     let handle = VpnHandle { tun };
     scopeguard::ScopeGuard::into_inner(rollback);
     Ok(handle)
+}
+
+/// Reassert the complete Linux VPN configuration without replacing the live tun
+/// handle. All operations are idempotent; the nft batch is atomic and policy
+/// rules are replaced under the already-active kill switch.
+pub(super) fn reconcile(_handle: &mut VpnHandle, geph_uid: u32) -> anyhow::Result<()> {
+    firewall_preflight()?;
+    firewall_install(geph_uid).context("reasserting nft kill switch")?;
+    run("ip", &["link", "set", TUN_IFACE, "up"])?;
+    run("ip", &["link", "set", TUN_IFACE, "mtu", TUN_MTU])?;
+    setup_rules("-4", geph_uid).context("reasserting v4 uid policy routing")?;
+    let _ = setup_rules("-6", geph_uid);
+    Ok(())
 }
 
 /// Install the uid-range policy routing for one address family:
@@ -118,47 +132,29 @@ fn setup_rules(family: &str, geph_uid: u32) -> anyhow::Result<()> {
         ],
     )?;
 
-    run(
-        "ip",
-        &[
-            family,
-            "rule",
-            "add",
-            "uidrange",
-            &uids,
-            "table",
-            "main",
-            "priority",
-            PRIO_GEPH_DIRECT,
-        ],
+    replace_rule(
+        family,
+        PRIO_GEPH_DIRECT,
+        &["uidrange", &uids, "table", "main"],
     )?;
-    run(
-        "ip",
-        &[
-            family,
-            "rule",
-            "add",
-            "uidrange",
-            &uids,
-            "type",
-            "unreachable",
-            "priority",
-            PRIO_GEPH_GUARD,
-        ],
+    replace_rule(
+        family,
+        PRIO_GEPH_GUARD,
+        &["uidrange", &uids, "type", "unreachable"],
     )?;
-    run(
-        "ip",
-        &[
-            family,
-            "rule",
-            "add",
-            "table",
-            RT_TABLE,
-            "priority",
-            PRIO_TUN_ALL,
-        ],
-    )?;
+    replace_rule(family, PRIO_TUN_ALL, &["table", RT_TABLE])?;
     Ok(())
+}
+
+/// `ip rule` has no portable `replace` verb. Remove every rule at our owned
+/// priority, then add the exact desired one. The nft kill switch is installed
+/// before this runs, so the short routing gap remains fail-closed.
+fn replace_rule(family: &str, priority: &str, selector: &[&str]) -> anyhow::Result<()> {
+    while run("ip", &[family, "rule", "del", "priority", priority]).is_ok() {}
+    let mut args = vec![family, "rule", "add"];
+    args.extend_from_slice(selector);
+    args.extend_from_slice(&["priority", priority]);
+    run("ip", &args)
 }
 
 /// Remove all VPN routing/firewall state. Error-tolerant / idempotent.

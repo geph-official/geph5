@@ -13,7 +13,9 @@ use std::{
 use anyhow::Context as _;
 use geph5_broker_protocol::{Credential, ExitConstraint};
 use geph5_misc_rpc::{
-    client_config::BrokerSource, client_control::ControlClient, manager_control::ProxySettings,
+    client_config::BrokerSource,
+    client_control::ControlClient,
+    manager_control::{ProxySettings, TunnelSettings},
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,8 +43,7 @@ pub struct Settings {
     /// at all.
     #[serde(default)]
     pub proxy: Option<ProxySettings>,
-    /// Full-tunnel VPN mode: capture all traffic via a tun device (Linux) or a
-    /// WinTUN device (Windows).
+    /// Full-tunnel VPN mode: capture all traffic via the platform VPN device.
     #[serde(default)]
     pub vpn: bool,
     /// Let connections to private/LAN addresses bypass the tunnel.
@@ -52,6 +53,12 @@ pub struct Settings {
     /// censorship-resistant; off by default.
     #[serde(default)]
     pub allow_direct: bool,
+    /// Let destinations in mainland China bypass the tunnel.
+    #[serde(default)]
+    pub passthrough_china: bool,
+    /// Metadata attached to newly-created exit sessions.
+    #[serde(default)]
+    pub session_metadata: serde_json::Value,
 }
 
 fn default_exit_constraint() -> ExitConstraint {
@@ -73,11 +80,23 @@ impl Default for Settings {
             vpn: true,
             allow_lan: true,
             allow_direct: false,
+            passthrough_china: false,
+            session_metadata: serde_json::Value::Null,
         }
     }
 }
 
 impl Settings {
+    pub fn apply_tunnel_settings(&mut self, settings: TunnelSettings) {
+        self.exit_constraint = settings.exit_constraint;
+        self.proxy = settings.proxy;
+        self.vpn = settings.vpn;
+        self.allow_lan = settings.allow_lan;
+        self.allow_direct = settings.allow_direct;
+        self.passthrough_china = settings.passthrough_china;
+        self.session_metadata = settings.session_metadata;
+    }
+
     /// Load settings from disk, returning defaults if the file is absent.
     pub fn load() -> anyhow::Result<Self> {
         let path = platform::settings_path();
@@ -124,6 +143,8 @@ pub(crate) fn build_tunnel_config(
     cfg.exit_constraint = settings.exit_constraint.clone();
     cfg.allow_lan = settings.allow_lan;
     cfg.allow_direct = settings.allow_direct;
+    cfg.passthrough_china = settings.passthrough_china;
+    cfg.sess_metadata = settings.session_metadata.clone();
     cfg.dry_run = !settings.connected;
     platform::configure_engine_control(&mut cfg, EngineRole::Tunnel);
     match &settings.proxy {
@@ -228,7 +249,9 @@ fn front_lookup_target(front: &str) -> anyhow::Result<(String, u16)> {
 
 #[cfg(test)]
 mod tests {
-    use super::front_lookup_target;
+    use super::{Settings, build_tunnel_config, front_lookup_target};
+    use geph5_broker_protocol::ExitConstraint;
+    use geph5_misc_rpc::manager_control::{ProxySettings, TunnelSettings};
 
     #[test]
     fn front_lookup_target_uses_https_default_port() {
@@ -250,14 +273,61 @@ mod tests {
     fn front_lookup_target_rejects_urls_without_socket_target() {
         assert!(front_lookup_target("file:///tmp/front").is_err());
     }
+
+    #[test]
+    fn applying_tunnel_snapshot_preserves_lifecycle_and_credentials() {
+        let mut settings = Settings {
+            secret: Some("keep-me".into()),
+            connected: true,
+            ..Settings::default()
+        };
+        settings.apply_tunnel_settings(TunnelSettings {
+            exit_constraint: ExitConstraint::Auto,
+            proxy: Some(ProxySettings::default()),
+            vpn: false,
+            allow_lan: false,
+            allow_direct: true,
+            passthrough_china: true,
+            session_metadata: serde_json::json!({"filter": {"ads": true}}),
+        });
+
+        assert_eq!(settings.secret.as_deref(), Some("keep-me"));
+        assert!(settings.connected);
+        assert!(!settings.vpn);
+        assert!(!settings.allow_lan);
+        assert!(settings.allow_direct);
+        assert!(settings.passthrough_china);
+        assert_eq!(settings.session_metadata["filter"]["ads"], true);
+    }
+
+    #[test]
+    fn tunnel_config_contains_the_complete_snapshot() {
+        let settings = Settings {
+            secret: Some("secret".into()),
+            connected: true,
+            allow_lan: false,
+            allow_direct: true,
+            passthrough_china: true,
+            session_metadata: serde_json::json!({"filter": {"nsfw": true}}),
+            ..Settings::default()
+        };
+
+        let yaml = build_tunnel_config(&settings, false).unwrap();
+        let value: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+        let config: geph5_misc_rpc::client_config::Config = serde_json::from_value(value).unwrap();
+        assert!(!config.allow_lan);
+        assert!(config.allow_direct);
+        assert!(config.passthrough_china);
+        assert_eq!(config.sess_metadata["filter"]["nsfw"], true);
+    }
 }
 
 /// Config for the **query** engine: a permanent, secret-less, dry-run engine that
 /// answers broker RPCs (exit list, account-by-cred, login validation) regardless
 /// of connection state. Because it has no secret it runs no auth/bandwidth loops,
-/// writes no auth token, and shares no cache/session with the tunnel engine — so
-/// it never needs restarting (not on connect/disconnect, not on login/logout) and
-/// broker queries it serves never gap.
+/// writes no auth token, and shares no cache/session with the tunnel engine. It
+/// is not restarted for settings or lifecycle changes; the manager only replaces
+/// it if the process dies.
 fn build_query_config() -> anyhow::Result<String> {
     let mut cfg = config_from_template()?;
     // No credential: broker queries pass the credential as a per-call parameter,

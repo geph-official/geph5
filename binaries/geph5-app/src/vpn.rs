@@ -25,8 +25,7 @@ compile_error!("geph5-app supports only Linux, macOS, and Windows");
 #[allow(dead_code)]
 pub(crate) enum NetworkAction {
     Healthy,
-    Respawn,
-    Rebuild,
+    Reconcile,
 }
 
 pub(crate) struct NetworkProbe {
@@ -43,7 +42,6 @@ pub(crate) struct CheckedNetwork {
 /// each backend with scope guards.
 pub(crate) struct Vpn {
     handle: Option<backend::VpnHandle>,
-    configured_allow_lan: Option<bool>,
     generation: u64,
     #[cfg(target_os = "windows")]
     pump: Option<backend::Pump>,
@@ -53,42 +51,46 @@ impl Vpn {
     pub(crate) fn new() -> Self {
         Self {
             handle: None,
-            configured_allow_lan: None,
             generation: 0,
             #[cfg(target_os = "windows")]
             pump: None,
         }
     }
 
-    pub(crate) fn is_active(&self) -> bool {
-        self.handle.is_some()
-    }
-
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
 
-    pub(crate) fn reconcile(
+    /// Ensure a live VPN backend exists and reassert its complete externally
+    /// visible state. An existing backend is never torn down here.
+    pub(crate) fn ensure_active(
         &mut self,
-        want_vpn: bool,
-        force_rebuild: bool,
         allow_lan: bool,
         service_user: Option<(u32, u32)>,
     ) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
-        let platform_options_changed = false;
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        let platform_options_changed =
-            self.handle.is_some() && self.configured_allow_lan != Some(allow_lan);
-        if !want_vpn || force_rebuild || platform_options_changed {
-            self.stop_transport();
-            if let Some(handle) = self.handle.take() {
-                backend::cleanup(handle);
-                self.configured_allow_lan = None;
-                self.generation = self.generation.wrapping_add(1);
+        let _ = allow_lan;
+        if let Some(handle) = self.handle.as_mut() {
+            #[cfg(target_os = "linux")]
+            {
+                let (uid, _) = service_user.context("Linux VPN requires a service user")?;
+                backend::reconcile(handle, uid)?;
             }
-        }
-        if want_vpn && self.handle.is_none() {
+            #[cfg(target_os = "macos")]
+            {
+                let (uid, _) = service_user.context("macOS VPN requires a service user")?;
+                let physical =
+                    backend::physical_iface().context("discovering physical interface")?;
+                backend::reconcile(handle, physical, uid, allow_lan)?;
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = service_user;
+                let physical =
+                    backend::physical_iface().context("discovering physical interface")?;
+                backend::reconcile(handle, physical, allow_lan)?;
+            }
+        } else {
             #[cfg(target_os = "linux")]
             let handle = {
                 let (uid, _) = service_user.context("Linux VPN requires a service user")?;
@@ -109,13 +111,15 @@ impl Vpn {
                 backend::setup(physical, allow_lan)?
             };
             self.handle = Some(handle);
-            self.configured_allow_lan = Some(allow_lan);
-            self.generation = self.generation.wrapping_add(1);
         }
+        self.generation = self.generation.wrapping_add(1);
         Ok(())
     }
 
-    pub(crate) fn packet_mode(&self) -> PacketMode {
+    pub(crate) fn packet_mode(&self, want_vpn: bool) -> PacketMode {
+        if !want_vpn {
+            return PacketMode::None;
+        }
         let Some(handle) = self.handle.as_ref() else {
             return PacketMode::None;
         };
@@ -134,7 +138,10 @@ impl Vpn {
         }
     }
 
-    pub(crate) fn bind_indices(&self) -> Option<(u32, u32)> {
+    pub(crate) fn bind_indices(&self, want_vpn: bool) -> Option<(u32, u32)> {
+        if !want_vpn {
+            return None;
+        }
         let handle = self.handle.as_ref()?;
         #[cfg(target_os = "linux")]
         {
@@ -147,7 +154,13 @@ impl Vpn {
         }
     }
 
-    pub(crate) fn attach_transport(&mut self, transport: ChildTransport) -> anyhow::Result<()> {
+    pub(crate) fn attach_transport(
+        &mut self,
+        want_vpn: bool,
+        transport: ChildTransport,
+    ) -> anyhow::Result<()> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let _ = want_vpn;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             match transport {
@@ -159,19 +172,20 @@ impl Vpn {
         }
         #[cfg(target_os = "windows")]
         {
-            match (self.handle.as_ref(), transport) {
-                (None, ChildTransport::None) => Ok(()),
-                (Some(handle), ChildTransport::Stdio { stdin, stdout }) => {
+            match (want_vpn, self.handle.as_ref(), transport) {
+                (false, _, ChildTransport::None) => Ok(()),
+                (true, Some(handle), ChildTransport::Stdio { stdin, stdout }) => {
                     let session = handle.start_session()?;
                     self.pump = Some(backend::Pump::start(session, stdin, stdout));
                     Ok(())
                 }
-                (Some(_), ChildTransport::None) => {
+                (true, Some(_), ChildTransport::None) => {
                     anyhow::bail!("Windows VPN engine did not expose its packet transport")
                 }
-                (None, ChildTransport::Stdio { .. }) => {
+                (false, _, ChildTransport::Stdio { .. }) => {
                     anyhow::bail!("proxy-mode engine unexpectedly exposed a VPN transport")
                 }
+                (true, None, _) => anyhow::bail!("Windows VPN backend is not active"),
             }
         }
     }
@@ -194,7 +208,6 @@ impl Vpn {
         self.stop_transport();
         if let Some(handle) = self.handle.take() {
             backend::cleanup(handle);
-            self.configured_allow_lan = None;
             self.generation = self.generation.wrapping_add(1);
         }
     }

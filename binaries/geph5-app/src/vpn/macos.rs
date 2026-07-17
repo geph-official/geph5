@@ -16,15 +16,15 @@
 //! fd is passed to the child exactly like Linux (`dup2` onto fd 3 in the spawn
 //! `pre_exec`, then `--vpn-fd 3`).
 //!
-//! Physical-route changes are monitored by the uniform VPN layer. It repairs an
-//! invalidated scoped route when the physical route is otherwise unchanged and
-//! rebuilds the VPN when the egress interface or gateway changes.
+//! Physical-route changes are monitored by the uniform VPN layer. Any drift
+//! triggers a complete in-place reassertion of PF, routes, addressing, and DNS;
+//! the manager then replaces only the engine child so it receives fresh binding
+//! indices.
 //!
 //! macOS has no `PR_SET_PDEATHSIG`, so a *hard* manager crash (SIGKILL) leaves the
 //! engine child running and still holding the utun fd, keeping the interface and
-//! its routes alive with no supervisor. Two things contain that: [`setup`] is
-//! idempotent (it clears stale `/1` and scoped-default routes and never trusts a
-//! leftover sentinel as the user's DNS), and `recover-geph.sh` is the manual
+//! its routes alive with no supervisor. Manager startup runs [`cleanup_stale`]
+//! before constructing fresh state, and `recover-geph.sh` remains the manual
 //! escape hatch. Clean disconnect is unaffected — the manager kills the child
 //! before dropping the handle.
 //!
@@ -95,7 +95,7 @@ struct SockaddrCtl {
 /// the engine's `IP_BOUND_IF` socket pinning, plus the `(interface, gateway)` pairs
 /// used to install the interface-scoped default routes that let those pinned
 /// sockets escape the `/1` capture.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct PhysIface {
     if4: u32,
     if6: u32,
@@ -239,20 +239,13 @@ impl VpnHandle {
             ],
         );
 
-        // Delete-then-add so a stale /1 left by a crashed prior instance (pointing
-        // at a now-defunct utun) doesn't make the add fail with "already in table".
-        for net in V4_SPLIT {
-            let _ = run("route", &["-n", "delete", "-net", net]);
-            run("route", &["-n", "add", "-net", net, "-interface", &ifname])
-                .with_context(|| format!("adding route {net}"))?;
-        }
-        for net in V6_SPLIT {
-            let _ = run("route", &["-n", "delete", "-inet6", "-net", net]);
-            let _ = run(
-                "route",
-                &["-n", "add", "-inet6", "-net", net, "-interface", &ifname],
-            );
-        }
+        // Enable the all-interface kill switch before capture routes are installed.
+        // Record the token first so the setup guard can release our reference if
+        // loading the rules fails.
+        self.pf_token = Some(pf_enable().context("enabling PF")?);
+        pf_load(&pf_ruleset(&ifname, uid, allow_lan)).context("loading PF kill switch")?;
+
+        upsert_split_routes(&ifname)?;
 
         // Interface-scoped default route via the physical gateway. macOS scoped
         // routing (IP_BOUND_IF, used by the engine's bound dialer to keep its own
@@ -266,14 +259,85 @@ impl VpnHandle {
         add_scoped_default(&self.phys).context("installing interface-scoped default route")?;
 
         self.dns_backup = set_sentinel_dns();
-
-        // PF kill switch, last. Record the enable token *before* loading the rules
-        // so the setup guard can still release our PF reference on a load failure.
-        self.pf_token = Some(pf_enable().context("enabling PF")?);
-        pf_load(&pf_ruleset(&ifname, &self.phys.v4_gw.0, uid, allow_lan))
-            .context("loading PF kill switch")?;
         Ok(())
     }
+}
+
+/// Reassert the complete macOS VPN configuration without replacing the live
+/// utun. PF is loaded first and blocks all physical egress, so route repair and
+/// physical-interface changes remain fail-closed.
+pub(super) fn reconcile(
+    handle: &mut VpnHandle,
+    physical: PhysIface,
+    uid: u32,
+    allow_lan: bool,
+) -> anyhow::Result<()> {
+    let ifname = handle.ifname.clone();
+    pf_load(&pf_ruleset(&ifname, uid, allow_lan)).context("reasserting PF kill switch")?;
+    run(
+        "ifconfig",
+        &[
+            ifname.as_str(),
+            "inet",
+            TUN_V4,
+            TUN_V4,
+            "mtu",
+            TUN_MTU,
+            "up",
+        ],
+    )
+    .context("reasserting utun IPv4")?;
+    let _ = run(
+        "ifconfig",
+        &[
+            ifname.as_str(),
+            "inet6",
+            TUN_V6,
+            "prefixlen",
+            TUN_V6_PREFIX,
+            "up",
+        ],
+    );
+    upsert_split_routes(&ifname)?;
+
+    // Add the new scoped escape route before retiring the old one. These routes
+    // affect only explicitly-bound engine sockets; ordinary traffic remains
+    // captured by the /1 routes and PF throughout.
+    add_scoped_default(&physical).context("reasserting interface-scoped default route")?;
+    if handle.phys != physical {
+        del_scoped_default(&handle.phys);
+    }
+    handle.phys = physical;
+    reassert_sentinel_dns();
+    Ok(())
+}
+
+fn upsert_split_routes(ifname: &str) -> anyhow::Result<()> {
+    for net in V4_SPLIT {
+        if run(
+            "route",
+            &["-n", "change", "-net", net, "-interface", ifname],
+        )
+        .is_err()
+        {
+            run("route", &["-n", "add", "-net", net, "-interface", ifname])
+                .with_context(|| format!("adding route {net}"))?;
+        }
+    }
+    for net in V6_SPLIT {
+        if run(
+            "route",
+            &["-n", "change", "-inet6", "-net", net, "-interface", ifname],
+        )
+        .is_err()
+        {
+            let _ = run(
+                "route",
+                &["-n", "add", "-inet6", "-net", net, "-interface", ifname],
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Open a `utun` control socket, let the kernel pick the next free unit, and return
@@ -471,6 +535,15 @@ fn set_sentinel_dns() -> Vec<(String, Vec<String>)> {
     backup
 }
 
+fn reassert_sentinel_dns() {
+    for svc in list_network_services() {
+        let _ = run(
+            "networksetup",
+            &["-setdnsservers", &svc, SENTINEL_DNS_V4, SENTINEL_DNS_V6],
+        );
+    }
+}
+
 /// Restore each service's DNS to its saved value (`Empty` == back to DHCP).
 fn restore_dns(backup: &[(String, Vec<String>)]) {
     for (svc, servers) in backup {
@@ -497,7 +570,8 @@ pub(super) fn network_snapshot(handle: &VpnHandle) -> NetworkSnapshot {
 
 /// Check that the captured routing is still valid — sleep/wake invalidates the
 /// interface-scoped route, and a network switch changes the physical interface —
-/// repairing the scoped route in place when that's enough.
+/// reporting whether a full reconciliation is needed. This probe never mutates
+/// host networking.
 pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction {
     // No usable default route right now (e.g. network momentarily down): don't
     // thrash — wait for it to come back.
@@ -506,11 +580,10 @@ pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction 
         Err(_) => return super::NetworkAction::Healthy,
     };
     if cur.if4 != snapshot.phys.if4 || cur.v4_gw != snapshot.phys.v4_gw {
-        return super::NetworkAction::Rebuild;
+        return super::NetworkAction::Reconcile;
     }
     if !scoped_default_ok(&snapshot.phys) {
-        let _ = add_scoped_default(&snapshot.phys);
-        return super::NetworkAction::Respawn;
+        return super::NetworkAction::Reconcile;
     }
     super::NetworkAction::Healthy
 }
@@ -601,10 +674,10 @@ pub(super) fn cleanup_stale() {
 /// The anchor blocks all egress on the physical interface except the engine's own
 /// (matched by `uid`), the tunnel, loopback, and DHCP — plus private/link-local
 /// ranges when `allow_lan` — and blocks stray DNS to plug leaks.
-fn pf_ruleset(utun: &str, phys: &str, uid: u32, allow_lan: bool) -> String {
+fn pf_ruleset(utun: &str, uid: u32, allow_lan: bool) -> String {
     let lan = if allow_lan {
         format!(
-            "  pass out quick on {phys} from any to {{ 10.0.0.0/8 172.16.0.0/12 \
+            "  pass out quick from any to {{ 10.0.0.0/8 172.16.0.0/12 \
              192.168.0.0/16 169.254.0.0/16 224.0.0.0/4 fc00::/7 fe80::/10 ff00::/8 }} keep state\n"
         )
     } else {
@@ -620,11 +693,11 @@ load anchor "com.apple" from "/etc/pf.anchors/com.apple"
 anchor "{PF_ANCHOR}" {{
   pass quick on lo0 all
   pass quick on {utun} all
-  pass out quick on {phys} proto {{ tcp udp icmp }} from any to any user {uid} keep state
-  pass out quick on {phys} proto udp from any port 68 to any port 67
-  pass out quick on {phys} proto udp from any port 546 to any port 547
-  block drop quick on {phys} proto {{ tcp udp }} from any to any port 53
-{lan}  block drop out on {phys} all
+  pass out quick proto {{ tcp udp icmp }} from any to any user {uid} keep state
+  pass out quick proto udp from any port 68 to any port 67
+  pass out quick proto udp from any port 546 to any port 547
+  block drop quick proto {{ tcp udp }} from any to any port 53
+{lan}  block drop out all
 }}
 "#
     )
