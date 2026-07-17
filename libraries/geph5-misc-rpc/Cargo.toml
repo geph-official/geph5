@@ -20,6 +20,7 @@ ed25519-dalek = {version="2", default-features=false, features=["serde"]}
 x25519-dalek = {version="2", default-features=false, features=["serde"]}
 blake3 = { version = "1.8.5", features = ["serde"] }
 sillad = { version="0.3", path = "../sillad" }
+nanorpc-sillad = { version = "0.2", path = "../nanorpc-sillad" }
 geph5-rt = { version = "0.3", path = "../geph5-rt" }
 tokio = { version = "1.52", features = ["io-util"] }
 chacha20poly1305 = "0.10.1"

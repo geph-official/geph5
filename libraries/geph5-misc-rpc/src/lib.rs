@@ -4,6 +4,7 @@ pub mod bridge;
 pub mod client_config;
 pub mod client_control;
 pub mod exit;
+pub mod manager_control;
 pub mod tunnel_command;
 
 /// A helper function to write a length-prepended value into an AsyncWrite.
