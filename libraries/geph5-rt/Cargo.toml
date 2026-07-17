@@ -15,8 +15,5 @@ bytes = "1.11.1"
 pin-project-lite = "0.2.16"
 rand = "0.8.6"
 
-[target.'cfg(unix)'.dependencies]
-libc = "0.2.186"
-
 [dev-dependencies]
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "time", "io-util", "net", "sync"] }

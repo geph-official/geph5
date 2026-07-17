@@ -7,21 +7,21 @@ use anyhow::Context as _;
 use geph5_broker_protocol::ExitConstraint;
 use isocountry::CountryCode;
 
+use geph5_misc_rpc::manager_control::{
+    self, AccountInfo, ConnState, GephCtlClient, GephCtlError, Status,
+};
+
 use crate::{
     cli::{Command, ExitConstraintCmd, ExitConstraintSet},
-    protocol::{AccountInfo, ConnState, GephCtlClient, GephCtlError, SessionContext, Status},
-    supervisor,
+    platform,
 };
 
 /// A shared client pointed at the running manager. Each call still dials a fresh
 /// connection (DialerTransport has no pooling); this just avoids rebuilding the
 /// wrapper, matching the workspace's `LazyLock` idiom.
 fn manager_client() -> &'static GephCtlClient {
-    static CLIENT: LazyLock<GephCtlClient> = LazyLock::new(|| {
-        GephCtlClient::from(nanorpc_sillad::DialerTransport(
-            supervisor::manager_control_dialer(),
-        ))
-    });
+    static CLIENT: LazyLock<GephCtlClient> =
+        LazyLock::new(manager_control::manager_control_client);
     &CLIENT
 }
 
@@ -61,7 +61,7 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
             print_account(&account);
         }
         Command::Logout => {
-            flatten(client.logout(current_session()).await)?;
+            flatten(client.logout(platform::current_session()).await)?;
             println!("Logged out.");
         }
         Command::Account => {
@@ -72,11 +72,11 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
         Command::Connect => {
             // Pass our session so the manager can configure this user's system
             // proxy; the proxy-setting code lives entirely in the manager.
-            flatten(client.connect(current_session()).await)?;
+            flatten(client.connect(platform::current_session()).await)?;
             println!("Connecting…");
         }
         Command::Disconnect => {
-            flatten(client.disconnect(current_session()).await)?;
+            flatten(client.disconnect(platform::current_session()).await)?;
             println!("Disconnected.");
         }
         Command::Reconnect => {
@@ -152,7 +152,11 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
                 } else {
                     None
                 };
-                flatten(client.set_proxy_settings(proxy, current_session()).await)?;
+                flatten(
+                    client
+                        .set_proxy_settings(proxy, platform::current_session())
+                        .await,
+                )?;
                 println!("proxy set to {}", on_off(enabled));
             }
         },
@@ -174,7 +178,7 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
                 proxy.autoconf = enabled;
                 flatten(
                     client
-                        .set_proxy_settings(Some(proxy), current_session())
+                        .set_proxy_settings(Some(proxy), platform::current_session())
                         .await,
                 )?;
                 println!("auto-proxy set to {}", on_off(enabled));
@@ -227,25 +231,6 @@ async fn run_inner(command: Command) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Describe the caller's desktop session so the manager can configure its proxy.
-/// This is just identity (uid + a few env vars) — no proxy logic lives here.
-fn current_session() -> SessionContext {
-    #[cfg(unix)]
-    {
-        SessionContext {
-            uid: unsafe { libc::geteuid() },
-            gid: Some(unsafe { libc::getegid() }),
-            home: std::env::var("HOME").ok(),
-            dbus_session_bus_address: std::env::var("DBUS_SESSION_BUS_ADDRESS").ok(),
-            xdg_runtime_dir: std::env::var("XDG_RUNTIME_DIR").ok(),
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        SessionContext::default()
-    }
-}
-
 fn parse_on_off(s: &str) -> anyhow::Result<bool> {
     match s.trim().to_ascii_lowercase().as_str() {
         "on" | "true" | "yes" | "1" | "enable" | "enabled" => Ok(true),
@@ -273,9 +258,10 @@ fn constraint_from_args(set: &ExitConstraintSet) -> anyhow::Result<ExitConstrain
     match (&set.country, &set.city) {
         (None, _) => Ok(ExitConstraint::Auto),
         (Some(country), None) => Ok(ExitConstraint::Country(parse_country(country)?)),
-        (Some(country), Some(city)) => {
-            Ok(ExitConstraint::CountryCity(parse_country(country)?, city.clone()))
-        }
+        (Some(country), Some(city)) => Ok(ExitConstraint::CountryCity(
+            parse_country(country)?,
+            city.clone(),
+        )),
     }
 }
 

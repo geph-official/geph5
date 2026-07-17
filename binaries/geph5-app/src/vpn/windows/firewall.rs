@@ -45,7 +45,7 @@ const SUBLAYER_KEY: GUID = GUID::from_u128(0x6765_7068_0000_0000_0000_0000_0000_
 const IPPROTO_UDP: u8 = 17;
 
 /// A fail-closed egress firewall for VPN mode.
-pub trait Firewall {
+pub(super) trait Firewall {
     /// Confirm the backend is usable (e.g. sufficient privilege) before we bring
     /// the tunnel up, so we can fail before creating a leak window.
     fn preflight(&self) -> anyhow::Result<()>;
@@ -69,12 +69,12 @@ pub trait Firewall {
 /// The filters are installed under a non-dynamic session and persist in BFE after
 /// the install handle is closed, so no `!Send` handle is held across the manager's
 /// `.await` points — we only track whether they are installed.
-pub struct WfpKillSwitch {
+pub(super) struct WfpKillSwitch {
     installed: bool,
 }
 
 impl WfpKillSwitch {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         WfpKillSwitch { installed: false }
     }
 }
@@ -82,7 +82,8 @@ impl WfpKillSwitch {
 impl Firewall for WfpKillSwitch {
     fn preflight(&self) -> anyhow::Result<()> {
         // WFP requires Administrator; the manager already enforces elevation at
-        // startup (see `main::require_root`), so nothing more is needed here.
+        // startup (see `platform::require_manager_privilege`), so nothing more
+        // is needed here.
         Ok(())
     }
 
@@ -134,17 +135,11 @@ impl Firewall for WfpKillSwitch {
     }
 }
 
-impl Drop for WfpKillSwitch {
-    fn drop(&mut self) {
-        self.remove();
-    }
-}
-
 /// Best-effort removal of a leftover sublayer (and its filters) from a previous
 /// run that did not clean up — e.g. a future build that used a *persistent*
 /// session. A dynamic session is already gone once its owner dies, so this is
 /// usually a no-op; failures (most commonly "not found") are ignored.
-pub fn purge_stale() {
+pub(super) fn purge_stale() {
     let engine = match open_engine() {
         Ok(e) => e,
         Err(_) => return,
@@ -222,10 +217,7 @@ fn build_filters(
                 for blob in app_blobs {
                     unsafe { FwpmFreeMemory0(&mut (blob as *mut core::ffi::c_void)) };
                 }
-                anyhow::bail!(
-                    "could not resolve WFP app-id for {}: {e}",
-                    path.display()
-                );
+                anyhow::bail!("could not resolve WFP app-id for {}: {e}", path.display());
             }
         }
     }
@@ -271,9 +263,19 @@ fn install_family(
     // permit loopback (by remote address).
     {
         let c = if v6 {
-            vec![cond_v6(&mut back, &FWPM_CONDITION_IP_REMOTE_ADDRESS, V6_LOOPBACK, 128)]
+            vec![cond_v6(
+                &mut back,
+                &FWPM_CONDITION_IP_REMOTE_ADDRESS,
+                V6_LOOPBACK,
+                128,
+            )]
         } else {
-            vec![cond_v4(&mut back, &FWPM_CONDITION_IP_REMOTE_ADDRESS, 0x7F00_0000, 0xFF00_0000)]
+            vec![cond_v4(
+                &mut back,
+                &FWPM_CONDITION_IP_REMOTE_ADDRESS,
+                0x7F00_0000,
+                0xFF00_0000,
+            )]
         };
         add_filter(engine, layer, FWP_ACTION_PERMIT, W_LOOPBACK, &c, "loopback")?;
     }
@@ -286,7 +288,11 @@ fn install_family(
 
     // permit everything leaving on the WinTUN interface (normal tunneled traffic).
     {
-        let c = vec![cond_u64(&mut back, &FWPM_CONDITION_IP_LOCAL_INTERFACE, wintun_luid)];
+        let c = vec![cond_u64(
+            &mut back,
+            &FWPM_CONDITION_IP_LOCAL_INTERFACE,
+            wintun_luid,
+        )];
         add_filter(engine, layer, FWP_ACTION_PERMIT, W_WINTUN, &c, "on-wintun")?;
     }
 
@@ -303,14 +309,26 @@ fn install_family(
     // block :53 to anything not permitted above (DNS-leak guard).
     {
         let c = vec![cond_u16(&FWPM_CONDITION_IP_REMOTE_PORT, 53)];
-        add_filter(engine, layer, FWP_ACTION_BLOCK, W_DNS_BLOCK, &c, "dns-leak-guard")?;
+        add_filter(
+            engine,
+            layer,
+            FWP_ACTION_BLOCK,
+            W_DNS_BLOCK,
+            &c,
+            "dns-leak-guard",
+        )?;
     }
 
     // permit LAN destinations if requested (RFC1918 / link-local / ULA).
     if allow_lan {
         if v6 {
             for (addr, prefix) in [(V6_ULA, 7u8), (V6_LINK_LOCAL, 10u8)] {
-                let c = vec![cond_v6(&mut back, &FWPM_CONDITION_IP_REMOTE_ADDRESS, addr, prefix)];
+                let c = vec![cond_v6(
+                    &mut back,
+                    &FWPM_CONDITION_IP_REMOTE_ADDRESS,
+                    addr,
+                    prefix,
+                )];
                 add_filter(engine, layer, FWP_ACTION_PERMIT, W_LAN, &c, "lan")?;
             }
         } else {
@@ -320,14 +338,26 @@ fn install_family(
                 (0xC0A8_0000, 0xFFFF_0000),       // 192.168.0.0/16
                 (0xA9FE_0000, 0xFFFF_0000),       // 169.254.0.0/16 link-local
             ] {
-                let c = vec![cond_v4(&mut back, &FWPM_CONDITION_IP_REMOTE_ADDRESS, addr, mask)];
+                let c = vec![cond_v4(
+                    &mut back,
+                    &FWPM_CONDITION_IP_REMOTE_ADDRESS,
+                    addr,
+                    mask,
+                )];
                 add_filter(engine, layer, FWP_ACTION_PERMIT, W_LAN, &c, "lan")?;
             }
         }
     }
 
     // default block → fail-closed (no conditions, lowest weight).
-    add_filter(engine, layer, FWP_ACTION_BLOCK, W_DEFAULT_BLOCK, &[], "default-block")?;
+    add_filter(
+        engine,
+        layer,
+        FWP_ACTION_BLOCK,
+        W_DEFAULT_BLOCK,
+        &[],
+        "default-block",
+    )?;
 
     drop(back);
     Ok(())
@@ -361,7 +391,10 @@ impl Backing {
         p
     }
     fn v6_ptr(&mut self, addr: [u8; 16], prefix: u8) -> *mut FWP_V6_ADDR_AND_MASK {
-        let b = Box::new(FWP_V6_ADDR_AND_MASK { addr, prefixLength: prefix });
+        let b = Box::new(FWP_V6_ADDR_AND_MASK {
+            addr,
+            prefixLength: prefix,
+        });
         let p = b.as_ref() as *const FWP_V6_ADDR_AND_MASK as *mut FWP_V6_ADDR_AND_MASK;
         self.v6s.push(b);
         p
@@ -388,16 +421,38 @@ fn cond_u16(field: &GUID, v: u16) -> FWPM_FILTER_CONDITION0 {
     cond(field, FWP_UINT16, FWP_CONDITION_VALUE0_0 { uint16: v })
 }
 fn cond_u64(back: &mut Backing, field: &GUID, v: u64) -> FWPM_FILTER_CONDITION0 {
-    cond(field, FWP_UINT64, FWP_CONDITION_VALUE0_0 { uint64: back.u64_ptr(v) })
+    cond(
+        field,
+        FWP_UINT64,
+        FWP_CONDITION_VALUE0_0 {
+            uint64: back.u64_ptr(v),
+        },
+    )
 }
 fn cond_v4(back: &mut Backing, field: &GUID, addr: u32, mask: u32) -> FWPM_FILTER_CONDITION0 {
-    cond(field, FWP_V4_ADDR_MASK, FWP_CONDITION_VALUE0_0 { v4AddrMask: back.v4_ptr(addr, mask) })
+    cond(
+        field,
+        FWP_V4_ADDR_MASK,
+        FWP_CONDITION_VALUE0_0 {
+            v4AddrMask: back.v4_ptr(addr, mask),
+        },
+    )
 }
 fn cond_v6(back: &mut Backing, field: &GUID, addr: [u8; 16], prefix: u8) -> FWPM_FILTER_CONDITION0 {
-    cond(field, FWP_V6_ADDR_MASK, FWP_CONDITION_VALUE0_0 { v6AddrMask: back.v6_ptr(addr, prefix) })
+    cond(
+        field,
+        FWP_V6_ADDR_MASK,
+        FWP_CONDITION_VALUE0_0 {
+            v6AddrMask: back.v6_ptr(addr, prefix),
+        },
+    )
 }
 fn cond_blob(field: &GUID, blob: *mut FWP_BYTE_BLOB) -> FWPM_FILTER_CONDITION0 {
-    cond(field, FWP_BYTE_BLOB_TYPE, FWP_CONDITION_VALUE0_0 { byteBlob: blob })
+    cond(
+        field,
+        FWP_BYTE_BLOB_TYPE,
+        FWP_CONDITION_VALUE0_0 { byteBlob: blob },
+    )
 }
 
 /// Add a single terminating filter under our sublayer at `layer`.
@@ -457,5 +512,8 @@ fn check(code: u32, what: &str) -> anyhow::Result<()> {
 
 /// UTF-16, NUL-terminated, for the wide-string WFP/Win32 APIs.
 fn wide(s: &str) -> Vec<u16> {
-    std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    std::ffi::OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }

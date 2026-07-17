@@ -1,4 +1,4 @@
-//! macOS full-tunnel VPN: a `utun` device, split `/1` routes that steer all
+//! macOS full-tunnel VPN backend: a `utun` device, split `/1` routes that steer all
 //! traffic into it, an interface-scoped default route for loop prevention, a
 //! sentinel DNS to avoid LAN-resolver leaks, and a fail-closed PF kill switch.
 //!
@@ -11,14 +11,14 @@
 //! installs an interface-scoped default via the physical gateway so those pinned
 //! sockets have a route out.
 //!
-//! The engine runs as the dedicated [`SERVICE_USER`] (`_geph`) so the PF kill
+//! The engine runs as the dedicated `_geph` account so the PF kill
 //! switch can permit its egress by uid and fail closed on everything else. The tun
 //! fd is passed to the child exactly like Linux (`dup2` onto fd 3 in the spawn
 //! `pre_exec`, then `--vpn-fd 3`).
 //!
-//! The physical interface and gateway are captured once at connect (like the
-//! Windows implementation); a network change (Wi-Fi ↔ Ethernet) mid-session is not
-//! re-evaluated and needs a reconnect.
+//! Physical-route changes are monitored by the uniform VPN layer. It repairs an
+//! invalidated scoped route when the physical route is otherwise unchanged and
+//! rebuilds the VPN when the egress interface or gateway changes.
 //!
 //! macOS has no `PR_SET_PDEATHSIG`, so a *hard* manager crash (SIGKILL) leaves the
 //! engine child running and still holding the utun fd, keeping the interface and
@@ -42,8 +42,6 @@ use anyhow::{Context, bail};
 
 /// Dedicated unprivileged user the engine runs as, so the PF kill switch can
 /// permit its egress by uid (the macOS analogue of Linux's `geph5-daemon`).
-pub const SERVICE_USER: &str = "_geph";
-
 /// PF anchor name holding our kill-switch rules.
 const PF_ANCHOR: &str = "geph";
 
@@ -66,7 +64,7 @@ const SENTINEL_DNS_V4: &str = "1.1.1.1";
 const SENTINEL_DNS_V6: &str = "2606:4700:4700::1111";
 
 // ---- utun control-socket constants (from <sys/sys_domain.h>, <net/if_utun.h>) ----
-// Defined locally (like vpn_linux's TUNSETIFF) so we don't depend on libc exposing
+// Defined locally (like the Linux backend's TUNSETIFF) so we don't depend on libc exposing
 // every apple-specific item.
 const PF_SYSTEM: libc::c_int = 32;
 const SYSPROTO_CONTROL: libc::c_int = 2;
@@ -98,7 +96,7 @@ struct SockaddrCtl {
 /// used to install the interface-scoped default routes that let those pinned
 /// sockets escape the `/1` capture.
 #[derive(Clone)]
-pub struct PhysIface {
+pub(super) struct PhysIface {
     if4: u32,
     if6: u32,
     v4_gw: (String, String),
@@ -106,8 +104,8 @@ pub struct PhysIface {
 }
 
 /// Owns the utun fd; the device (and its routes) live as long as this handle, so
-/// routing survives child restarts. `Drop` restores DNS and removes the routes.
-pub struct VpnHandle {
+/// routing survives child restarts.
+pub(super) struct VpnHandle {
     tun: OwnedFd,
     ifname: String,
     phys: PhysIface,
@@ -119,18 +117,16 @@ pub struct VpnHandle {
 
 impl VpnHandle {
     /// Raw utun fd, to be dup'd into the child.
-    pub fn tun_fd(&self) -> RawFd {
+    pub(super) fn tun_fd(&self) -> RawFd {
         self.tun.as_raw_fd()
     }
 
     /// Physical interface indices passed to the engine for `IP_BOUND_IF` pinning.
-    pub fn bind_indices(&self) -> (u32, u32) {
+    pub(super) fn bind_indices(&self) -> (u32, u32) {
         (self.phys.if4, self.phys.if6)
     }
-}
 
-impl Drop for VpnHandle {
-    fn drop(&mut self) {
+    fn cleanup(&mut self) {
         // Lift the kill switch first so teardown traffic isn't blocked.
         if let Some(token) = &self.pf_token {
             pf_teardown(token);
@@ -138,25 +134,41 @@ impl Drop for VpnHandle {
         restore_dns(&self.dns_backup);
         del_scoped_default(&self.phys);
         for net in V4_SPLIT {
-            let _ = run("route", &["-n", "delete", "-net", net, "-interface", &self.ifname]);
+            let _ = run(
+                "route",
+                &["-n", "delete", "-net", net, "-interface", &self.ifname],
+            );
         }
         for net in V6_SPLIT {
             let _ = run(
                 "route",
-                &["-n", "delete", "-inet6", "-net", net, "-interface", &self.ifname],
+                &[
+                    "-n",
+                    "delete",
+                    "-inet6",
+                    "-net",
+                    net,
+                    "-interface",
+                    &self.ifname,
+                ],
             );
         }
         // These explicit deletes are what actually tear routing down: callers kill
         // the engine child first (see reconcile_tunnel), but during a live session
-        // that child holds a dup of the utun fd, so dropping our OwnedFd alone would
+        // that child holds a dup of the utun fd, so closing our OwnedFd alone would
         // NOT remove the interface — the routes must be deleted by hand.
     }
+}
+
+/// Tear down a live VPN, restoring the exact DNS and routing state it replaced.
+pub(super) fn cleanup(mut handle: VpnHandle) {
+    handle.cleanup();
 }
 
 /// Discover the physical interface(s) behind the current default route(s). Must be
 /// called *before* [`setup`] installs the `/1` routes, while the default route
 /// still reflects the real NIC.
-pub fn physical_iface() -> anyhow::Result<PhysIface> {
+pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
     let (ifname4, gw4) = default_route(&["-n", "get", "default"])
         .context("no IPv4 default route — not connected to a network?")?;
     let if4 = iface_index(&ifname4)?;
@@ -178,37 +190,53 @@ pub fn physical_iface() -> anyhow::Result<PhysIface> {
 /// addressing, split routes, the interface-scoped default, sentinel DNS, and the
 /// PF kill switch (which permits the engine's egress by `uid`). `allow_lan` opens
 /// the private/link-local ranges in the kill switch.
-pub fn setup(phys: PhysIface, uid: u32, allow_lan: bool) -> anyhow::Result<VpnHandle> {
+pub(super) fn setup(phys: PhysIface, uid: u32, allow_lan: bool) -> anyhow::Result<VpnHandle> {
     let (tun, ifname) = create_utun().context("creating utun device")?;
-    let mut handle = VpnHandle {
-        tun,
-        ifname,
-        phys,
-        dns_backup: Vec::new(),
-        pf_token: None,
-    };
-    // On any failure inside bring_up, `handle` drops here and its Drop undoes
-    // whatever was applied so far (every teardown step is idempotent/best-effort).
+    let mut handle = scopeguard::guard(
+        VpnHandle {
+            tun,
+            ifname,
+            phys,
+            dns_backup: Vec::new(),
+            pf_token: None,
+        },
+        |mut handle| handle.cleanup(),
+    );
     handle.bring_up(uid, allow_lan)?;
-    Ok(handle)
+    Ok(scopeguard::ScopeGuard::into_inner(handle))
 }
 
 impl VpnHandle {
     /// Apply addressing, routes, DNS, and the kill switch. Separated from
-    /// construction so a mid-way failure unwinds cleanly through `Drop`.
+    /// construction so a mid-way failure unwinds through the setup scope guard.
     fn bring_up(&mut self, uid: u32, allow_lan: bool) -> anyhow::Result<()> {
         let ifname = self.ifname.clone();
 
         run(
             "ifconfig",
-            &[ifname.as_str(), "inet", TUN_V4, TUN_V4, "mtu", TUN_MTU, "up"],
+            &[
+                ifname.as_str(),
+                "inet",
+                TUN_V4,
+                TUN_V4,
+                "mtu",
+                TUN_MTU,
+                "up",
+            ],
         )
         .context("configuring utun IPv4")?;
         // Best-effort v6 (the host may have no v6 at all). macOS ifconfig uses the
         // `prefixlen` keyword, not the `addr/len` slash form.
         let _ = run(
             "ifconfig",
-            &[ifname.as_str(), "inet6", TUN_V6, "prefixlen", TUN_V6_PREFIX, "up"],
+            &[
+                ifname.as_str(),
+                "inet6",
+                TUN_V6,
+                "prefixlen",
+                TUN_V6_PREFIX,
+                "up",
+            ],
         );
 
         // Delete-then-add so a stale /1 left by a crashed prior instance (pointing
@@ -220,7 +248,10 @@ impl VpnHandle {
         }
         for net in V6_SPLIT {
             let _ = run("route", &["-n", "delete", "-inet6", "-net", net]);
-            let _ = run("route", &["-n", "add", "-inet6", "-net", net, "-interface", &ifname]);
+            let _ = run(
+                "route",
+                &["-n", "add", "-inet6", "-net", net, "-interface", &ifname],
+            );
         }
 
         // Interface-scoped default route via the physical gateway. macOS scoped
@@ -237,7 +268,7 @@ impl VpnHandle {
         self.dns_backup = set_sentinel_dns();
 
         // PF kill switch, last. Record the enable token *before* loading the rules
-        // so a load failure still releases our PF reference via Drop.
+        // so the setup guard can still release our PF reference on a load failure.
         self.pf_token = Some(pf_enable().context("enabling PF")?);
         pf_load(&pf_ruleset(&ifname, &self.phys.v4_gw.0, uid, allow_lan))
             .context("loading PF kill switch")?;
@@ -301,7 +332,10 @@ fn create_utun() -> anyhow::Result<(OwnedFd, String)> {
     if rc < 0 {
         return Err(io::Error::last_os_error()).context("getsockopt(UTUN_OPT_IFNAME)");
     }
-    let end = name_buf.iter().position(|&b| b == 0).unwrap_or(name_buf.len());
+    let end = name_buf
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(name_buf.len());
     let ifname = String::from_utf8_lossy(&name_buf[..end]).into_owned();
 
     // CLOEXEC so this copy doesn't leak into unrelated children; the child gets a
@@ -350,11 +384,27 @@ fn iface_index(name: &str) -> anyhow::Result<u32> {
 /// best-effort. Idempotent (clears any stale copy first).
 fn add_scoped_default(phys: &PhysIface) -> anyhow::Result<()> {
     let (ifn, gw) = &phys.v4_gw;
-    let _ = run("route", &["-n", "delete", "-net", "default", gw, "-ifscope", ifn]);
-    run("route", &["-n", "add", "-net", "default", gw, "-ifscope", ifn])?;
+    let _ = run(
+        "route",
+        &["-n", "delete", "-net", "default", gw, "-ifscope", ifn],
+    );
+    run(
+        "route",
+        &["-n", "add", "-net", "default", gw, "-ifscope", ifn],
+    )?;
     if let Some((ifn, gw)) = &phys.v6_gw {
-        let _ = run("route", &["-n", "delete", "-inet6", "-net", "default", gw, "-ifscope", ifn]);
-        let _ = run("route", &["-n", "add", "-inet6", "-net", "default", gw, "-ifscope", ifn]);
+        let _ = run(
+            "route",
+            &[
+                "-n", "delete", "-inet6", "-net", "default", gw, "-ifscope", ifn,
+            ],
+        );
+        let _ = run(
+            "route",
+            &[
+                "-n", "add", "-inet6", "-net", "default", gw, "-ifscope", ifn,
+            ],
+        );
     }
     Ok(())
 }
@@ -362,9 +412,17 @@ fn add_scoped_default(phys: &PhysIface) -> anyhow::Result<()> {
 /// Remove the interface-scoped default route(s). Best-effort / idempotent.
 fn del_scoped_default(phys: &PhysIface) {
     let (ifn, gw) = &phys.v4_gw;
-    let _ = run("route", &["-n", "delete", "-net", "default", gw, "-ifscope", ifn]);
+    let _ = run(
+        "route",
+        &["-n", "delete", "-net", "default", gw, "-ifscope", ifn],
+    );
     if let Some((ifn, gw)) = &phys.v6_gw {
-        let _ = run("route", &["-n", "delete", "-inet6", "-net", "default", gw, "-ifscope", ifn]);
+        let _ = run(
+            "route",
+            &[
+                "-n", "delete", "-inet6", "-net", "default", gw, "-ifscope", ifn,
+            ],
+        );
     }
 }
 
@@ -426,36 +484,35 @@ fn restore_dns(backup: &[(String, Vec<String>)]) {
     }
 }
 
-/// What the manager's watchdog should do after [`network_check`].
-pub enum VpnAction {
-    /// Routing is healthy; nothing to do.
-    Healthy,
-    /// The scoped route was repaired in place; respawn the engine so it recovers
-    /// promptly instead of waiting out its retry backoff.
-    Respawn,
-    /// The physical interface/gateway changed; tear down and rebuild fully (the
-    /// engine needs fresh `IP_BOUND_IF` indices).
-    Rebuild,
+#[derive(Clone)]
+pub(super) struct NetworkSnapshot {
+    phys: PhysIface,
+}
+
+pub(super) fn network_snapshot(handle: &VpnHandle) -> NetworkSnapshot {
+    NetworkSnapshot {
+        phys: handle.phys.clone(),
+    }
 }
 
 /// Check that the captured routing is still valid — sleep/wake invalidates the
 /// interface-scoped route, and a network switch changes the physical interface —
 /// repairing the scoped route in place when that's enough.
-pub fn network_check(handle: &VpnHandle) -> VpnAction {
+pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction {
     // No usable default route right now (e.g. network momentarily down): don't
     // thrash — wait for it to come back.
     let cur = match physical_iface() {
         Ok(c) => c,
-        Err(_) => return VpnAction::Healthy,
+        Err(_) => return super::NetworkAction::Healthy,
     };
-    if cur.if4 != handle.phys.if4 || cur.v4_gw != handle.phys.v4_gw {
-        return VpnAction::Rebuild;
+    if cur.if4 != snapshot.phys.if4 || cur.v4_gw != snapshot.phys.v4_gw {
+        return super::NetworkAction::Rebuild;
     }
-    if !scoped_default_ok(&handle.phys) {
-        let _ = add_scoped_default(&handle.phys);
-        return VpnAction::Respawn;
+    if !scoped_default_ok(&snapshot.phys) {
+        let _ = add_scoped_default(&snapshot.phys);
+        return super::NetworkAction::Respawn;
     }
-    VpnAction::Healthy
+    super::NetworkAction::Healthy
 }
 
 /// Does an interface-scoped lookup still resolve out the physical gateway? (After
@@ -487,7 +544,7 @@ const PF_ROUTE: libc::c_int = 17;
 /// so the watchdog reacts to a wake within ~a second instead of waiting out a poll;
 /// returns only if the socket can't be opened or read (the periodic backstop
 /// remains). We don't parse the messages — any message means "re-check".
-pub fn route_change_loop(mut on_change: impl FnMut()) {
+pub(super) fn route_change_loop(mut on_change: impl FnMut()) {
     let fd = unsafe { libc::socket(PF_ROUTE, libc::SOCK_RAW, 0) };
     if fd < 0 {
         tracing::warn!("could not open PF_ROUTE socket; relying on periodic VPN checks only");
@@ -497,7 +554,11 @@ pub fn route_change_loop(mut on_change: impl FnMut()) {
     let mut buf = [0u8; 4096];
     loop {
         let n = unsafe {
-            libc::read(fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+            libc::read(
+                fd.as_raw_fd(),
+                buf.as_mut_ptr() as *mut libc::c_void,
+                buf.len(),
+            )
         };
         if n <= 0 {
             if n < 0 && std::io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
@@ -509,10 +570,9 @@ pub fn route_change_loop(mut on_change: impl FnMut()) {
     }
 }
 
-/// Purge stale VPN state left by a crashed/`-9`-killed prior instance (whose `Drop`
-/// never ran), so a fresh manager doesn't start on a half-configured machine.
-/// Best-effort / idempotent.
-pub fn cleanup_stale() {
+/// Purge stale VPN state left by a crashed/`-9`-killed prior instance, so a fresh
+/// manager doesn't start on a half-configured machine. Best-effort / idempotent.
+pub(super) fn cleanup_stale() {
     // Stop any leftover kill-switch blocking: flush our anchor and restore the
     // default ruleset. We don't force `pfctl -d` (that's the emergency recover
     // script's job) so we don't disturb other PF users; an orphaned `-E` ref just
@@ -532,54 +592,6 @@ pub fn cleanup_stale() {
             let _ = run("networksetup", &["-setdnsservers", &svc, "Empty"]);
         }
     }
-}
-
-// ---- dedicated service user (_geph) ----
-
-/// Resolve (creating if absent) the dedicated `_geph` service user, returning
-/// `(uid, gid)`. The engine runs as this user so the PF kill switch can permit its
-/// egress by uid. Mirrors `vpn_linux::ensure_service_user`.
-pub fn ensure_service_user() -> anyhow::Result<(u32, u32)> {
-    if let Some(ids) = lookup_user(SERVICE_USER) {
-        return Ok(ids);
-    }
-    let uid = free_uid()?;
-    let gid: u32 = 1; // the system "daemon" group; PF matches by uid, so group is immaterial
-    let path = format!("/Users/{SERVICE_USER}");
-    run("dscl", &[".", "-create", &path])?;
-    run("dscl", &[".", "-create", &path, "UserShell", "/usr/bin/false"])?;
-    run("dscl", &[".", "-create", &path, "RealName", "Geph VPN service"])?;
-    run("dscl", &[".", "-create", &path, "UniqueID", &uid.to_string()])?;
-    run("dscl", &[".", "-create", &path, "PrimaryGroupID", &gid.to_string()])?;
-    run("dscl", &[".", "-create", &path, "NFSHomeDirectory", "/var/empty"])?;
-    run("dscl", &[".", "-create", &path, "Password", "*"])?; // no password login
-    let _ = run("dscl", &[".", "-create", &path, "IsHidden", "1"]);
-    let _ = run("dscacheutil", &["-flushcache"]);
-    lookup_user(SERVICE_USER).context("_geph missing after dscl create")
-}
-
-fn lookup_user(name: &str) -> Option<(u32, u32)> {
-    let cname = CString::new(name).ok()?;
-    // SAFETY: getpwnam with a valid C string; we copy out scalar fields only.
-    unsafe {
-        let pw = libc::getpwnam(cname.as_ptr());
-        if pw.is_null() {
-            None
-        } else {
-            Some(((*pw).pw_uid, (*pw).pw_gid))
-        }
-    }
-}
-
-/// First unused uid in a range suitable for a hidden service account.
-fn free_uid() -> anyhow::Result<u32> {
-    for uid in 300..700u32 {
-        // SAFETY: getpwuid is always safe to call; null => the uid is free.
-        if unsafe { libc::getpwuid(uid).is_null() } {
-            return Ok(uid);
-        }
-    }
-    bail!("no free uid for the service user");
 }
 
 // ---- PF kill switch ----
@@ -652,7 +664,10 @@ fn pf_load(ruleset: &str) -> anyhow::Result<()> {
         .write_all(ruleset.as_bytes())?;
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        bail!("pfctl -f failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!(
+            "pfctl -f failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
     Ok(())
 }

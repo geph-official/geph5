@@ -11,7 +11,12 @@ use nanorpc::DynRpcTransport;
 use sillad::Pipe;
 use std::sync::Arc;
 #[cfg(unix)]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::{
+    io::{Read, Write},
+    os::fd::{AsRawFd, FromRawFd},
+};
+#[cfg(unix)]
+use tokio::io::{Interest, unix::AsyncFd};
 
 use crate::{
     auth::{auth_loop, get_auth_token},
@@ -168,18 +173,23 @@ pub type CtxField<T> = fn(&AnyCtx<Config>) -> T;
 /// task.
 #[cfg(unix)]
 async fn run_vpn_fd_handler(ctx: AnyCtx<Config>, fd: i32) -> anyhow::Result<()> {
-    // Create an async file descriptor from the raw fd.
-    let file: std::fs::File = unsafe { std::os::fd::FromRawFd::from_raw_fd(fd) };
-    let async_fd = geph5_rt::asyncfd::AsyncFdStream::new(file)
-        .context("could not wrap VPN fd in AsyncFdStream")?;
-
-    // Split the file descriptor for reading and writing.
-    let (mut reader, mut writer) = tokio::io::split(async_fd);
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error()).context("could not get VPN fd flags");
+    }
+    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error()).context("could not make VPN fd nonblocking");
+    }
+    let async_fd = AsyncFd::new(file).context("could not register VPN fd with Tokio")?;
 
     let read_task = async {
         let mut buf = vec![0u8; 65535]; // Buffer for reading packets
         loop {
-            match reader.read(&mut buf).await {
+            match async_fd
+                .async_io(Interest::READABLE, |mut file| file.read(&mut buf))
+                .await
+            {
                 Ok(n) if n > 0 => {
                     // macOS utun prepends a 4-byte address-family header to every
                     // packet; strip it to recover the raw IP packet the IP stack
@@ -229,13 +239,23 @@ async fn run_vpn_fd_handler(ctx: AnyCtx<Config>, fd: i32) -> anyhow::Result<()> 
                 bytes::Bytes::from(framed)
             };
 
-            if let Err(e) = writer.write_all(&packet).await {
-                tracing::error!("Error writing to VPN fd: {}", e);
-                break;
-            }
-            if let Err(e) = writer.flush().await {
-                tracing::error!("Error flushing VPN fd: {}", e);
-                break;
+            match async_fd
+                .async_io(Interest::WRITABLE, |mut file| file.write(&packet))
+                .await
+            {
+                Ok(written) if written == packet.len() => {}
+                Ok(written) => {
+                    tracing::error!(
+                        written,
+                        expected = packet.len(),
+                        "Partial packet write to VPN fd"
+                    );
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Error writing to VPN fd: {}", e);
+                    break;
+                }
             }
         }
         anyhow::Ok(())

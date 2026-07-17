@@ -1,4 +1,4 @@
-//! Windows full-tunnel VPN: a manager-owned WinTUN device, a `/1` split default
+//! Windows full-tunnel VPN backend: a manager-owned WinTUN device, a `/1` split default
 //! route into it, a DNS sentinel, a fail-closed kill switch (see [`firewall`]),
 //! and a stdio packet pump between the device and the engine child.
 //!
@@ -63,16 +63,22 @@ fn sentinel_dns() -> [IpAddr; 2] {
 /// The physical default-route interface(s) the engine's own traffic must use
 /// (passed to the engine as `GEPH_VPN_BIND_IF4/6` for `IP_UNICAST_IF`).
 #[derive(Clone, Debug)]
-pub struct PhysIface {
-    pub index4: u32,
-    pub index6: u32,
+pub(super) struct PhysIface {
+    index4: u32,
+    index6: u32,
+}
+
+impl PhysIface {
+    pub(super) fn bind_indices(&self) -> (u32, u32) {
+        (self.index4, self.index6)
+    }
 }
 
 /// Persistent VPN state, held by the manager across engine-child restarts: the
 /// WinTUN adapter (keeps the device + its `/1` routes alive), the kill switch,
 /// and enough state to tear routing back down. The packet pump is *not* here —
 /// it is re-created per child (see [`Pump`]).
-pub struct VpnHandle {
+pub(super) struct VpnHandle {
     // `wintun` must outlive `adapter` (the adapter borrows the loaded DLL); keep
     // it alive for the handle's lifetime even though we don't touch it again.
     #[allow(dead_code)]
@@ -85,46 +91,81 @@ pub struct VpnHandle {
 impl VpnHandle {
     /// The physical interface indices the engine child should pin its sockets to
     /// (passed through as `GEPH_VPN_BIND_IF4/6`).
-    pub fn bind_indices(&self) -> (u32, u32) {
+    pub(super) fn bind_indices(&self) -> (u32, u32) {
         (self.phys.index4, self.phys.index6)
     }
 
     /// Open a fresh WinTUN session on the (persistent) adapter for a newly-spawned
     /// engine child's pump.
-    pub fn start_session(&self) -> anyhow::Result<Arc<Session>> {
+    pub(super) fn start_session(&self) -> anyhow::Result<Arc<Session>> {
         Ok(Arc::new(
             self.adapter
                 .start_session(RING_CAPACITY)
                 .context("start wintun session")?,
         ))
     }
-}
 
-impl Drop for VpnHandle {
-    fn drop(&mut self) {
+    fn cleanup(&mut self) {
         self.firewall.remove();
         let _ = self.adapter.set_dns_servers(&[]);
         for prefix in V4_SPLIT {
-            let _ = run("netsh", &[
-                "interface", "ipv4", "delete", "route",
-                &format!("prefix={prefix}"),
-                &format!("interface={TUN_NAME}"),
-            ]);
+            let _ = run(
+                "netsh",
+                &[
+                    "interface",
+                    "ipv4",
+                    "delete",
+                    "route",
+                    &format!("prefix={prefix}"),
+                    &format!("interface={TUN_NAME}"),
+                ],
+            );
         }
         for prefix in V6_SPLIT {
-            let _ = run("netsh", &[
-                "interface", "ipv6", "delete", "route",
-                &format!("prefix={prefix}"),
-                &format!("interface={TUN_NAME}"),
-            ]);
+            let _ = run(
+                "netsh",
+                &[
+                    "interface",
+                    "ipv6",
+                    "delete",
+                    "route",
+                    &format!("prefix={prefix}"),
+                    &format!("interface={TUN_NAME}"),
+                ],
+            );
         }
     }
 }
 
+/// Tear down a live VPN and remove its routes, DNS override, and kill switch.
+pub(super) fn cleanup(mut handle: VpnHandle) {
+    handle.cleanup();
+}
+
+#[derive(Clone)]
+pub(super) struct NetworkSnapshot {
+    bind_indices: (u32, u32),
+}
+
+pub(super) fn network_snapshot(handle: &VpnHandle) -> NetworkSnapshot {
+    NetworkSnapshot {
+        bind_indices: handle.bind_indices(),
+    }
+}
+
+pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction {
+    match physical_iface() {
+        Ok(current) if current.bind_indices() != snapshot.bind_indices => {
+            super::NetworkAction::Rebuild
+        }
+        _ => super::NetworkAction::Healthy,
+    }
+}
+
 /// Discover the physical default-route interface(s) and gateway(s) via
-/// PowerShell's `Get-NetRoute`. Captured once at connect; not re-evaluated if the
-/// default route later changes (Wi-Fi↔Ethernet) — that is a known v1 limitation.
-pub fn physical_iface() -> anyhow::Result<PhysIface> {
+/// PowerShell's `Get-NetRoute`. The uniform VPN monitor compares this against
+/// the connected route and rebuilds the VPN if the default interface changes.
+pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
     let index4 = ps_u32(
         "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | \
          Sort-Object RouteMetric | Select-Object -First 1).ifIndex",
@@ -140,9 +181,10 @@ pub fn physical_iface() -> anyhow::Result<PhysIface> {
 
 /// Bring up the WinTUN device, routing, DNS, and the kill switch. Idempotent:
 /// stale state from a prior run is cleaned first.
-pub fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandle> {
+pub(super) fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandle> {
     let wintun = unsafe { wintun::load() }.map_err(|e| anyhow::anyhow!("load wintun.dll: {e}"))?;
-    cleanup_stale(&wintun);
+    cleanup_stale_with_wintun(&wintun);
+    let rollback = scopeguard::guard(&wintun, |wintun| cleanup_stale_with_wintun(wintun));
 
     let adapter = match Adapter::open(&wintun, TUN_NAME) {
         Ok(existing) => existing,
@@ -151,40 +193,64 @@ pub fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandle> {
     };
 
     // Addresses + MTU + DNS sentinel.
-    run("netsh", &[
-        "interface", "ipv4", "set", "address",
-        &format!("name={TUN_NAME}"),
-        "source=static",
-        &format!("address={TUN_V4_ADDR}"),
-        &format!("mask={TUN_V4_MASK}"),
-    ])
+    run(
+        "netsh",
+        &[
+            "interface",
+            "ipv4",
+            "set",
+            "address",
+            &format!("name={TUN_NAME}"),
+            "source=static",
+            &format!("address={TUN_V4_ADDR}"),
+            &format!("mask={TUN_V4_MASK}"),
+        ],
+    )
     .context("assign tun IPv4 address")?;
-    let _ = run("netsh", &[
-        "interface", "ipv6", "add", "address",
-        &format!("interface={TUN_NAME}"),
-        &format!("address={TUN_V6_CIDR}"),
-        "store=active",
-    ]);
+    let _ = run(
+        "netsh",
+        &[
+            "interface",
+            "ipv6",
+            "add",
+            "address",
+            &format!("interface={TUN_NAME}"),
+            &format!("address={TUN_V6_CIDR}"),
+            "store=active",
+        ],
+    );
     let _ = adapter.set_mtu(TUN_MTU);
     let _ = adapter.set_dns_servers(&sentinel_dns());
 
     // `/1` split default routes into the tun.
     for prefix in V4_SPLIT {
-        run("netsh", &[
-            "interface", "ipv4", "add", "route",
-            &format!("prefix={prefix}"),
-            &format!("interface={TUN_NAME}"),
-            "store=active",
-        ])
+        run(
+            "netsh",
+            &[
+                "interface",
+                "ipv4",
+                "add",
+                "route",
+                &format!("prefix={prefix}"),
+                &format!("interface={TUN_NAME}"),
+                "store=active",
+            ],
+        )
         .with_context(|| format!("add tun route {prefix}"))?;
     }
     for prefix in V6_SPLIT {
-        let _ = run("netsh", &[
-            "interface", "ipv6", "add", "route",
-            &format!("prefix={prefix}"),
-            &format!("interface={TUN_NAME}"),
-            "store=active",
-        ]);
+        let _ = run(
+            "netsh",
+            &[
+                "interface",
+                "ipv6",
+                "add",
+                "route",
+                &format!("prefix={prefix}"),
+                &format!("interface={TUN_NAME}"),
+                "store=active",
+            ],
+        );
     }
 
     // Kill switch. (The engine's own broker/bridge/exit sockets reach the
@@ -197,6 +263,7 @@ pub fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandle> {
         .install(&geph_app_ids(), luid, allow_lan)
         .context("install kill switch")?;
 
+    scopeguard::ScopeGuard::into_inner(rollback);
     Ok(VpnHandle {
         wintun,
         adapter,
@@ -209,9 +276,9 @@ pub fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandle> {
 /// is now non-dynamic (it stays installed across a crash so the machine remains
 /// fail-closed), so a manager that restarts *disconnected* must delete it here or
 /// the host stays blackholed. Best-effort; safe to call when nothing is stranded.
-pub fn cleanup_stale_startup() {
+pub(super) fn cleanup_stale() {
     match unsafe { wintun::load() } {
-        Ok(wintun) => cleanup_stale(&wintun),
+        Ok(wintun) => cleanup_stale_with_wintun(&wintun),
         // Even if wintun can't load, still remove the (crash-persisted) kill
         // switch so the host isn't left blackholed.
         Err(_) => firewall::purge_stale(),
@@ -219,22 +286,34 @@ pub fn cleanup_stale_startup() {
 }
 
 /// Best-effort removal of leftover state from a previous run.
-fn cleanup_stale(wintun: &Wintun) {
+fn cleanup_stale_with_wintun(wintun: &Wintun) {
     if let Ok(adapter) = Adapter::open(wintun, TUN_NAME) {
         let _ = adapter.set_dns_servers(&[]);
         for prefix in V4_SPLIT {
-            let _ = run("netsh", &[
-                "interface", "ipv4", "delete", "route",
-                &format!("prefix={prefix}"),
-                &format!("interface={TUN_NAME}"),
-            ]);
+            let _ = run(
+                "netsh",
+                &[
+                    "interface",
+                    "ipv4",
+                    "delete",
+                    "route",
+                    &format!("prefix={prefix}"),
+                    &format!("interface={TUN_NAME}"),
+                ],
+            );
         }
         for prefix in V6_SPLIT {
-            let _ = run("netsh", &[
-                "interface", "ipv6", "delete", "route",
-                &format!("prefix={prefix}"),
-                &format!("interface={TUN_NAME}"),
-            ]);
+            let _ = run(
+                "netsh",
+                &[
+                    "interface",
+                    "ipv6",
+                    "delete",
+                    "route",
+                    &format!("prefix={prefix}"),
+                    &format!("interface={TUN_NAME}"),
+                ],
+            );
         }
     }
     // Delete any leftover kill-switch sublayer (and its filters) by GUID, in case
@@ -251,21 +330,25 @@ fn geph_app_ids() -> Vec<std::path::PathBuf> {
     }
     // Must be the *same* full path the engine is actually spawned from, or the
     // kill switch's app-id permit won't match and the engine blocks itself.
-    ids.push(crate::supervisor::engine_bin_path());
+    ids.push(crate::platform::engine_bin_path());
     ids
 }
 
 /// The stdio packet pump bridging the WinTUN session and one engine child's
 /// stdin/stdout (16-bit big-endian length framing, matching the engine's
 /// `--stdio-vpn`). Dropping it stops both directions and joins the threads.
-pub struct Pump {
+pub(super) struct Pump {
     session: Arc<Session>,
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl Pump {
-    pub fn start(session: Arc<Session>, child_stdin: ChildStdin, child_stdout: ChildStdout) -> Pump {
+    pub(super) fn start(
+        session: Arc<Session>,
+        child_stdin: ChildStdin,
+        child_stdout: ChildStdout,
+    ) -> Pump {
         let stop = Arc::new(AtomicBool::new(false));
         let up = {
             let session = session.clone();

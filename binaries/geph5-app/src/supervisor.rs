@@ -7,81 +7,23 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
-    process::{Child, Command},
     time::Duration,
 };
 
 use anyhow::Context as _;
 use geph5_broker_protocol::{Credential, ExitConstraint};
-use geph5_misc_rpc::{client_config::BrokerSource, client_control::ControlClient};
+use geph5_misc_rpc::{
+    client_config::BrokerSource, client_control::ControlClient, manager_control::ProxySettings,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::{paths, protocol::ProxySettings};
+use crate::platform::{self, EngineLaunch, EngineRole, PacketMode, SpawnedEngine};
 
 /// PAC (proxy auto-config) endpoint the connected child serves. Always loopback:
 /// it exists only for `apply_proxy` to hand the local desktop session.
 pub const PAC_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 12223);
 
 const CONFIG_TEMPLATE: &str = include_str!("../default-config.yaml");
-
-// ---- control-plane endpoints ----
-//
-// The manager<->CLI/GUI and manager<->engine channels are namespaced, local-only,
-// access-controlled streams: unix domain sockets on unix, Windows named pipes on
-// Windows. Neither squats a TCP port, and both are permissioned (filesystem mode
-// / pipe security descriptor) rather than reachable by anything that can open a
-// loopback socket.
-
-/// Socket the manager serves the CLI/GUI control protocol on. Lives directly in
-/// the (root-owned) runtime dir; chmod'd 0666 so unprivileged clients can reach
-/// the root manager.
-#[cfg(unix)]
-pub fn manager_control_path() -> std::path::PathBuf {
-    paths::runtime_dir().join("control.sock")
-}
-
-/// Socket the engine child serves its control protocol on (manager-only). It
-/// lives in a `engine/` subdir of the runtime dir, which the manager chowns to
-/// the unprivileged service user so the child can bind here — without giving the
-/// service user write access to the runtime root (which holds the manager's own,
-/// root-owned, control socket).
-#[cfg(unix)]
-pub fn engine_control_path() -> std::path::PathBuf {
-    paths::runtime_dir().join("engine").join("engine.sock")
-}
-
-/// Socket the permanent, secret-less *query* engine serves its control protocol
-/// on (manager-only). Same service-user-owned-subdir scheme as the engine socket.
-#[cfg(unix)]
-pub fn query_control_path() -> std::path::PathBuf {
-    paths::runtime_dir().join("query").join("query.sock")
-}
-
-/// Dialer for the manager's control endpoint (used by the CLI client).
-#[cfg(unix)]
-pub fn manager_control_dialer() -> sillad::unix::UnixDialer {
-    sillad::unix::UnixDialer {
-        path: manager_control_path(),
-    }
-}
-
-/// Named pipe the manager serves the CLI/GUI control protocol on.
-#[cfg(windows)]
-pub const MANAGER_CONTROL_PIPE: &str = r"\\.\pipe\geph-manager-control";
-/// Named pipe the engine child serves its control protocol on (manager-only).
-#[cfg(windows)]
-pub const ENGINE_CONTROL_PIPE: &str = r"\\.\pipe\geph-engine-control";
-/// Named pipe the permanent, secret-less query engine serves on (manager-only).
-#[cfg(windows)]
-pub const QUERY_CONTROL_PIPE: &str = r"\\.\pipe\geph-query-control";
-
-/// Dialer for the manager's control endpoint (used by the CLI client).
-#[cfg(windows)]
-pub fn manager_control_dialer() -> sillad::windows_pipe::NamedPipeDialer {
-    sillad::windows_pipe::NamedPipeDialer {
-        name: MANAGER_CONTROL_PIPE.to_string(),
-    }
-}
 
 /// Persisted manager settings.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -138,7 +80,7 @@ impl Default for Settings {
 impl Settings {
     /// Load settings from disk, returning defaults if the file is absent.
     pub fn load() -> anyhow::Result<Self> {
-        let path = paths::settings_path();
+        let path = platform::settings_path();
         match std::fs::read(&path) {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)
                 .with_context(|| format!("could not parse {}", path.display()))?),
@@ -149,8 +91,8 @@ impl Settings {
 
     /// Persist settings to disk (creating the state dir if needed).
     pub fn save(&self) -> anyhow::Result<()> {
-        std::fs::create_dir_all(paths::state_dir())?;
-        let path = paths::settings_path();
+        std::fs::create_dir_all(platform::state_dir())?;
+        let path = platform::settings_path();
         let bytes = serde_json::to_vec_pretty(self)?;
         std::fs::write(&path, bytes).with_context(|| format!("could not write {}", path.display()))
     }
@@ -183,17 +125,7 @@ pub(crate) fn build_tunnel_config(
     cfg.allow_lan = settings.allow_lan;
     cfg.allow_direct = settings.allow_direct;
     cfg.dry_run = !settings.connected;
-    #[cfg(unix)]
-    {
-        cfg.control_listen = None;
-        cfg.control_listen_unix = Some(engine_control_path());
-    }
-    #[cfg(windows)]
-    {
-        cfg.control_listen = None;
-        cfg.control_listen_unix = None;
-        cfg.control_listen_pipe = Some(ENGINE_CONTROL_PIPE.to_string());
-    }
+    platform::configure_engine_control(&mut cfg, EngineRole::Tunnel);
     match &settings.proxy {
         Some(p) => {
             let ip: IpAddr = if p.listen_all {
@@ -220,7 +152,7 @@ pub(crate) fn build_tunnel_config(
     // default of hashing the credential into the cache path.
     let secret = settings.secret.as_deref().unwrap_or_default();
     let cache_tag = blake3::hash(secret.as_bytes()).to_hex();
-    cfg.cache = Some(paths::cache_dir().join(format!("db-{cache_tag}")));
+    cfg.cache = Some(platform::cache_dir().join(format!("db-{cache_tag}")));
     if pre_resolve_broker_fronts && let Some(broker) = cfg.broker.as_mut() {
         pre_resolve_fronted_broker_sources(broker);
     }
@@ -337,240 +269,63 @@ fn build_query_config() -> anyhow::Result<String> {
     cfg.socks5_listen = None;
     cfg.http_proxy_listen = None;
     cfg.pac_listen = None;
-    #[cfg(unix)]
-    {
-        cfg.control_listen = None;
-        cfg.control_listen_unix = Some(query_control_path());
-    }
-    #[cfg(windows)]
-    {
-        cfg.control_listen = None;
-        cfg.control_listen_unix = None;
-        cfg.control_listen_pipe = Some(QUERY_CONTROL_PIPE.to_string());
-    }
+    platform::configure_engine_control(&mut cfg, EngineRole::Query);
     // Its own cache; with no secret there is no auth token in it to contend over.
-    cfg.cache = Some(paths::cache_dir().join("query-db"));
+    cfg.cache = Some(platform::cache_dir().join("query-db"));
     let val = serde_json::to_value(&cfg).context("could not serialize query config")?;
     serde_yaml::to_string(&val).context("could not serialize query config")
 }
 
-/// Bare filename of the engine binary for the current platform.
-const ENGINE_BIN: &str = if cfg!(windows) { "geph5-client.exe" } else { "geph5-client" };
-
-/// Resolve the full path of the `geph5-client` engine binary.
-///
-/// On Windows this must be a concrete full path, not a bare name: the VPN kill
-/// switch derives a WFP app-id from it to permit the engine's own egress, and an
-/// app-id built from a relative name won't match the running image (the engine
-/// would then be blocked by its own kill switch). The resolution order is:
-///   1. `GEPH_CLIENT_BIN` (an uninstalled build, e.g. `target/debug/geph5-client`);
-///   2. a companion binary next to the manager (cargo-install / the installer put
-///      `geph5` and `geph5-client` in the same directory);
-///   3. an executable of that name found on `PATH`, resolved to its concrete path;
-///   4. the bare name as a last resort (PATH lookup at spawn; no app-id match).
-pub fn engine_bin_path() -> std::path::PathBuf {
-    if let Some(path) = std::env::var_os("GEPH_CLIENT_BIN") {
-        return path.into();
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(sibling) = exe.parent().map(|d| d.join(ENGINE_BIN)) {
-            if sibling.exists() {
-                return sibling;
-            }
-        }
-    }
-    // Resolve the bare name against PATH to a concrete path. On Windows the WFP
-    // kill switch derives its app-id permit from this path, and
-    // FwpmGetAppIdFromFileName0 cannot resolve a bare name — so a bare-name
-    // permit silently fails to match the spawned image and the engine blocks
-    // itself. Searching PATH makes the permit and the spawn use the same image.
-    if let Some(resolved) = which_in_path(ENGINE_BIN) {
-        return resolved;
-    }
-    std::path::PathBuf::from(ENGINE_BIN)
-}
-
-/// Search `PATH` for an executable named `name`, returning the first concrete
-/// path that exists.
-fn which_in_path(name: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|candidate| candidate.is_file())
-}
-
-/// A `Command` that runs the engine binary. On macOS the engine runs unprivileged
-/// as `_geph`, which cannot traverse the developer's 0750 home directory, so the
-/// binary is first staged into a world-traversable, root-owned location (see
-/// [`staged_engine_bin`]); elsewhere it runs the resolved path directly.
-fn geph5_client_command() -> anyhow::Result<Command> {
-    #[cfg(target_os = "macos")]
-    let bin = staged_engine_bin()?;
-    #[cfg(not(target_os = "macos"))]
-    let bin = engine_bin_path();
-    Ok(Command::new(bin))
-}
-
-/// Copy the resolved engine binary into `<state_dir>/bin` (root-owned, 0755) so the
-/// unprivileged `_geph` engine can exec it even when the build output lives under
-/// the developer's 0750 home. Re-stages only when the source is newer; once staged
-/// it's a no-op. In a packaged install the source is already in an accessible
-/// location, so this is just a cheap same-host copy.
-#[cfg(target_os = "macos")]
-fn staged_engine_bin() -> anyhow::Result<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    let src = engine_bin_path();
-    let dir = paths::state_dir().join("bin");
-    std::fs::create_dir_all(&dir)?;
-    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
-    let dst = dir.join(ENGINE_BIN);
-
-    let up_to_date = match (std::fs::metadata(&src), std::fs::metadata(&dst)) {
-        (Ok(s), Ok(d)) => match (s.modified(), d.modified()) {
-            (Ok(sm), Ok(dm)) => dm >= sm,
-            _ => false,
-        },
-        _ => false,
-    };
-    if !up_to_date {
-        std::fs::copy(&src, &dst)
-            .with_context(|| format!("staging engine binary {} -> {}", src.display(), dst.display()))?;
-        std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755))?;
-        // Own it root:wheel so the unprivileged user can't rewrite the staged
-        // binary (fs::copy may inherit the source's ownership).
-        let _ = chown_path(&dst, 0, 0);
-    }
-    Ok(dst)
-}
-
-/// Spawn the **tunnel** engine: the real, credentialed engine. Only spawned while
-/// connected. `service_user`, when set, drops it to that user (it always runs
-/// unprivileged); `vpn_fd`, when set, is dup'd onto fd 3 and passed via
-/// `--vpn-fd 3` for full-tunnel mode.
-///
-/// Unix only: on Windows the tunnel engine is spawned via [`spawn_tunnel_windows`]
-/// (full-tunnel mode drives the engine through stdio rather than a tun fd).
-#[cfg(not(windows))]
+/// Spawn the credentialed tunnel engine using the platform's native launch
+/// behavior and the VPN controller's packet-transport request.
 pub fn spawn_tunnel(
     config_yaml: String,
     service_user: Option<(u32, u32)>,
-    vpn_fd: Option<i32>,
+    packet_mode: PacketMode,
     bind_indices: Option<(u32, u32)>,
-) -> anyhow::Result<Child> {
-    #[cfg(unix)]
-    let sock_dir = Some(
-        engine_control_path()
-            .parent()
-            .expect("engine socket path has a parent")
-            .to_path_buf(),
-    );
-    spawn_engine(
-        "tunnel",
-        "child-config.yaml",
-        config_yaml,
+) -> anyhow::Result<SpawnedEngine> {
+    let config_path = write_engine_config("child-config.yaml", config_yaml)?;
+    platform::spawn_engine(EngineLaunch {
+        role: EngineRole::Tunnel,
+        config_path,
         service_user,
-        vpn_fd,
+        packet_mode,
         bind_indices,
-        {
-            #[cfg(unix)]
-            {
-                sock_dir
-            }
-            #[cfg(not(unix))]
-            {
-                None
-            }
-        },
-    )
+    })
 }
 
 /// Spawn the permanent **query** engine: secret-less, dry-run, never given a tun
 /// fd. Runs unprivileged like the tunnel engine so its broker traffic is unmarked
 /// (and thus allowed out by the VPN kill switch).
-pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<Child> {
+pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<std::process::Child> {
     let config_yaml = build_query_config()?;
-    #[cfg(unix)]
-    let sock_dir = Some(
-        query_control_path()
-            .parent()
-            .expect("query socket path has a parent")
-            .to_path_buf(),
-    );
-    spawn_engine(
-        "query",
-        "query-config.yaml",
-        config_yaml,
+    let config_path = write_engine_config("query-config.yaml", config_yaml)?;
+    let spawned = platform::spawn_engine(EngineLaunch {
+        role: EngineRole::Query,
+        config_path,
         service_user,
-        None,
-        None,
-        {
-            #[cfg(unix)]
-            {
-                sock_dir
-            }
-            #[cfg(not(unix))]
-            {
-                None
-            }
-        },
-    )
-}
-
-/// Spawn the **tunnel** engine on Windows. In full-tunnel mode (`binds = Some`)
-/// the manager owns the WinTUN device, so the child is driven through stdio
-/// (`--stdio-vpn`, 16-bit length-prefixed packets) and pinned to the physical
-/// interface via `GEPH_VPN_BIND_IF4/6`; the returned stdio handles are wired to the
-/// manager's packet pump. In proxy mode (`binds = None`) it spawns an ordinary
-/// child and returns no stdio.
-#[cfg(windows)]
-pub fn spawn_tunnel_windows(
-    config_yaml: String,
-    binds: Option<(u32, u32)>,
-) -> anyhow::Result<(
-    Child,
-    Option<(std::process::ChildStdin, std::process::ChildStdout)>,
-)> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Stdio;
-
-    let config_path = write_engine_config("child-config.yaml", config_yaml)?;
-
-    let mut cmd = geph5_client_command()?;
-    cmd.arg("--config").arg(&config_path);
-    let vpn = binds.is_some();
-    if let Some((if4, if6)) = binds {
-        cmd.arg("--stdio-vpn");
-        cmd.env("GEPH_VPN_BIND_IF4", if4.to_string());
-        cmd.env("GEPH_VPN_BIND_IF6", if6.to_string());
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
+        packet_mode: PacketMode::None,
+        bind_indices: None,
+    })?;
+    match spawned.transport {
+        platform::ChildTransport::None => Ok(spawned.child),
+        platform::ChildTransport::Stdio { .. } => {
+            platform::kill_child(spawned.child);
+            anyhow::bail!("query engine unexpectedly exposed a packet transport")
+        }
     }
-    // CREATE_NO_WINDOW: don't pop a console window for the child.
-    cmd.creation_flags(0x08000000);
-
-    let mut child = cmd.spawn().context(
-        "could not spawn geph5-client (is it installed on PATH? or set GEPH_CLIENT_BIN)",
-    )?;
-    assign_child_to_reaper_job(&child);
-    tracing::info!(pid = child.id(), role = "tunnel", vpn, "spawned geph5-client engine");
-
-    let stdio = if vpn {
-        let cin = child.stdin.take().context("child stdin missing")?;
-        let cout = child.stdout.take().context("child stdout missing")?;
-        Some((cin, cout))
-    } else {
-        None
-    };
-    Ok((child, stdio))
 }
 
 /// Write `config_yaml` to the role's config file, (re)creating the state + cache
 /// dirs and migrating the old single-file cache layout. Returns the config path.
-fn write_engine_config(config_name: &str, config_yaml: String) -> anyhow::Result<std::path::PathBuf> {
-    std::fs::create_dir_all(paths::state_dir())?;
+fn write_engine_config(
+    config_name: &str,
+    config_yaml: String,
+) -> anyhow::Result<std::path::PathBuf> {
+    std::fs::create_dir_all(platform::state_dir())?;
     // The cache is a directory the unprivileged child writes its SQLite into.
     // Migrate the old layout (where `cache` was the SQLite file itself).
-    let cache_dir = paths::cache_dir();
+    let cache_dir = platform::cache_dir();
     if cache_dir.is_file() {
         let _ = std::fs::remove_file(&cache_dir);
         for sfx in ["-shm", "-wal", "-journal"] {
@@ -579,246 +334,21 @@ fn write_engine_config(config_name: &str, config_yaml: String) -> anyhow::Result
     }
     std::fs::create_dir_all(&cache_dir)?;
 
-    let config_path = paths::state_dir().join(config_name);
+    let config_path = platform::state_dir().join(config_name);
     std::fs::write(&config_path, config_yaml)
         .with_context(|| format!("could not write {}", config_path.display()))?;
     Ok(config_path)
 }
 
-/// Lower-level: write `config_yaml`, make state/cache/socket dirs owned by the
-/// service user, and spawn a `geph5-client` against the config.
-fn spawn_engine(
-    role: &str,
-    config_name: &str,
-    config_yaml: String,
-    service_user: Option<(u32, u32)>,
-    vpn_fd: Option<i32>,
-    bind_indices: Option<(u32, u32)>,
-    _sock_dir: Option<std::path::PathBuf>,
-) -> anyhow::Result<Child> {
-    // `service_user` is only consulted on Unix (uid drop); harmless elsewhere.
-    let _ = service_user;
-    let config_path = write_engine_config(config_name, config_yaml)?;
-    #[cfg(unix)]
-    let cache_dir = paths::cache_dir();
-
-    // The engine binds its control socket in a service-user-owned runtime subdir.
-    #[cfg(unix)]
-    if let Some(dir) = _sock_dir.as_ref() {
-        std::fs::create_dir_all(dir)?;
-    }
-
-    // Make the config + cache dir + socket dir owned by the unprivileged child so
-    // it can read its config and bind its control socket.
-    #[cfg(unix)]
-    if let Some((uid, gid)) = service_user {
-        let _ = chown_path(&config_path, uid, gid);
-        let _ = chown_recursive(&cache_dir, uid, gid);
-        if let Some(dir) = _sock_dir.as_ref() {
-            let _ = chown_path(dir, uid, gid);
-        }
-    }
-
-    let mut cmd = geph5_client_command()?;
-    cmd.arg("--config").arg(&config_path);
-    if vpn_fd.is_some() {
-        cmd.arg("--vpn-fd").arg("3");
-    }
-    // Physical-interface pinning for the engine's own sockets (macOS full-tunnel:
-    // the bound dialer reads these and applies IP_BOUND_IF). Linux/query pass None.
-    if let Some((if4, if6)) = bind_indices {
-        cmd.env("GEPH_VPN_BIND_IF4", if4.to_string());
-        cmd.env("GEPH_VPN_BIND_IF6", if6.to_string());
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: don't pop a console window for the child.
-        cmd.creation_flags(0x08000000);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: child_pre_exec uses only async-signal-safe syscalls and no
-        // allocation, as required for a post-fork/pre-exec hook.
-        unsafe {
-            cmd.pre_exec(move || child_pre_exec(service_user, vpn_fd));
-        }
-    }
-    let child = cmd.spawn().context(
-        "could not spawn geph5-client (is it installed on PATH? or set GEPH_CLIENT_BIN)",
-    )?;
-    #[cfg(windows)]
-    assign_child_to_reaper_job(&child);
-    tracing::info!(
-        pid = child.id(),
-        role,
-        vpn = vpn_fd.is_some(),
-        "spawned geph5-client engine"
-    );
-    Ok(child)
-}
-
-/// Windows: assign an engine child to a process-lifetime job object configured with
-/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the child cannot outlive the manager.
-///
-/// The manager only kills its children via the Ctrl-C teardown in `manager.rs`, but a
-/// hard `TerminateProcess` — which is exactly what Task Scheduler's `/End` does when
-/// an installer upgrade runs `unregister-manager` — bypasses that, orphaning
-/// `geph5-client.exe` and leaving it holding its own file (breaking the overwrite).
-/// With the child in this job, the manager's death (by *any* means) closes the job's
-/// last handle and the OS reaps the child. The Windows analogue of the Linux
-/// `PR_SET_PDEATHSIG` armed on the tun-fd children in `child_pre_exec`.
-#[cfg(windows)]
-fn assign_child_to_reaper_job(child: &Child) {
-    use std::os::windows::io::AsRawHandle;
-    use std::sync::OnceLock;
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-
-    // Created once and never closed — it must stay open for the manager's whole life,
-    // since closing the last handle is precisely what triggers the kill. Stored as
-    // usize because the raw HANDLE pointer is not Send/Sync.
-    static JOB: OnceLock<usize> = OnceLock::new();
-    let job = *JOB.get_or_init(|| unsafe {
-        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job.is_null() {
-            tracing::warn!(
-                err = %std::io::Error::last_os_error(),
-                "CreateJobObject failed; engine children may orphan if the manager is killed"
-            );
-            return 0;
-        }
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            &info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION as *const core::ffi::c_void,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        ) == 0
-        {
-            tracing::warn!(
-                err = %std::io::Error::last_os_error(),
-                "SetInformationJobObject(KILL_ON_JOB_CLOSE) failed; engine children may orphan"
-            );
-        }
-        job as usize
-    });
-    if job == 0 {
-        return;
-    }
-    if unsafe { AssignProcessToJobObject(job as HANDLE, child.as_raw_handle() as HANDLE) } == 0 {
-        tracing::warn!(
-            pid = child.id(),
-            err = %std::io::Error::last_os_error(),
-            "AssignProcessToJobObject failed; this engine child may orphan if the manager is killed"
-        );
-    }
-}
-
-#[cfg(unix)]
-fn chown_path(path: &std::path::Path, uid: u32, gid: u32) -> std::io::Result<()> {
-    // lchown, not chown: operate on the path itself and never follow a symlink.
-    // The recursed directory is owned and writable by the unprivileged engine,
-    // so a symlink it plants there (e.g. cache/x -> /etc/shadow) must not be able
-    // to redirect this root-run chown onto an arbitrary file.
-    std::os::unix::fs::lchown(path, Some(uid), Some(gid))
-}
-
-#[cfg(unix)]
-fn chown_recursive(path: &std::path::Path, uid: u32, gid: u32) -> std::io::Result<()> {
-    // symlink_metadata (lstat) so a symlink is classified as a symlink, not as
-    // whatever it points at — otherwise a symlink-to-directory would be followed
-    // by the `is_dir()` check and recursed into.
-    let meta = std::fs::symlink_metadata(path)?;
-    chown_path(path, uid, gid)?;
-    if meta.file_type().is_dir() {
-        for entry in std::fs::read_dir(path)? {
-            chown_recursive(&entry?.path(), uid, gid)?;
-        }
-    }
-    Ok(())
-}
-
-/// `pre_exec` hook for the child. Drops to the unprivileged service user (when one
-/// is given), hands the tun fd over at a known number, and — on Linux — arms
-/// parent-death. The ordering is load-bearing:
-///   1. `setgroups` before `setuid` (it needs root) to drop root's supplementary
-///      groups — and `CommandExt::groups` is still unstable, so we do it by hand;
-///   2. `setgid`/`setuid` to the service user;
-///   3. `dup2` the tun fd onto fd 3 (the dup clears CLOEXEC so it survives exec);
-///   4. `PR_SET_PDEATHSIG` LAST — `setuid` clears any pending parent-death signal.
-///
-/// On macOS there is no service user (so steps 1–2 are skipped) and no
-/// `PR_SET_PDEATHSIG` equivalent (step 4 is skipped); only the fd hand-off runs.
-///
-/// SAFETY: runs post-fork/pre-exec, so it must use only async-signal-safe
-/// syscalls and perform no allocation.
-#[cfg(unix)]
-fn child_pre_exec(service_user: Option<(u32, u32)>, vpn_fd: Option<i32>) -> std::io::Result<()> {
-    let err = std::io::Error::last_os_error;
-    if let Some((uid, gid)) = service_user {
-        if unsafe { libc::setgroups(0, std::ptr::null()) } != 0 {
-            return Err(err());
-        }
-        if unsafe { libc::setgid(gid) } != 0 {
-            return Err(err());
-        }
-        if unsafe { libc::setuid(uid) } != 0 {
-            return Err(err());
-        }
-    }
-    if let Some(fd) = vpn_fd
-        && unsafe { libc::dup2(fd, 3) } < 0
-    {
-        return Err(err());
-    }
-    // PR_SET_PDEATHSIG == 1. Linux-only; macOS has no direct equivalent.
-    #[cfg(target_os = "linux")]
-    if unsafe { libc::prctl(1, libc::SIGTERM, 0, 0, 0) } != 0 {
-        return Err(err());
-    }
-    Ok(())
-}
-
-/// Kill a child process and reap it.
-pub fn kill_child(mut child: Child) {
-    let pid = child.id();
-    let _ = child.kill();
-    let _ = child.wait();
-    tracing::info!(pid, "killed child geph5-client");
-}
-
 /// A control-protocol client pointed at the **tunnel** engine (only reachable
 /// while connected).
 pub fn live_control() -> ControlClient {
-    #[cfg(unix)]
-    let dialer = nanorpc_sillad::DialerTransport(sillad::unix::UnixDialer {
-        path: engine_control_path(),
-    });
-    #[cfg(windows)]
-    let dialer = nanorpc_sillad::DialerTransport(sillad::windows_pipe::NamedPipeDialer {
-        name: ENGINE_CONTROL_PIPE.to_string(),
-    });
-    ControlClient::from(dialer)
+    platform::engine_control(EngineRole::Tunnel)
 }
 
 /// A control-protocol client pointed at the permanent **query** engine.
 pub fn query_control() -> ControlClient {
-    #[cfg(unix)]
-    let dialer = nanorpc_sillad::DialerTransport(sillad::unix::UnixDialer {
-        path: query_control_path(),
-    });
-    #[cfg(windows)]
-    let dialer = nanorpc_sillad::DialerTransport(sillad::windows_pipe::NamedPipeDialer {
-        name: QUERY_CONTROL_PIPE.to_string(),
-    });
-    ControlClient::from(dialer)
+    platform::engine_control(EngineRole::Query)
 }
 
 /// Wait until the given engine's control protocol answers, up to `timeout`.
@@ -830,7 +360,7 @@ pub async fn wait_control_ready(client: &ControlClient, timeout: Duration) -> an
         match client.start_time().await {
             Ok(_) => return Ok(()),
             Err(_) if start.elapsed() < timeout => {
-                geph5_rt::sleep(deadline).await;
+                tokio::time::sleep(deadline).await;
             }
             Err(e) => anyhow::bail!("engine never became reachable: {e:?}"),
         }

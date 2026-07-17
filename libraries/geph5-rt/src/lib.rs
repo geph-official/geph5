@@ -14,8 +14,6 @@ use std::task::{Context, Poll, ready};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
-#[cfg(unix)]
-pub mod asyncfd;
 mod bufpool;
 pub mod immortal;
 pub mod reaper;
@@ -25,9 +23,6 @@ pub use bufpool::{pooled_read, pooled_read_callback};
 pub use immortal::{Immortal, RespawnStrategy};
 pub use reaper::TaskReaper;
 pub use timeout::TimeoutExt;
-
-// Centralized time helpers, so callers don't each reach into `tokio::time`.
-pub use tokio::time::{sleep, sleep_until};
 
 /// The global multi-threaded tokio runtime that drives all geph5 async work.
 ///
