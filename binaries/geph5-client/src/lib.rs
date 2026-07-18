@@ -49,8 +49,18 @@ static CLIENT: OnceCell<Client> = OnceCell::new();
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn start_client(cfg: *const c_char, vpn_fd: c_int) -> libc::c_int {
-    let cfg_str = unsafe { CStr::from_ptr(cfg) }.to_str().unwrap();
-    let cfg: Config = serde_json::from_str(cfg_str).unwrap();
+    // A panic here aborts the whole process (which may be a NetworkExtension),
+    // so malformed input must produce an error code, never an unwrap.
+    let Ok(cfg_str) = unsafe { CStr::from_ptr(cfg) }.to_str() else {
+        return -5; // not UTF-8
+    };
+    let cfg: Config = match serde_json::from_str(cfg_str) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            tracing::error!(err = %err, "start_client got invalid config JSON");
+            return -6;
+        }
+    };
 
     #[cfg(unix)]
     let vpn_fd = if vpn_fd >= 0 { Some(vpn_fd) } else { None };
@@ -71,14 +81,27 @@ pub unsafe extern "C" fn daemon_rpc(
     out_buf: *mut c_char,
     out_buflen: c_int,
 ) -> c_int {
-    let req_str = unsafe { CStr::from_ptr(jrpc_req) }.to_str().unwrap();
-    let jrpc: JrpcRequest = serde_json::from_str(req_str).unwrap();
+    // See start_client: never panic across the FFI boundary.
+    let Ok(req_str) = unsafe { CStr::from_ptr(jrpc_req) }.to_str() else {
+        return -5; // not UTF-8
+    };
+    let jrpc: JrpcRequest = match serde_json::from_str(req_str) {
+        Ok(jrpc) => jrpc,
+        Err(err) => {
+            tracing::error!(err = %err, req = req_str, "daemon_rpc got invalid JSON-RPC");
+            return -6;
+        }
+    };
 
     if let Some(client) = CLIENT.get() {
         let ctrl = client.control_client().0;
         if let Ok(response) = geph5_rt::block_on(async move { ctrl.call_raw(jrpc).await }) {
-            let response_json = serde_json::to_string(&response).unwrap();
-            let response_c = std::ffi::CString::new(response_json).unwrap();
+            let Ok(response_json) = serde_json::to_string(&response) else {
+                return -7;
+            };
+            let Ok(response_c) = std::ffi::CString::new(response_json) else {
+                return -7;
+            };
             let bytes = response_c.as_bytes_with_nul();
 
             unsafe { fill_buffer(out_buf, out_buflen, bytes) }
