@@ -213,6 +213,11 @@ fn owned_filter_ids(engine: HANDLE) -> anyhow::Result<Vec<u64>> {
         let mut template: FWPM_FILTER_ENUM_TEMPLATE0 = unsafe { std::mem::zeroed() };
         template.layerKey = layer;
         template.enumType = FWP_FILTER_ENUM_FULLY_CONTAINED;
+        // Enumerate filters of every action. A zeroed `actionMask` matches no
+        // action at all, which WFP rejects at `FwpmFilterCreateEnumHandle0` with
+        // FWP_E_NEVER_MATCH (0x80320033) — that would make every install/replace/
+        // purge fail and the VPN never come up.
+        template.actionMask = 0xFFFF_FFFF;
         let mut enum_handle: HANDLE = std::ptr::null_mut();
         check(
             unsafe { FwpmFilterCreateEnumHandle0(engine, &template, &mut enum_handle) },
