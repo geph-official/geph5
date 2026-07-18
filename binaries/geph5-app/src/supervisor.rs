@@ -144,6 +144,7 @@ pub(crate) fn build_tunnel_config(
     cfg.allow_lan = settings.allow_lan;
     cfg.allow_direct = settings.allow_direct;
     cfg.passthrough_china = settings.passthrough_china;
+    cfg.spoof_dns = settings.passthrough_china;
     cfg.sess_metadata = settings.session_metadata.clone();
     cfg.dry_run = !settings.connected;
     platform::configure_engine_control(&mut cfg, EngineRole::Tunnel);
