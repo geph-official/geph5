@@ -37,6 +37,18 @@ pub fn binding_active() -> bool {
     })
 }
 
+/// A UDP socket for the engine's own name resolution, pinned to the physical
+/// IPv4 interface when full-tunnel binding is active (a plain socket otherwise),
+/// so its queries leave the real NIC instead of looping into the tunnel.
+pub async fn udp_socket_v4() -> std::io::Result<tokio::net::UdpSocket> {
+    let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
+    #[cfg(windows)]
+    windows_bind::pin_udp_v4(&socket)?;
+    #[cfg(target_os = "macos")]
+    macos_bind::pin_udp_v4(&socket)?;
+    Ok(socket)
+}
+
 /// A TCP dialer that connects to a single address, pinned to the physical
 /// interface when full-tunnel binding is active (otherwise a plain connect).
 pub struct BoundTcpDialer {
@@ -185,6 +197,29 @@ mod windows_bind {
         *V.get_or_init(|| env_index("GEPH_VPN_BIND_IF6"))
     }
 
+    /// Pin an already-bound UDP socket to the physical IPv4 interface, if one is
+    /// configured. No-op otherwise.
+    pub fn pin_udp_v4(socket: &tokio::net::UdpSocket) -> std::io::Result<()> {
+        let Some(idx) = bind_if4() else {
+            return Ok(());
+        };
+        // IP_UNICAST_IF takes the index in network byte order (see below).
+        let value: u32 = idx.to_be();
+        let rc = unsafe {
+            setsockopt(
+                socket.as_raw_socket() as SOCKET,
+                IPPROTO_IP,
+                IP_UNICAST_IF,
+                &value as *const u32 as *const u8,
+                std::mem::size_of::<u32>() as i32,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     /// If an interface is configured for `dest`'s family, create a socket pinned
     /// to it and connect; otherwise `Ok(None)` to fall back to a plain connect.
     pub async fn connect_unicast_if(
@@ -259,6 +294,28 @@ mod macos_bind {
     fn bind_if6() -> Option<u32> {
         static V: OnceLock<Option<u32>> = OnceLock::new();
         *V.get_or_init(|| env_index("GEPH_VPN_BIND_IF6"))
+    }
+
+    /// Pin an already-bound UDP socket to the physical IPv4 interface, if one is
+    /// configured. No-op otherwise.
+    pub fn pin_udp_v4(socket: &tokio::net::UdpSocket) -> std::io::Result<()> {
+        let Some(idx) = bind_if4() else {
+            return Ok(());
+        };
+        let value: u32 = idx;
+        let rc = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                IPPROTO_IP,
+                IP_BOUND_IF,
+                &value as *const u32 as *const libc::c_void,
+                std::mem::size_of::<u32>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
     }
 
     /// If an interface is configured for `dest`'s family, create a socket bound to

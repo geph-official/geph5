@@ -174,4 +174,43 @@ mod tests {
         let ctx = test_ctx();
         assert_eq!(fake_dns_backtranslate(&ctx, Ipv4Addr::new(198, 18, 0, 1)), None);
     }
+
+    fn resolve_via_spoofer(ctx: &AnyCtx<Config>, name: &str) -> Ipv4Addr {
+        let mut query = Packet::new_query(1234);
+        query.questions.push(simple_dns::Question::new(
+            simple_dns::Name::new(name).unwrap(),
+            QTYPE::TYPE(simple_dns::TYPE::A),
+            simple_dns::QCLASS::CLASS(simple_dns::CLASS::IN),
+            false,
+        ));
+        let resp = fake_dns_respond(ctx, &query.build_bytes_vec().unwrap()).unwrap();
+        let resp = Packet::parse(&resp).unwrap();
+        match &resp.answers[0].rdata {
+            simple_dns::rdata::RData::A(a) => Ipv4Addr::from(a.address),
+            other => panic!("expected A record, got {other:?}"),
+        }
+    }
+
+    /// Repro of the china-passthrough blackhole: under VPN mode the *system*
+    /// resolver's only reachable upstream is the spoofer itself, so when the
+    /// passthrough path in `open_conn` re-resolves the back-translated hostname
+    /// with `tokio::net::lookup_host`, it gets a fake pool address back and
+    /// "directly" dials a nonexistent destination.
+    #[test]
+    fn china_passthrough_re_resolution_is_poisoned() {
+        let ctx = test_ctx();
+        // 1. The app resolves baidu.com through the tun sentinel DNS -> fake IP.
+        let fake_ip = resolve_via_spoofer(&ctx, "baidu.com");
+        assert_in_pool(fake_ip);
+        // 2. The app connects to the fake IP; the engine back-translates it.
+        let host = fake_dns_backtranslate(&ctx, fake_ip).unwrap();
+        assert_eq!(host, "baidu.com");
+        // 3. The host is Chinese, so open_conn takes the direct-passthrough path.
+        assert!(crate::china::is_chinese_host(&host));
+        // 4. The passthrough re-resolves the name via the system resolver, whose
+        // configured server under VPN mode is answered by this same spoofer:
+        let direct_dial_target = resolve_via_spoofer(&ctx, &host);
+        // The "direct" connection target is itself a fake address — a blackhole.
+        assert_in_pool(direct_dial_target);
+    }
 }

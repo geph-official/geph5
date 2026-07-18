@@ -106,10 +106,16 @@ pub async fn open_conn(
     // peer never understands. UDP to a whitelisted host falls through to the
     // tunnel instead.
     if protocol == "tcp"
-        && let Some((dest_host, _)) = dest_addr.rsplit_once(":")
+        && let Some((dest_host, dest_port)) = dest_addr.rsplit_once(":")
         && whitelist_host(ctx, dest_host)
     {
-        let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&dest_addr).await?.collect();
+        let addrs: Vec<SocketAddr> = if let Ok(port) = dest_port.parse::<u16>()
+            && needs_direct_china_resolution(ctx, dest_host)
+        {
+            crate::china::resolve_via_alidns(dest_host, port).await?
+        } else {
+            tokio::net::lookup_host(&dest_addr).await?.collect()
+        };
         tracing::debug!(
             dest_addr = debug(dest_addr),
             "passing through whitelisted address"
@@ -304,6 +310,22 @@ async fn session_worker(ctx: AnyCtx<Config>, worker_id: usize) -> Infallible {
             failures = 0.0;
         }
     }
+}
+
+/// Whether a whitelisted host must be resolved via AliDNS instead of the system
+/// resolver. Only Chinese *domains* (the LAN arm of `whitelist_host` only ever
+/// matches IP literals, which need no resolution), and only in full-tunnel VPN
+/// mode with `spoof_dns` on — where the system resolver's sole reachable
+/// upstream is our own fake-DNS responder, so `lookup_host` would return a
+/// fake-pool address and the direct dial would blackhole.
+fn needs_direct_china_resolution(ctx: &AnyCtx<Config>, host: &str) -> bool {
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    ctx.init().spoof_dns
+        && crate::bound_dialer::binding_active()
+        && IpAddr::from_str(bare).is_err()
 }
 
 fn whitelist_host(ctx: &AnyCtx<Config>, host: &str) -> bool {
