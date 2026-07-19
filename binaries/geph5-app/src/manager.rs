@@ -357,6 +357,24 @@ impl GephCtlProtocol for ManagerImpl {
         Ok(account)
     }
 
+    async fn set_secret(&self, secret: String) -> Result<(), String> {
+        let secret = secret.trim().to_string();
+        let mut inner = self.inner.lock().await;
+        // Deliberately no broker validation here (see the trait doc): this is the
+        // connect path's secret setter and must never touch the network. Only a
+        // genuinely new secret needs a disk write and, if we're already
+        // connected, a tunnel restart to pick it up; an unchanged secret is a
+        // no-op. On a fresh connect we aren't connected yet, so nothing restarts.
+        if inner.settings.secret.as_deref() != Some(secret.as_str()) {
+            inner.settings.secret = Some(secret);
+            inner.settings.save().map_err(|e| format!("{e:?}"))?;
+            if inner.settings.connected {
+                Self::reconcile_tunnel(&mut inner).await?;
+            }
+        }
+        Ok(())
+    }
+
     async fn logout(&self, session: SessionContext) -> Result<(), String> {
         let mut inner = self.inner.lock().await;
         inner.desktop_session = Some(session);

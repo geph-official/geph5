@@ -209,6 +209,14 @@ impl SettingsView {
 pub trait GephCtlProtocol {
     /// Validate a secret, persist it, and (re)start the child with it.
     async fn login(&self, secret: String) -> Result<AccountInfo, String>;
+    /// Persist a secret WITHOUT validating it against the broker, restarting the
+    /// child with it only if already connected. Unlike `login`, this makes no
+    /// network call, so it never blocks on a slow or dead network. Callers that
+    /// have already validated the secret elsewhere (the GUI checks it at its
+    /// login screen) use this on the connect path instead of re-validating every
+    /// time; the tunnel engine authenticates the secret itself as it connects,
+    /// so a bad secret still surfaces as an ordinary connection failure.
+    async fn set_secret(&self, secret: String) -> Result<(), String>;
     /// Forget the stored secret, drop back to a logged-out child, and (if
     /// auto-proxy is on) clear the caller's system proxy.
     async fn logout(&self, session: SessionContext) -> Result<(), String>;
