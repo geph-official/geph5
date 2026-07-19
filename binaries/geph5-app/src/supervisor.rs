@@ -7,6 +7,7 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    sync::mpsc,
     time::Duration,
 };
 
@@ -219,13 +220,34 @@ fn pre_resolve_fronted_broker_sources(source: &mut BrokerSource) {
     }
 }
 
+/// How long we wait for the fronted-broker pre-resolve before giving up. This is
+/// only a best-effort optimization for VPN bootstrap (a failure/timeout leaves
+/// `override_dns = None` and the engine resolves the front itself), so we keep the
+/// budget tight: a healthy resolver answers in tens of milliseconds, and anything
+/// slower is not worth blocking the connect on.
+const FRONT_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
+
 fn resolve_front_override_dns(front: &str) -> anyhow::Result<Vec<SocketAddr>> {
     let (host, port) = front_lookup_target(front)?;
+    // `getaddrinfo` (via `to_socket_addrs`) has no timeout and cannot be
+    // cancelled once it's blocking in the OS resolver. So run it on a detached
+    // thread and bound only our *wait* for it: on timeout we abandon the thread
+    // (it self-reaps when the resolver eventually returns) and report failure,
+    // which the caller already treats as "leave override_dns unset".
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(
+            (host.as_str(), port)
+                .to_socket_addrs()
+                .map(|it| it.collect::<Vec<_>>())
+                .with_context(|| format!("could not resolve {host}:{port}")),
+        );
+    });
+    let resolved = rx
+        .recv_timeout(FRONT_RESOLVE_TIMEOUT)
+        .context("front DNS pre-resolve timed out")??;
     let mut addrs = Vec::new();
-    for addr in (host.as_str(), port)
-        .to_socket_addrs()
-        .with_context(|| format!("could not resolve {host}:{port}"))?
-    {
+    for addr in resolved {
         if !addrs.contains(&addr) {
             addrs.push(addr);
         }
