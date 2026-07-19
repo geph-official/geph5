@@ -241,24 +241,92 @@ async fn probe_youtube(
     if is_sorry_page(&page) {
         return Ok((ProbeStatus::Captcha, country));
     }
-    if is_yt_signin_wall(&page.body) {
-        return Ok((ProbeStatus::SigninWall, country));
+    match yt_playability(&page.body) {
+        Some(playability) => match playability {
+            YtPlayability::Ok => Ok((ProbeStatus::Ok, country)),
+            YtPlayability::BotCheck => Ok((ProbeStatus::SigninWall, country)),
+            YtPlayability::Other(status, reason) => {
+                // Age gates, removed videos, etc. are properties of the
+                // probed video, not of this IP's reputation — surface as a
+                // probe error so a bad video choice is visible, not
+                // misreported as ok/blocked.
+                anyhow::bail!(
+                    "probe video has playability {status} ({reason}); reconfigure google_selfcheck_video"
+                )
+            }
+        },
+        None => anyhow::bail!(
+            "no ytInitialPlayerResponse in YouTube response: status {} at {}",
+            page.status,
+            page.final_url
+        ),
     }
-    if page.status.is_success() {
-        return Ok((ProbeStatus::Ok, country));
-    }
-    anyhow::bail!(
-        "unclassifiable YouTube response: status {} at {}",
-        page.status,
-        page.final_url
-    )
 }
 
-fn is_yt_signin_wall(body: &str) -> bool {
-    // The watch-page player response carries LOGIN_REQUIRED when YouTube
-    // demands sign-in ("Sign in to confirm you're not a bot").
-    body.contains("\"status\":\"LOGIN_REQUIRED\"")
-        || body.contains("Sign in to confirm you\u{2019}re not a bot")
+enum YtPlayability {
+    Ok,
+    /// LOGIN_REQUIRED with a "confirm you're not a bot" reason — the
+    /// IP-reputation sign-in wall (per yt-dlp/YouTube.js reverse engineering).
+    BotCheck,
+    Other(String, String),
+}
+
+/// Parse `playabilityStatus` out of the `ytInitialPlayerResponse` object
+/// embedded in the watch page — the exact playability a real browser sees.
+/// Note that very popular (heavily cached) videos can stay playable from
+/// flagged IPs, so the probe video should be an unpopular one.
+fn yt_playability(body: &str) -> Option<YtPlayability> {
+    let json = extract_json_object(body, "ytInitialPlayerResponse")?;
+    let parsed: serde_json::Value = serde_json::from_str(json).ok()?;
+    let playability = parsed.get("playabilityStatus")?;
+    let status = playability.get("status")?.as_str()?;
+    let reason = playability
+        .get("reason")
+        .and_then(|r| r.as_str())
+        .unwrap_or_default();
+    Some(match status {
+        "OK" => YtPlayability::Ok,
+        "LOGIN_REQUIRED" if reason.to_lowercase().contains("bot") => YtPlayability::BotCheck,
+        _ => YtPlayability::Other(status.to_string(), reason.to_string()),
+    })
+}
+
+/// Find `<var_name> = {...}` in an HTML page and return the balanced JSON
+/// object text. Brace counting ignores braces inside JSON strings.
+fn extract_json_object<'a>(body: &'a str, var_name: &str) -> Option<&'a str> {
+    let pos = body.find(var_name)?;
+    let after = &body[pos + var_name.len()..];
+    let eq = after.find('=')?;
+    let rest = after[eq + 1..].trim_start();
+    if !rest.starts_with('{') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, c) in rest.char_indices() {
+        if in_string {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&rest[..=i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Pull Google's perceived country out of YouTube's embedded ytcfg
@@ -292,13 +360,46 @@ mod tests {
         assert_eq!(extract_yt_country("no country here"), None);
     }
 
+    fn watch_page(playability: &str) -> String {
+        format!(
+            r#"<script>var ytInitialPlayerResponse = {{"responseContext":{{"key":"a {{ b }}"}},"playabilityStatus":{playability}}};var other = 1;</script>"#
+        )
+    }
+
     #[test]
-    fn detects_signin_wall() {
-        assert!(is_yt_signin_wall(
-            r#"{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}"#
+    fn classifies_playability() {
+        assert!(matches!(
+            yt_playability(&watch_page(r#"{"status":"OK","playableInEmbed":true}"#)),
+            Some(YtPlayability::Ok)
         ));
-        assert!(!is_yt_signin_wall(
-            r#"{"playabilityStatus":{"status":"OK"}}"#
+        assert!(matches!(
+            yt_playability(&watch_page(
+                r#"{"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you’re not a bot"}"#
+            )),
+            Some(YtPlayability::BotCheck)
         ));
+        // age gate is LOGIN_REQUIRED too, but must NOT count as the bot wall
+        assert!(matches!(
+            yt_playability(&watch_page(
+                r#"{"status":"LOGIN_REQUIRED","reason":"Sign in to confirm your age"}"#
+            )),
+            Some(YtPlayability::Other(_, _))
+        ));
+        assert!(matches!(
+            yt_playability(&watch_page(
+                r#"{"status":"UNPLAYABLE","reason":"Video unavailable"}"#
+            )),
+            Some(YtPlayability::Other(_, _))
+        ));
+        assert!(yt_playability("<html>no player response</html>").is_none());
+    }
+
+    #[test]
+    fn extracts_balanced_json_with_braces_in_strings() {
+        let body = r#"x = 1; ytInitialPlayerResponse = {"a":"{ not a real brace }","b":{"c":1}}; y = 2;"#;
+        assert_eq!(
+            extract_json_object(body, "ytInitialPlayerResponse"),
+            Some(r#"{"a":"{ not a real brace }","b":{"c":1}}"#)
+        );
     }
 }

@@ -134,8 +134,10 @@ struct ConfigFile {
 }
 
 fn default_google_selfcheck_video() -> String {
-    // A well-known, stable video.
-    "dQw4w9WgXcQ".into()
+    // Deliberately NOT a famous video: heavily-cached popular videos can stay
+    // playable from IPs that YouTube has flagged, hiding the sign-in wall
+    // this probe exists to detect.
+    "qy_yyO0h4I8".into()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
