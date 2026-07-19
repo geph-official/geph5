@@ -267,7 +267,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                     static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
                     let load = get_load();
                     let exit_tag: &[(&str, &str)] = &[("exit", &server_name)];
-                    let stats = vec![
+                    let mut stats = vec![
                         StatEvent::gauge("kbps", exit_tag, get_kbps() as _),
                         StatEvent::gauge("uptime", exit_tag, START_TIME.elapsed().as_secs_f64()),
                         StatEvent::gauge("load", exit_tag, load as _),
@@ -278,6 +278,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
                         ),
                     ];
+                    stats.extend(crate::selfcheck::selfcheck_stat_events(&server_name));
                     client
                         .report_stats(Mac::new(
                             stats,

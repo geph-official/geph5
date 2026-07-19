@@ -39,7 +39,8 @@ pub async fn listen_main() -> anyhow::Result<()> {
     let c2e = c2e_loop();
     let b2e = b2e_loop();
     let broker = broker_loop();
-    (c2e, broker, b2e).race().await
+    let selfcheck = crate::selfcheck::selfcheck_loop();
+    (c2e, broker, b2e, selfcheck).race().await
 }
 
 async fn c2e_loop() -> anyhow::Result<()> {
