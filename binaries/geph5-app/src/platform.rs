@@ -948,15 +948,35 @@ fn staged_engine_bin() -> anyhow::Result<PathBuf> {
         _ => false,
     };
     if !current {
-        std::fs::copy(&src, &dst).with_context(|| {
+        // Stage via a temp file + rename rather than copying over `dst` in
+        // place: an in-place copy leaves a window where a concurrent exec of
+        // `dst` (e.g. the respawn loop of a manager still running across a pkg
+        // upgrade) sees a half-written Mach-O. The kernel SIGKILLs that exec for
+        // an invalid code signature and macOS caches the verdict against the
+        // inode, so every later exec dies even after the copy completes. A
+        // rename never exposes a partial file, and the fresh inode carries no
+        // cached verdict.
+        let tmp = dir.join(format!(
+            ".{}.staging.{}",
+            engine_binary_name(),
+            std::process::id()
+        ));
+        std::fs::copy(&src, &tmp).with_context(|| {
             format!(
                 "staging engine binary {} -> {}",
                 src.display(),
+                tmp.display()
+            )
+        })?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+        let _ = chown_path(&tmp, 0, 0);
+        std::fs::rename(&tmp, &dst).with_context(|| {
+            format!(
+                "activating staged engine binary {} -> {}",
+                tmp.display(),
                 dst.display()
             )
         })?;
-        std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755))?;
-        let _ = chown_path(&dst, 0, 0);
     }
     Ok(dst)
 }
