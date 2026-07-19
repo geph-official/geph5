@@ -31,7 +31,7 @@ mod listen;
 mod proxy;
 mod ratelimit;
 mod schedlag;
-mod selfcheck;
+mod google_selfcheck;
 
 #[cfg(target_env = "musl")]
 #[global_allocator]
@@ -129,11 +129,11 @@ struct ConfigFile {
     ipv6_pool_size: usize,
 
     /// YouTube video ID probed by the Google-reachability selfcheck.
-    #[serde(default = "default_selfcheck_video")]
-    selfcheck_video: String,
+    #[serde(default = "default_google_selfcheck_video")]
+    google_selfcheck_video: String,
 }
 
-fn default_selfcheck_video() -> String {
+fn default_google_selfcheck_video() -> String {
     // A well-known, stable video.
     "dQw4w9WgXcQ".into()
 }

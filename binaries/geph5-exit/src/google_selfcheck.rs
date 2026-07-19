@@ -73,22 +73,22 @@ static STATE: Mutex<SelfCheckState> = Mutex::new(SelfCheckState {
 });
 
 /// Gauges for the broker loop to append to its regular stats report.
-pub fn selfcheck_stat_events(server_name: &str) -> Vec<StatEvent> {
+pub fn google_selfcheck_stat_events(server_name: &str) -> Vec<StatEvent> {
     let state = STATE.lock().unwrap().clone();
     let exit_tag: &[(&str, &str)] = &[("exit", server_name)];
     let mut events = vec![];
     let as_gauge = |name: &str, val: Option<bool>| {
         val.map(|v| StatEvent::gauge(name, exit_tag, if v { 1.0 } else { 0.0 }))
     };
-    events.extend(as_gauge("selfcheck_google_captcha", state.google_captcha));
-    events.extend(as_gauge("selfcheck_youtube_captcha", state.youtube_captcha));
-    events.extend(as_gauge("selfcheck_youtube_signin", state.youtube_signin));
-    events.extend(as_gauge("selfcheck_error", state.probe_error));
+    events.extend(as_gauge("google_selfcheck_search_captcha", state.google_captcha));
+    events.extend(as_gauge("google_selfcheck_youtube_captcha", state.youtube_captcha));
+    events.extend(as_gauge("google_selfcheck_youtube_signin", state.youtube_signin));
+    events.extend(as_gauge("google_selfcheck_error", state.probe_error));
     if let Some(country) = &state.google_country {
         let configured = CONFIG_FILE.wait().country.alpha2().to_uppercase();
         let mismatch = *country != configured;
         events.push(StatEvent::gauge(
-            "selfcheck_geo_mismatch",
+            "google_selfcheck_geo_mismatch",
             &[("exit", server_name), ("google_country", country)],
             if mismatch { 1.0 } else { 0.0 },
         ));
@@ -96,7 +96,7 @@ pub fn selfcheck_stat_events(server_name: &str) -> Vec<StatEvent> {
     events
 }
 
-pub async fn selfcheck_loop() -> anyhow::Result<()> {
+pub async fn google_selfcheck_loop() -> anyhow::Result<()> {
     // Short initial delay so results appear soon after (re)deploys, without
     // racing startup.
     tokio::time::sleep(Duration::from_secs(fastrand::u64(15..60))).await;
@@ -231,7 +231,7 @@ async fn probe_youtube(
 ) -> anyhow::Result<(ProbeStatus, Option<String>)> {
     let url = format!(
         "https://www.youtube.com/watch?v={}&hl=en",
-        CONFIG_FILE.wait().selfcheck_video
+        CONFIG_FILE.wait().google_selfcheck_video
     );
     let mut page = fetch(client, &url, false).await?;
     if is_consent_page(&page) {

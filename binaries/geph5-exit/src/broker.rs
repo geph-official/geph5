@@ -278,7 +278,7 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
                         ),
                     ];
-                    stats.extend(crate::selfcheck::selfcheck_stat_events(&server_name));
+                    stats.extend(crate::google_selfcheck::google_selfcheck_stat_events(&server_name));
                     client
                         .report_stats(Mac::new(
                             stats,
