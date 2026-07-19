@@ -147,12 +147,17 @@ fn probe_client() -> anyhow::Result<reqwest::Client> {
 
 async fn probe_round() -> anyhow::Result<ProbeRound> {
     let client = probe_client()?;
-    let google = probe_google_search(&client).await?;
-    let (youtube, google_country) = probe_youtube(&client).await?;
+    let (google, search_country) = probe_google_search(&client).await?;
+    let (youtube, yt_country) = probe_youtube(&client).await?;
+    // Google Search and YouTube geolocate independently, and they can
+    // disagree: an IP whose *users* behave like mainland-China users gets the
+    // google.com.hk treatment from Search while YouTube's IP database still
+    // says something else entirely. The search-side signal is the one that
+    // reflects reputation, so it wins.
     Ok(ProbeRound {
         google,
         youtube,
-        google_country,
+        google_country: search_country.or(yt_country),
     })
 }
 
@@ -197,7 +202,9 @@ fn is_consent_page(page: &FetchedPage) -> bool {
         .is_some_and(|h| h.contains("consent.google.com") || h.contains("consent.youtube.com"))
 }
 
-async fn probe_google_search(client: &reqwest::Client) -> anyhow::Result<ProbeStatus> {
+async fn probe_google_search(
+    client: &reqwest::Client,
+) -> anyhow::Result<(ProbeStatus, Option<String>)> {
     let query = SEARCH_QUERIES[fastrand::usize(0..SEARCH_QUERIES.len())];
     let url = format!(
         "https://www.google.com/search?q={}&hl=en",
@@ -210,20 +217,35 @@ async fn probe_google_search(client: &reqwest::Client) -> anyhow::Result<ProbeSt
             // A consent wall is regional, not reputational; users click
             // through it. Not a block.
             tracing::debug!("selfcheck stuck on Google consent page even with cookie");
-            return Ok(ProbeStatus::Ok);
+            return Ok((ProbeStatus::Ok, None));
         }
     }
+    let search_country = search_country_from_host(&page.final_url);
     if is_sorry_page(&page) {
-        return Ok(ProbeStatus::Captcha);
+        return Ok((ProbeStatus::Captcha, search_country));
     }
     if page.status.is_success() {
-        return Ok(ProbeStatus::Ok);
+        return Ok((ProbeStatus::Ok, search_country));
     }
     anyhow::bail!(
         "unclassifiable Google search response: status {} at {}",
         page.status,
         page.final_url
     )
+}
+
+/// Google retired per-country ccTLD redirects in 2017; the one that remains
+/// is mainland-China-located clients → google.com.hk (`pref=hkredirect`,
+/// served with hl=zh-CN). Landing there means Google Search locates this IP
+/// in mainland China — typically from user-behavior heuristics, and exactly
+/// the misclassification worth catching on a VPN exit.
+fn search_country_from_host(url: &reqwest::Url) -> Option<String> {
+    let host = url.host_str()?;
+    if host.ends_with("google.com.hk") || host.ends_with("google.cn") {
+        Some("CN".to_string())
+    } else {
+        None
+    }
 }
 
 async fn probe_youtube(
@@ -331,6 +353,10 @@ fn extract_json_object<'a>(body: &'a str, var_name: &str) -> Option<&'a str> {
 
 /// Pull Google's perceived country out of YouTube's embedded ytcfg
 /// (`"GL":"XX"`, with `"gl":"xx"` in INNERTUBE_CONTEXT as fallback).
+/// Caveat: YouTube geolocates by IP database, which can disagree with what
+/// Search's reputation heuristics decide (datacenter ranges have shown up as
+/// US here while Search treats them as mainland China), so this is only the
+/// fallback when the search probe yields no country signal.
 fn extract_yt_country(body: &str) -> Option<String> {
     for needle in ["\"GL\":\"", "\"gl\":\""] {
         if let Some(pos) = body.find(needle) {
@@ -392,6 +418,18 @@ mod tests {
             Some(YtPlayability::Other(_, _))
         ));
         assert!(yt_playability("<html>no player response</html>").is_none());
+    }
+
+    #[test]
+    fn detects_hk_redirect_as_mainland_china() {
+        let cn: reqwest::Url =
+            "https://www.google.com.hk/search?q=test&hl=en".parse().unwrap();
+        assert_eq!(search_country_from_host(&cn), Some("CN".to_string()));
+        let cn2: reqwest::Url = "https://www.google.cn/".parse().unwrap();
+        assert_eq!(search_country_from_host(&cn2), Some("CN".to_string()));
+        let normal: reqwest::Url =
+            "https://www.google.com/search?q=test".parse().unwrap();
+        assert_eq!(search_country_from_host(&normal), None);
     }
 
     #[test]
