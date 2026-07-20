@@ -34,16 +34,22 @@
 use std::{
     ffi::CString,
     io::{self, Write},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
     process::{Command, Stdio},
 };
 
 use anyhow::{Context, bail};
 
+use route_socket::{Gateway, RouteSocket, RouteSpec};
+
 /// Dedicated unprivileged user the engine runs as, so the PF kill switch can
 /// permit its egress by uid (the macOS analogue of Linux's `geph5-daemon`).
 /// PF anchor name holding our kill-switch rules.
 const PF_ANCHOR: &str = "geph";
+
+mod discovery;
+mod route_socket;
 
 // tun addressing — v4 matches the Linux/Windows implementations.
 const TUN_V4: &str = "100.64.0.1";
@@ -61,15 +67,12 @@ const TUN_MTU: &str = "16384";
 // Split-default routes: two `/1`s cover the whole address space and, being more
 // specific than the physical `/0` default, win route lookups — so all traffic
 // heads into the tun while the physical default is left intact underneath.
-//
-// Expressed as explicit (net, netmask) / (net, prefixlen) pairs, never as
-// `net/1` slash syntax: route(8)'s `change` resolves a slash-form `/1` through
-// the routing table and rewrites whatever it lands on — for `0.0.0.0/1` that is
-// the GLOBAL DEFAULT, silently hijacking the machine's default route onto the
-// tun (and taking it down with the tun at teardown).
-const V4_SPLIT: [(&str, &str); 2] = [("0.0.0.0", "128.0.0.0"), ("128.0.0.0", "128.0.0.0")];
-const V6_SPLIT: [&str; 2] = ["::", "8000::"];
-const V6_SPLIT_PREFIXLEN: &str = "1";
+const V4_SPLIT: [Ipv4Addr; 2] = [Ipv4Addr::UNSPECIFIED, Ipv4Addr::new(128, 0, 0, 0)];
+const V6_SPLIT: [Ipv6Addr; 2] = [
+    Ipv6Addr::UNSPECIFIED,
+    Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0),
+];
+const SPLIT_PREFIXLEN: u8 = 1;
 
 // Sentinel DNS: the engine routes these into the tunnel (and rewrites port-53
 // traffic), so pointing the system at them keeps DNS from leaking to the LAN
@@ -113,8 +116,8 @@ struct SockaddrCtl {
 pub(super) struct PhysIface {
     if4: u32,
     if6: u32,
-    v4_gw: (String, String),
-    v6_gw: Option<(String, String)>,
+    v4_gw: (String, Ipv4Addr),
+    v6_gw: Option<(String, Ipv6Addr)>,
 }
 
 /// Owns the utun fd; the device (and its routes) live as long as this handle, so
@@ -147,63 +150,54 @@ impl VpnHandle {
         }
         restore_dns(&self.dns_backup);
         del_scoped_default(&self.phys);
-        for (net, mask) in V4_SPLIT {
-            let _ = run("route", &["-n", "delete", "-net", net, "-netmask", mask]);
-        }
-        for net in V6_SPLIT {
-            let _ = run(
-                "route",
-                &[
-                    "-n",
-                    "delete",
-                    "-inet6",
-                    "-net",
-                    net,
-                    "-prefixlen",
-                    V6_SPLIT_PREFIXLEN,
-                ],
-            );
-        }
+        delete_split_routes();
         // These explicit deletes are what actually tear routing down: callers kill
         // the engine child first (see reconcile_tunnel), but during a live session
         // that child holds a dup of the utun fd, so closing our OwnedFd alone would
         // NOT remove the interface — the routes must be deleted by hand.
 
-        // Teardown must leave the machine online. Mid-session the tunnel owns the
-        // *global* default and the physical default survives only as our own
-        // interface-scoped copy — which del_scoped_default above just removed. If
-        // configd doesn't re-assert the physical default (its router probes were
-        // blackholed behind the kill switch), the machine is stranded offline
-        // until a DHCP renewal or reboot. Like the DNS restore, put back the
-        // pre-VPN default from the captured physical gateway.
-        //
-        // Retried briefly because utun destruction is asynchronous: right after
-        // the engine child dies, the tunnel's global default can still sit in the
-        // table, making a plain `route add` collide with it ("File exists") and
-        // then vanish. Each round clears whatever global default remains — we
-        // only get here when no *physical* default exists, so anything present is
-        // the dying tunnel's — and installs the real one.
+        // Teardown must leave the machine online: if configd hasn't re-asserted
+        // the physical default (its router probes were blackholed behind the
+        // kill switch), restore it from the captured gateway, first clearing a
+        // leftover default that egresses through a tunnel (the dying utun's).
         let (ifn, gw) = &self.phys.v4_gw;
-        for _ in 0..5 {
-            let present = cmd_output("netstat", &["-rn"])
-                .is_ok_and(|t| parse_physical_default_v4(&t).is_ok());
-            if present {
-                return;
-            }
+        if let Err(error) = restore_default_route(*gw) {
             tracing::warn!(
+                %error,
                 gateway = %gw,
                 interface = %ifn,
-                "physical default route missing after VPN teardown; restoring it"
+                "could not restore physical default route after VPN teardown"
             );
-            let _ = run("route", &["-n", "delete", "-net", "default"]);
-            if let Err(error) = run("route", &["-n", "add", "-net", "default", gw]) {
-                tracing::warn!(%error, "restoring physical default route failed");
-            }
-            // Brief blocking pause is acceptable here: teardown correctness (the
-            // machine coming back online) outweighs a moment of reactor delay.
-            std::thread::sleep(std::time::Duration::from_millis(300));
         }
     }
+}
+
+/// Ensure the global IPv4 default egresses through a physical interface,
+/// installing `gw` if it is missing or still points at a tunnel.
+fn restore_default_route(gw: Ipv4Addr) -> anyhow::Result<()> {
+    let mut rs = RouteSocket::new().context("opening routing socket")?;
+    let probe = RouteSpec {
+        dest: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        prefixlen: Some(0),
+        gateway: Gateway::Ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+        ifscope: None,
+    };
+    if let Some(info) = rs.get(&probe)? {
+        match iface_name(info.ifindex) {
+            Some(name) if !is_tunnel_iface(&name) => return Ok(()),
+            _ => {
+                rs.delete(&probe)?;
+            }
+        }
+    }
+    tracing::warn!(gateway = %gw, "physical default route missing after VPN teardown; restoring it");
+    rs.add(&RouteSpec {
+        dest: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        prefixlen: Some(0),
+        gateway: Gateway::Ip(IpAddr::V4(gw)),
+        ifscope: None,
+    })
+    .context("re-adding physical default route")
 }
 
 /// Tear down a live VPN, restoring the exact DNS and routing state it replaced.
@@ -211,35 +205,25 @@ pub(super) fn cleanup(mut handle: VpnHandle) {
     handle.cleanup();
 }
 
-/// Discover the physical interface(s) behind the current default route(s). Must be
-/// called *before* [`setup`] installs the `/1` routes, while the default route
-/// still reflects the real NIC.
+/// Discover the physical interface(s) from configd's primary-service state,
+/// which names the real NIC and its router regardless of what routes our own
+/// tunnel has installed.
 pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
-    // Read the routing TABLE (`netstat -rn`), not a route LOOKUP (`route get
-    // default`). Once our `/1` split routes are installed, a lookup of 0.0.0.0
-    // resolves into `0.0.0.0/1` and deterministically returns our own utun with a
-    // non-IP link gateway — so lookup-based discovery can never work mid-session.
-    // The table still lists the physical `default` entry alongside the splits.
-    // Tunnel interfaces and non-IP gateways are skipped by the parser: the
-    // physical NIC is never a tunnel, and adopting one would build an
-    // interface-scoped default that the kernel rejects ("bad address"), wedging
-    // every reconcile.
-    let table = cmd_output("netstat", &["-rn"])?;
-    let (ifname4, gw4) = parse_physical_default_v4(&table)
-        .context("no IPv4 default route — not connected to a network?")?;
-    let if4 = iface_index(&ifname4)?;
-    // v6 is best-effort: many hosts have no v6 default, in which case the engine
+    let v4 = discovery::primary_v4()?;
+    let if4 = iface_index(&v4.ifname)?;
+    // v6 is best-effort: many hosts have no v6 service, in which case the engine
     // runs v4-only. A dual-stack NIC shares one index, so reuse if4 as a fallback.
-    let (if6, v6_gw) = match default_route(&["-n", "get", "-inet6", "default"]) {
-        Ok((ifname6, gw6)) if !is_tunnel_iface(&ifname6) => {
-            (iface_index(&ifname6).unwrap_or(if4), Some((ifname6, gw6)))
-        }
-        _ => (if4, None),
+    let (if6, v6_gw) = match discovery::primary_v6() {
+        Ok(v6) => (
+            iface_index(&v6.ifname).unwrap_or(if4),
+            Some((v6.ifname, v6.router)),
+        ),
+        Err(_) => (if4, None),
     };
     Ok(PhysIface {
         if4,
         if6,
-        v4_gw: (ifname4, gw4),
+        v4_gw: (v4.ifname, v4.router),
         v6_gw,
     })
 }
@@ -383,102 +367,60 @@ pub(super) fn reconcile(
     Ok(())
 }
 
+/// Install the four `/1` split routes onto the tun. IPv4 failures are fatal
+/// (the tunnel is useless without capture); IPv6 is best-effort but loud, since
+/// silently missing v6 splits means v6 traffic bypasses the tunnel.
 fn upsert_split_routes(ifname: &str) -> anyhow::Result<()> {
-    // route(8) cannot be trusted here, in two independent ways (verified on
-    // Darwin 25): `change` resolves the destination through the table — so
-    // `change 0.0.0.0/1` rewrites the global default — and every subcommand
-    // exits 0 even when it fails ("not in table" on stderr), so a
-    // change-then-add dance takes the change's fake success and never adds,
-    // silently installing nothing (this is exactly how the v6 splits never
-    // made it in and v6 tunneling broke). Instead: exact-mask delete (a no-op
-    // when absent, and exact-match deletes never touch the default), exact-mask
-    // add, then verify against the routing table — the only truthful signal.
-    for (net, mask) in V4_SPLIT {
-        let _ = run("route", &["-n", "delete", "-net", net, "-netmask", mask]);
-        let _ = run(
-            "route",
-            &["-n", "add", "-net", net, "-netmask", mask, "-interface", ifname],
-        );
+    let idx = iface_index(ifname)? as u16;
+    let mut rs = RouteSocket::new().context("opening routing socket")?;
+    for net in V4_SPLIT {
+        rs.add(&RouteSpec {
+            dest: IpAddr::V4(net),
+            prefixlen: Some(SPLIT_PREFIXLEN),
+            gateway: Gateway::Interface(idx),
+            ifscope: None,
+        })
+        .with_context(|| format!("installing split route {net}/1 via {ifname}"))?;
     }
     for net in V6_SPLIT {
-        let _ = run(
-            "route",
-            &[
-                "-n",
-                "delete",
-                "-inet6",
-                "-net",
-                net,
-                "-prefixlen",
-                V6_SPLIT_PREFIXLEN,
-            ],
-        );
-        let _ = run(
-            "route",
-            &[
-                "-n",
-                "add",
-                "-inet6",
-                "-net",
-                net,
-                "-prefixlen",
-                V6_SPLIT_PREFIXLEN,
-                "-interface",
-                ifname,
-            ],
-        );
-    }
-    let table = cmd_output("netstat", &["-rn"])?;
-    for (net, _) in V4_SPLIT {
-        if !split_route_present(&table, net, ifname) {
-            bail!("IPv4 split route {net}/1 via {ifname} did not install");
-        }
-    }
-    for net in V6_SPLIT {
-        // v6 stays best-effort (the host stack may have v6 disabled outright),
-        // but the failure must be loud: silently missing v6 splits means v6
-        // traffic bypasses the tunnel entirely.
-        if !split_route_present(&table, net, ifname) {
+        if let Err(error) = rs.add(&RouteSpec {
+            dest: IpAddr::V6(net),
+            prefixlen: Some(SPLIT_PREFIXLEN),
+            gateway: Gateway::Interface(idx),
+            ifscope: None,
+        }) {
             tracing::warn!(
-                net,
+                %net,
                 ifname,
-                "IPv6 split route did not install; IPv6 will not be tunneled"
+                %error,
+                "IPv6 split route failed; IPv6 will not be tunneled"
             );
         }
     }
     Ok(())
 }
 
-/// Whether the routing table (`netstat -rn` output) contains a `/1` split route
-/// for `net` via `netif`. netstat truncates trailing zero octets in the
-/// Destination column (`0.0.0.0/1` renders as `0/1`, `128.0.0.0/1` as `128/1`,
-/// `8000::/1` stays `8000::/1`), so destinations are compared after
-/// normalization.
-fn split_route_present(table: &str, net: &str, netif: &str) -> bool {
-    let want = normalize_split_dest(net);
-    table.lines().any(|l| {
-        let mut parts = l.split_whitespace();
-        let Some(dest) = parts.next() else {
-            return false;
-        };
-        dest.strip_suffix("/1")
-            .is_some_and(|d| normalize_split_dest(d) == want)
-            && parts.any(|f| f == netif)
-    })
-}
-
-/// Normalize a v4/v6 network for comparison with netstat's truncated rendering:
-/// drop trailing `.0` octets of a dotted quad (`128.0.0.0` → `128`); leave v6
-/// forms untouched.
-fn normalize_split_dest(net: &str) -> String {
-    if net.contains(':') {
-        return net.to_string();
+/// Remove the split routes (idempotent; absent routes are not an error).
+fn delete_split_routes() {
+    let Ok(mut rs) = RouteSocket::new() else {
+        return;
+    };
+    for net in V4_SPLIT {
+        let _ = rs.delete(&RouteSpec {
+            dest: IpAddr::V4(net),
+            prefixlen: Some(SPLIT_PREFIXLEN),
+            gateway: Gateway::Interface(0),
+            ifscope: None,
+        });
     }
-    let mut octets: Vec<&str> = net.split('.').collect();
-    while octets.len() > 1 && octets.last() == Some(&"0") {
-        octets.pop();
+    for net in V6_SPLIT {
+        let _ = rs.delete(&RouteSpec {
+            dest: IpAddr::V6(net),
+            prefixlen: Some(SPLIT_PREFIXLEN),
+            gateway: Gateway::Interface(0),
+            ifscope: None,
+        });
     }
-    octets.join(".")
 }
 
 /// Open a `utun` control socket, let the kernel pick the next free unit, and return
@@ -555,90 +497,10 @@ fn create_utun() -> anyhow::Result<(OwnedFd, String)> {
     Ok((owned, ifname))
 }
 
-/// Run `route get <args>` and parse the physical default it reports.
-fn default_route(route_args: &[&str]) -> anyhow::Result<(String, String)> {
-    parse_default_route(&cmd_output("route", route_args)?)
-}
-
-/// Parse the `interface:`/`gateway:` lines from `route get` output, validating
-/// that they describe a usable physical default (real interface + IP gateway).
-///
-/// Split from the command call so it can be unit-tested against captured output.
-/// Critically, `route -n get default` with no default route present writes
-/// "not in table" to *stderr* and exits **0** (verified on Darwin 25) — so this
-/// sees empty stdout and must return a clean error, which is what lets callers
-/// treat "no default route right now" as a transient (retry / keep last-known)
-/// rather than crashing the connect.
-fn parse_default_route(out: &str) -> anyhow::Result<(String, String)> {
-    let mut ifname = None;
-    let mut gateway = None;
-    for line in out.lines() {
-        let l = line.trim();
-        if let Some(v) = l.strip_prefix("interface:") {
-            ifname = Some(v.trim().to_string());
-        } else if let Some(v) = l.strip_prefix("gateway:") {
-            gateway = Some(v.trim().to_string());
-        }
-    }
-    let ifname = ifname.context("`route get default` had no interface line")?;
-    let gateway = gateway.context("`route get default` had no gateway line")?;
-    // A gatewayless point-to-point route renders its gateway as a link reference
-    // (e.g. `index: 25 utun4`), not an IP. That is meaningless as the gateway
-    // argument to `route add`, so reject it here rather than shell out a command
-    // the kernel refuses with "bad address" — the value that started this whole
-    // fire drill.
-    if !gateway_is_ip(&gateway) {
-        bail!("default route via {ifname} has a non-IP gateway {gateway:?}");
-    }
-    Ok((ifname, gateway))
-}
-
-/// Find the physical IPv4 default in `netstat -rn` output: the first `default`
-/// row in the `Internet:` section whose gateway is a real IP and whose interface
-/// is not a tunnel. Row format (Darwin): `Destination Gateway Flags Netif
-/// [Expire]`. Returns `(ifname, gateway)`.
-fn parse_physical_default_v4(table: &str) -> anyhow::Result<(String, String)> {
-    let mut in_v4 = false;
-    for line in table.lines() {
-        let l = line.trim();
-        if l == "Internet:" {
-            in_v4 = true;
-            continue;
-        }
-        if l == "Internet6:" {
-            break;
-        }
-        if !in_v4 {
-            continue;
-        }
-        let mut parts = l.split_whitespace();
-        if parts.next() != Some("default") {
-            continue;
-        }
-        let (Some(gw), Some(_flags), Some(netif)) = (parts.next(), parts.next(), parts.next())
-        else {
-            continue;
-        };
-        if !is_tunnel_iface(netif) && gateway_is_ip(gw) {
-            return Ok((netif.to_string(), gw.to_string()));
-        }
-    }
-    bail!("routing table has no physical IPv4 default entry")
-}
-
 /// Interfaces that must never be treated as the physical egress: our own tunnel
-/// and other VPNs' tunnels. A `route add default … -ifscope <tunnel>` with the
-/// tunnel's link gateway is invalid and only ever appears when discovery races a
-/// tunnel that has (transiently) grabbed the default route.
-fn is_tunnel_iface(name: &str) -> bool {
+/// and other VPNs' tunnels.
+pub(self) fn is_tunnel_iface(name: &str) -> bool {
     name.starts_with("utun") || name.starts_with("ipsec")
-}
-
-/// A usable route gateway is a real IP address. IPv6 gateways may carry a
-/// `%zone` scope suffix (e.g. `fe80::1%en0`), which is stripped before parsing.
-fn gateway_is_ip(gw: &str) -> bool {
-    let addr = gw.split('%').next().unwrap_or(gw);
-    addr.parse::<std::net::IpAddr>().is_ok()
 }
 
 /// Kernel index for an interface name.
@@ -651,50 +513,79 @@ fn iface_index(name: &str) -> anyhow::Result<u32> {
     Ok(idx)
 }
 
+/// Interface name for a kernel index; `None` if the interface no longer exists.
+fn iface_name(index: u16) -> Option<String> {
+    let mut buf = [0u8; libc::IFNAMSIZ];
+    let ret =
+        unsafe { libc::if_indextoname(u32::from(index), buf.as_mut_ptr() as *mut libc::c_char) };
+    if ret.is_null() {
+        return None;
+    }
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    Some(String::from_utf8_lossy(&buf[..end]).into_owned())
+}
+
+/// A link-local v6 gateway is only meaningful with its interface scope; Darwin
+/// expects the scope embedded KAME-style in octets 2–3 of the address.
+fn kame_scoped(gw: Ipv6Addr, ifindex: u16) -> Ipv6Addr {
+    if (gw.segments()[0] & 0xffc0) == 0xfe80 {
+        let mut o = gw.octets();
+        o[2..4].copy_from_slice(&ifindex.to_be_bytes());
+        Ipv6Addr::from(o)
+    } else {
+        gw
+    }
+}
+
 /// Install the interface-scoped default route(s) the engine's IP_BOUND_IF sockets
 /// use to bypass the `/1` capture. IPv4 is load-bearing (errors propagate); v6 is
-/// best-effort. Idempotent (clears any stale copy first).
+/// best-effort. Idempotent (`add` replaces an existing entry).
 fn add_scoped_default(phys: &PhysIface) -> anyhow::Result<()> {
+    let mut rs = RouteSocket::new().context("opening routing socket")?;
     let (ifn, gw) = &phys.v4_gw;
-    let _ = run(
-        "route",
-        &["-n", "delete", "-net", "default", gw, "-ifscope", ifn],
-    );
-    run(
-        "route",
-        &["-n", "add", "-net", "default", gw, "-ifscope", ifn],
-    )?;
-    if let Some((ifn, gw)) = &phys.v6_gw {
-        let _ = run(
-            "route",
-            &[
-                "-n", "delete", "-inet6", "-net", "default", gw, "-ifscope", ifn,
-            ],
-        );
-        let _ = run(
-            "route",
-            &[
-                "-n", "add", "-inet6", "-net", "default", gw, "-ifscope", ifn,
-            ],
-        );
+    let idx = iface_index(ifn)? as u16;
+    rs.add(&RouteSpec {
+        dest: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        prefixlen: Some(0),
+        gateway: Gateway::Ip(IpAddr::V4(*gw)),
+        ifscope: Some(idx),
+    })
+    .with_context(|| format!("scoped default via {gw} on {ifn}"))?;
+    if let Some((ifn6, gw6)) = &phys.v6_gw
+        && let Ok(idx6) = iface_index(ifn6)
+    {
+        let _ = rs.add(&RouteSpec {
+            dest: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            prefixlen: Some(0),
+            gateway: Gateway::Ip(IpAddr::V6(kame_scoped(*gw6, idx6 as u16))),
+            ifscope: Some(idx6 as u16),
+        });
     }
     Ok(())
 }
 
 /// Remove the interface-scoped default route(s). Best-effort / idempotent.
 fn del_scoped_default(phys: &PhysIface) {
-    let (ifn, gw) = &phys.v4_gw;
-    let _ = run(
-        "route",
-        &["-n", "delete", "-net", "default", gw, "-ifscope", ifn],
-    );
-    if let Some((ifn, gw)) = &phys.v6_gw {
-        let _ = run(
-            "route",
-            &[
-                "-n", "delete", "-inet6", "-net", "default", gw, "-ifscope", ifn,
-            ],
-        );
+    let Ok(mut rs) = RouteSocket::new() else {
+        return;
+    };
+    if let Ok(idx) = iface_index(&phys.v4_gw.0) {
+        let _ = rs.delete(&RouteSpec {
+            dest: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            prefixlen: Some(0),
+            gateway: Gateway::Ip(IpAddr::V4(phys.v4_gw.1)),
+            ifscope: Some(idx as u16),
+        });
+    }
+    if let Some((ifn6, gw6)) = &phys.v6_gw
+        && let Ok(idx6) = iface_index(ifn6)
+    {
+        let _ = rs.delete(&RouteSpec {
+            dest: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            prefixlen: Some(0),
+            gateway: Gateway::Ip(IpAddr::V6(kame_scoped(*gw6, idx6 as u16))),
+            ifscope: Some(idx6 as u16),
+        });
     }
 }
 
@@ -800,21 +691,23 @@ pub(super) fn network_check(snapshot: &NetworkSnapshot) -> super::NetworkAction 
 /// sleep the scoped route can linger in the table but stop resolving.)
 fn scoped_default_ok(phys: &PhysIface) -> bool {
     let (ifn, gw) = &phys.v4_gw;
-    let out = match cmd_output("route", &["-n", "get", "-ifscope", ifn, "1.1.1.1"]) {
-        Ok(o) => o,
-        Err(_) => return false,
+    let Ok(idx) = iface_index(ifn) else {
+        return false;
     };
-    let mut gw_ok = false;
-    let mut if_ok = false;
-    for line in out.lines() {
-        let l = line.trim();
-        if let Some(v) = l.strip_prefix("gateway:") {
-            gw_ok = v.trim() == gw;
-        } else if let Some(v) = l.strip_prefix("interface:") {
-            if_ok = v.trim() == ifn;
+    let Ok(mut rs) = RouteSocket::new() else {
+        return false;
+    };
+    match rs.get(&RouteSpec {
+        dest: IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+        prefixlen: None,
+        gateway: Gateway::Ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+        ifscope: Some(idx as u16),
+    }) {
+        Ok(Some(info)) => {
+            info.gateway == Some(IpAddr::V4(*gw)) && u32::from(info.ifindex) == idx
         }
+        _ => false,
     }
-    gw_ok && if_ok
 }
 
 // PF_ROUTE: the kernel's routing socket. AF_ROUTE == PF_ROUTE == 17 on Darwin.
@@ -860,23 +753,7 @@ pub(super) fn cleanup_stale() {
     // leaves PF enabled with no geph rules.
     let _ = run("pfctl", &["-a", PF_ANCHOR, "-F", "all"]);
     let _ = run("pfctl", &["-f", "/etc/pf.conf"]);
-    for (net, mask) in V4_SPLIT {
-        let _ = run("route", &["-n", "delete", "-net", net, "-netmask", mask]);
-    }
-    for net in V6_SPLIT {
-        let _ = run(
-            "route",
-            &[
-                "-n",
-                "delete",
-                "-inet6",
-                "-net",
-                net,
-                "-prefixlen",
-                V6_SPLIT_PREFIXLEN,
-            ],
-        );
-    }
+    delete_split_routes();
     // Reset any service still pointed at our sentinel resolvers back to DHCP.
     for svc in list_network_services() {
         let cur = cmd_output("networksetup", &["-getdnsservers", &svc]).unwrap_or_default();
@@ -995,153 +872,7 @@ fn cmd_output(cmd: &str, args: &[&str]) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{gateway_is_ip, is_tunnel_iface, parse_default_route, parse_physical_default_v4};
-
-    // Captured verbatim from `netstat -rn` on a live Wi-Fi (en1) host, truncated.
-    const NETSTAT_IDLE: &str = "Routing tables
-
-Internet:
-Destination        Gateway            Flags               Netif Expire
-default            10.100.0.1         UGScg                 en1
-10.100/16          link#17            UCS                   en1      !
-10.100.0.1/32      link#17            UCS                   en1      !
-10.100.0.1         20:5:b6:1:87:b1    UHLWIir               en1   1188
-
-Internet6:
-Destination                             Gateway                                 Flags               Netif Expire
-default                                 fe80::%utun0                            UGcIg               utun0
-";
-
-    // The mid-session shape: our /1 splits and the physical default coexist.
-    // (`route get default` would resolve into 0.0.0.0/1 → utun here, which is
-    // exactly why discovery must read the table instead.)
-    const NETSTAT_VPN_UP: &str = "Routing tables
-
-Internet:
-Destination        Gateway            Flags               Netif Expire
-0/1                utun4              USc                 utun4
-default            10.100.0.1         UGScg                 en1
-10.100/16          link#17            UCS                   en1      !
-128.0/1            utun4              USc                 utun4
-
-Internet6:
-Destination                             Gateway                                 Flags               Netif Expire
-default                                 fe80::%utun0                            UGcIg               utun0
-";
-
-    // A tunnel that has fully grabbed the v4 default, with the physical entry
-    // withdrawn (the configd-behind-kill-switch scenario): no usable physical.
-    const NETSTAT_TUNNEL_ONLY: &str = "Routing tables
-
-Internet:
-Destination        Gateway            Flags               Netif Expire
-default            link#25            UCS                 utun4
-
-Internet6:
-Destination                             Gateway                                 Flags               Netif Expire
-default                                 fe80::%utun4                            UGcIg               utun4
-";
-
-    #[test]
-    fn table_parse_finds_physical_default_when_idle() {
-        let (ifn, gw) = parse_physical_default_v4(NETSTAT_IDLE).unwrap();
-        assert_eq!((ifn.as_str(), gw.as_str()), ("en1", "10.100.0.1"));
-    }
-
-    #[test]
-    fn table_parse_finds_physical_default_mid_session() {
-        let (ifn, gw) = parse_physical_default_v4(NETSTAT_VPN_UP).unwrap();
-        assert_eq!((ifn.as_str(), gw.as_str()), ("en1", "10.100.0.1"));
-    }
-
-    #[test]
-    fn table_parse_rejects_tunnel_only_default() {
-        // Must NOT return utun4 (and must not mistake the v6 section's default
-        // for a v4 one): this is the "no usable physical default" case that
-        // callers answer with the last-known-good interface.
-        assert!(parse_physical_default_v4(NETSTAT_TUNNEL_ONLY).is_err());
-    }
-
-    #[test]
-    fn table_parse_handles_empty_output() {
-        assert!(parse_physical_default_v4("").is_err());
-    }
-
-    // Rendering captured live on Darwin 25: netstat truncates trailing zero
-    // octets ("0.0.0.0/1" → "0/1"; "10.100.0.0/16" → "10.100/16").
-    const NETSTAT_SPLITS: &str = "Routing tables
-
-Internet:
-Destination        Gateway            Flags               Netif Expire
-0/1                utun4              UScg                utun4
-default            10.100.0.1         UGScg                 en1
-10.100/16          link#17            UCS                   en1      !
-128/1              utun4              UScg                utun4
-
-Internet6:
-Destination                             Gateway                                 Flags               Netif Expire
-::/1                                    utun4                                   UScg                utun4
-8000::/1                                utun4                                   UScg                utun4
-default                                 fe80::%utun0                            UGcIg               utun0
-";
-
-    #[test]
-    fn split_route_detection() {
-        use super::split_route_present;
-        for net in ["0.0.0.0", "128.0.0.0", "::", "8000::"] {
-            assert!(split_route_present(NETSTAT_SPLITS, net, "utun4"), "{net}");
-            // Wrong interface must not match.
-            assert!(!split_route_present(NETSTAT_SPLITS, net, "utun9"), "{net}");
-        }
-        // The plain default row must never satisfy a split check.
-        assert!(!split_route_present(NETSTAT_SPLITS, "default", "en1"));
-        // Missing entirely.
-        assert!(!split_route_present("Routing tables\n", "0.0.0.0", "utun4"));
-    }
-
-    #[test]
-    fn split_dest_normalization() {
-        use super::normalize_split_dest;
-        assert_eq!(normalize_split_dest("0.0.0.0"), "0");
-        assert_eq!(normalize_split_dest("128.0.0.0"), "128");
-        assert_eq!(normalize_split_dest("10.100.0.0"), "10.100");
-        assert_eq!(normalize_split_dest("::"), "::");
-        assert_eq!(normalize_split_dest("8000::"), "8000::");
-    }
-
-    // Captured verbatim from `route -n get default` on a live Wi-Fi (en1) host.
-    const REAL_V4: &str = "   route to: default
-destination: default
-       mask: default
-    gateway: 10.100.0.1
-  interface: en1
-      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING,GLOBAL>
- recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
-       0         0         0         0         0         0      1500         0";
-
-    #[test]
-    fn parses_real_physical_default() {
-        let (ifn, gw) = parse_default_route(REAL_V4).unwrap();
-        assert_eq!(ifn, "en1");
-        assert_eq!(gw, "10.100.0.1");
-    }
-
-    #[test]
-    fn empty_output_is_clean_error() {
-        // `route -n get default` prints "not in table" to stderr and exits 0
-        // when there is no default route, so parse sees empty stdout. This MUST
-        // be an error, not a panic — it's the "no interface line" case that a
-        // boot-time / mid-churn absent default route hits.
-        assert!(parse_default_route("").is_err());
-        assert!(parse_default_route("   route to: default\n").is_err());
-    }
-
-    #[test]
-    fn rejects_link_gateway_that_broke_route_add() {
-        // The exact shape that produced `route ... add default index: 25 utun4`.
-        let out = "   route to: default\n    gateway: index: 25 utun4\n  interface: utun4\n";
-        assert!(parse_default_route(out).is_err());
-    }
+    use super::{is_tunnel_iface, kame_scoped};
 
     #[test]
     fn tunnel_ifaces_are_never_physical() {
@@ -1154,12 +885,11 @@ destination: default
     }
 
     #[test]
-    fn gateway_ip_validation() {
-        assert!(gateway_is_ip("10.100.0.1"));
-        assert!(gateway_is_ip("192.168.1.1"));
-        assert!(gateway_is_ip("fe80::1%en0")); // v6 link-local with zone
-        assert!(!gateway_is_ip("index: 25 utun4"));
-        assert!(!gateway_is_ip("link#19"));
-        assert!(!gateway_is_ip(""));
+    fn kame_scoping_embeds_index_for_link_local_only() {
+        let ll: std::net::Ipv6Addr = "fe80::1".parse().unwrap();
+        let scoped = kame_scoped(ll, 17);
+        assert_eq!(scoped.octets()[2..4], 17u16.to_be_bytes());
+        let global: std::net::Ipv6Addr = "2606:4700::1".parse().unwrap();
+        assert_eq!(kame_scoped(global, 17), global);
     }
 }
