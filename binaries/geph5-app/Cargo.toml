@@ -41,6 +41,8 @@ libc = "0.2"
 core-foundation = "0.10.1"
 system-configuration-sys = "0.6.0"
 system-configuration = "0.6.1"
+pfctl = "0.7"
+ipnetwork = "0.21"
 
 [target.'cfg(windows)'.dependencies]
 wintun = "0.5"

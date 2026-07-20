@@ -33,22 +33,19 @@
 
 use std::{
     ffi::CString,
-    io::{self, Write},
+    io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
-    process::{Command, Stdio},
+    process::Command,
 };
 
 use anyhow::{Context, bail};
 
 use route_socket::{Gateway, RouteSocket, RouteSpec};
 
-/// Dedicated unprivileged user the engine runs as, so the PF kill switch can
-/// permit its egress by uid (the macOS analogue of Linux's `geph5-daemon`).
-/// PF anchor name holding our kill-switch rules.
-const PF_ANCHOR: &str = "geph";
-
 mod discovery;
+mod dns;
+mod firewall;
 mod route_socket;
 
 // tun addressing — v4 matches the Linux/Windows implementations.
@@ -126,10 +123,9 @@ pub(super) struct VpnHandle {
     tun: OwnedFd,
     ifname: String,
     phys: PhysIface,
-    /// Per network service: its DNS servers before we overrode them (empty = DHCP).
-    dns_backup: Vec<(String, Vec<String>)>,
-    /// PF enable-reference token from `pfctl -E`, released on teardown.
-    pf_token: Option<String>,
+    dns_backup: dns::DnsBackup,
+    /// PF state captured when the kill switch was applied; `None` until then.
+    pf_state: Option<firewall::PfState>,
 }
 
 impl VpnHandle {
@@ -145,10 +141,10 @@ impl VpnHandle {
 
     fn cleanup(&mut self) {
         // Lift the kill switch first so teardown traffic isn't blocked.
-        if let Some(token) = &self.pf_token {
-            pf_teardown(token);
+        if let Some(state) = self.pf_state.take() {
+            firewall::teardown(state);
         }
-        restore_dns(&self.dns_backup);
+        dns::restore(&self.dns_backup);
         del_scoped_default(&self.phys);
         delete_split_routes();
         // These explicit deletes are what actually tear routing down: callers kill
@@ -240,7 +236,7 @@ pub(super) fn setup(phys: PhysIface, uid: u32, allow_lan: bool) -> anyhow::Resul
             ifname,
             phys,
             dns_backup: Vec::new(),
-            pf_token: None,
+            pf_state: None,
         },
         |mut handle| handle.cleanup(),
     );
@@ -284,8 +280,7 @@ impl VpnHandle {
         // Enable the all-interface kill switch before capture routes are installed.
         // Record the token first so the setup guard can release our reference if
         // loading the rules fails.
-        self.pf_token = Some(pf_enable().context("enabling PF")?);
-        pf_load(&pf_ruleset(&ifname, uid, allow_lan)).context("loading PF kill switch")?;
+        self.pf_state = Some(firewall::apply(&ifname, uid, allow_lan).context("applying PF kill switch")?);
 
         upsert_split_routes(&ifname)?;
 
@@ -300,7 +295,7 @@ impl VpnHandle {
         // it fails: without it the engine can't reach any exit.
         add_scoped_default(&self.phys).context("installing interface-scoped default route")?;
 
-        self.dns_backup = set_sentinel_dns();
+        self.dns_backup = dns::set_sentinel(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
         Ok(())
     }
 }
@@ -328,7 +323,7 @@ pub(super) fn reconcile(
         }
     };
     let ifname = handle.ifname.clone();
-    pf_load(&pf_ruleset(&ifname, uid, allow_lan)).context("reasserting PF kill switch")?;
+    firewall::apply(&ifname, uid, allow_lan).context("reasserting PF kill switch")?;
     run(
         "ifconfig",
         &[
@@ -363,7 +358,7 @@ pub(super) fn reconcile(
         del_scoped_default(&handle.phys);
     }
     handle.phys = physical;
-    reassert_sentinel_dns();
+    dns::reassert_sentinel(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
     Ok(())
 }
 
@@ -589,72 +584,9 @@ fn del_scoped_default(phys: &PhysIface) {
     }
 }
 
-// ---- DNS sentinel (per network service via `networksetup`) ----
 
-/// Enabled network services (e.g. `"Wi-Fi"`, `"Ethernet"`). The first output line
-/// is an informational header; `*`-prefixed services are disabled.
-fn list_network_services() -> Vec<String> {
-    cmd_output("networksetup", &["-listallnetworkservices"])
-        .unwrap_or_default()
-        .lines()
-        .skip(1)
-        .filter(|l| !l.starts_with('*'))
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect()
-}
 
-/// Point every service's DNS at the sentinel resolvers, returning the prior config
-/// per service (empty vec = was DHCP/unset) so [`restore_dns`] can revert it.
-fn set_sentinel_dns() -> Vec<(String, Vec<String>)> {
-    let mut backup = Vec::new();
-    for svc in list_network_services() {
-        let prior = cmd_output("networksetup", &["-getdnsservers", &svc]).unwrap_or_default();
-        // "There aren't any DNS Servers set on <svc>." (English-only, but the only
-        // signal networksetup gives) => DHCP / unset.
-        let servers: Vec<String> = if prior.contains("aren't any") {
-            Vec::new()
-        } else {
-            prior
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                // Never record our own sentinels as the user's setting: if a prior
-                // manager crash left them in place, capturing them here would make
-                // `restore_dns` write them back forever (DNS stuck on the sentinel).
-                .filter(|l| l != SENTINEL_DNS_V4 && l != SENTINEL_DNS_V6)
-                .collect()
-        };
-        let _ = run(
-            "networksetup",
-            &["-setdnsservers", &svc, SENTINEL_DNS_V4, SENTINEL_DNS_V6],
-        );
-        backup.push((svc, servers));
-    }
-    backup
-}
 
-fn reassert_sentinel_dns() {
-    for svc in list_network_services() {
-        let _ = run(
-            "networksetup",
-            &["-setdnsservers", &svc, SENTINEL_DNS_V4, SENTINEL_DNS_V6],
-        );
-    }
-}
-
-/// Restore each service's DNS to its saved value (`Empty` == back to DHCP).
-fn restore_dns(backup: &[(String, Vec<String>)]) {
-    for (svc, servers) in backup {
-        if servers.is_empty() {
-            let _ = run("networksetup", &["-setdnsservers", svc, "Empty"]);
-        } else {
-            let mut args = vec!["-setdnsservers", svc.as_str()];
-            args.extend(servers.iter().map(|s| s.as_str()));
-            let _ = run("networksetup", &args);
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(super) struct NetworkSnapshot {
@@ -747,106 +679,21 @@ pub(super) fn route_change_loop(mut on_change: impl FnMut()) {
 /// Purge stale VPN state left by a crashed/`-9`-killed prior instance, so a fresh
 /// manager doesn't start on a half-configured machine. Best-effort / idempotent.
 pub(super) fn cleanup_stale() {
-    // Stop any leftover kill-switch blocking: flush our anchor and restore the
-    // default ruleset. We don't force `pfctl -d` (that's the emergency recover
-    // script's job) so we don't disturb other PF users; an orphaned `-E` ref just
-    // leaves PF enabled with no geph rules.
-    let _ = run("pfctl", &["-a", PF_ANCHOR, "-F", "all"]);
+    firewall::teardown_stale();
+    // Pre-0.4 versions replaced the PF main ruleset outright; put the system's
+    // back in case one of those crashed here. Harmless otherwise.
     let _ = run("pfctl", &["-f", "/etc/pf.conf"]);
     delete_split_routes();
-    // Reset any service still pointed at our sentinel resolvers back to DHCP.
-    for svc in list_network_services() {
-        let cur = cmd_output("networksetup", &["-getdnsservers", &svc]).unwrap_or_default();
+    dns::cleanup_stale(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
+    // Pre-0.4 versions wrote sentinel DNS into persistent preferences via
+    // networksetup; sweep those back to DHCP too.
+    let services = cmd_output("networksetup", &["-listallnetworkservices"]).unwrap_or_default();
+    for svc in services.lines().skip(1).filter(|l| !l.starts_with('*')) {
+        let cur = cmd_output("networksetup", &["-getdnsservers", svc]).unwrap_or_default();
         if cur.contains(SENTINEL_DNS_V4) || cur.contains(SENTINEL_DNS_V6) {
-            let _ = run("networksetup", &["-setdnsservers", &svc, "Empty"]);
+            let _ = run("networksetup", &["-setdnsservers", svc, "Empty"]);
         }
     }
-}
-
-// ---- PF kill switch ----
-
-/// Compose the PF main ruleset: the system's `com.apple` anchor points (so we
-/// don't disable system PF features) plus our inline fail-closed `geph` anchor.
-/// The anchor blocks all egress on the physical interface except the engine's own
-/// (matched by `uid`), the tunnel, loopback, and DHCP — plus private/link-local
-/// ranges when `allow_lan` — and blocks stray DNS to plug leaks.
-fn pf_ruleset(utun: &str, uid: u32, allow_lan: bool) -> String {
-    let lan = if allow_lan {
-        format!(
-            "  pass out quick from any to {{ 10.0.0.0/8 172.16.0.0/12 \
-             192.168.0.0/16 169.254.0.0/16 224.0.0.0/4 fc00::/7 fe80::/10 ff00::/8 }} keep state\n"
-        )
-    } else {
-        String::new()
-    };
-    format!(
-        r#"scrub-anchor "com.apple/*"
-nat-anchor "com.apple/*"
-rdr-anchor "com.apple/*"
-dummynet-anchor "com.apple/*"
-anchor "com.apple/*"
-load anchor "com.apple" from "/etc/pf.anchors/com.apple"
-anchor "{PF_ANCHOR}" {{
-  pass quick on lo0 all
-  pass quick on {utun} all
-  pass out quick proto {{ tcp udp icmp }} from any to any user {uid} keep state
-  pass out quick proto udp from any port 68 to any port 67
-  pass out quick proto udp from any port 546 to any port 547
-  block drop quick proto {{ tcp udp }} from any to any port 53
-{lan}  block drop out all
-}}
-"#
-    )
-}
-
-/// Enable PF (reference-counted) and return the token from `pfctl -E`.
-fn pf_enable() -> anyhow::Result<String> {
-    let out = Command::new("pfctl")
-        .arg("-E")
-        .output()
-        .context("spawning pfctl -E")?;
-    // `pfctl -E` prints "Token : <n>" (on stderr).
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    text.lines()
-        .find_map(|l| l.trim().strip_prefix("Token :"))
-        .map(|s| s.trim().to_string())
-        .context("pfctl -E returned no token")
-}
-
-/// Load `ruleset` as the PF main ruleset (piped on stdin).
-fn pf_load(ruleset: &str) -> anyhow::Result<()> {
-    let mut child = Command::new("pfctl")
-        .args(["-f", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawning pfctl -f")?;
-    child
-        .stdin
-        .take()
-        .context("pfctl stdin")?
-        .write_all(ruleset.as_bytes())?;
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        bail!(
-            "pfctl -f failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(())
-}
-
-/// Flush our anchor, restore the system's default ruleset, and release our PF
-/// enable reference.
-fn pf_teardown(token: &str) {
-    let _ = run("pfctl", &["-a", PF_ANCHOR, "-F", "all"]);
-    let _ = run("pfctl", &["-f", "/etc/pf.conf"]);
-    let _ = run("pfctl", &["-X", token]);
 }
 
 // ---- command helpers ----

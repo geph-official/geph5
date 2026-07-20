@@ -55,6 +55,15 @@ echo "list State:/Network/Service/.*/IPv6" | scutil 2>/dev/null \
     printf 'remove %s\n' "$key" | scutil 2>/dev/null
   fi
 done
+# Remove sentinel DNS State overrides (v6 sentinel is geph's marker); configd
+# re-derives each service's DNS from DHCP/preferences once the key is gone.
+echo "list State:/Network/Service/.*/DNS" | scutil 2>/dev/null \
+  | grep -oE 'State:/Network/Service/[^/]+/DNS' | while IFS= read -r key; do
+  if echo "show $key" | scutil 2>/dev/null | grep -q '2606:4700:4700::1111'; then
+    echo "[recover] removing $key"
+    printf 'remove %s\n' "$key" | scutil 2>/dev/null
+  fi
+done
 # Undo any experimental manual-v6 on real services (2001:db8 is geph's marker).
 networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | grep -v '^\*' | while IFS= read -r svc; do
   if networksetup -getinfo "$svc" 2>/dev/null | grep -q '2001:db8'; then
