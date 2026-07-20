@@ -10,8 +10,13 @@
 set -u
 
 echo "[recover] killing geph processes..."
+# Stop the installed launchd manager first: it has KeepAlive, so plain kills get
+# resurrected mid-recovery — and with connected=true persisted it immediately
+# re-raises the kill switch this script is trying to clear.
+launchctl bootout system /Library/LaunchDaemons/io.geph.manager.plist 2>/dev/null
 pkill -9 -f geph5-client 2>/dev/null
 pkill -9 -f 'geph5 manager' 2>/dev/null
+pkill -9 -f 'geph manager' 2>/dev/null   # installed app's binary is named `geph`
 pkill -9 -f 'target/debug/geph5' 2>/dev/null
 pkill -9 -f 'target/release/geph5' 2>/dev/null
 sleep 1
@@ -33,6 +38,22 @@ networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | grep -v '^\*' | 
 done
 dscacheutil -flushcache 2>/dev/null
 killall -HUP mDNSResponder 2>/dev/null
+
+echo "[recover] restoring IPv4 default route if missing..."
+# While the kill switch was up, configd's router probes were blackholed and macOS
+# may have withdrawn the physical default route entirely; without this the machine
+# stays offline until a DHCP renewal or reboot. Re-derive the router per active
+# interface from DHCP and re-add the default.
+if ! netstat -rn | awk '/^Internet:$/{v4=1} /^Internet6:$/{v4=0} v4 && $1=="default" && $4 !~ /^(utun|ipsec)/ {found=1} END{exit !found}'; then
+  for ifn in $(ifconfig -l); do
+    case "$ifn" in en*) ;; *) continue ;; esac
+    router=$(ipconfig getoption "$ifn" router 2>/dev/null)
+    if [ -n "${router:-}" ]; then
+      echo "[recover] re-adding default via $router ($ifn)"
+      route -n add -net default "$router" 2>/dev/null && break
+    fi
+  done
+fi
 
 echo "[recover] done. Checking internet..."
 if curl -s --max-time 8 https://ifconfig.me >/dev/null; then

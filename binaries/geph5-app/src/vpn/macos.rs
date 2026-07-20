@@ -157,6 +157,41 @@ impl VpnHandle {
         // the engine child first (see reconcile_tunnel), but during a live session
         // that child holds a dup of the utun fd, so closing our OwnedFd alone would
         // NOT remove the interface — the routes must be deleted by hand.
+
+        // Teardown must leave the machine online. Mid-session the tunnel owns the
+        // *global* default and the physical default survives only as our own
+        // interface-scoped copy — which del_scoped_default above just removed. If
+        // configd doesn't re-assert the physical default (its router probes were
+        // blackholed behind the kill switch), the machine is stranded offline
+        // until a DHCP renewal or reboot. Like the DNS restore, put back the
+        // pre-VPN default from the captured physical gateway.
+        //
+        // Retried briefly because utun destruction is asynchronous: right after
+        // the engine child dies, the tunnel's global default can still sit in the
+        // table, making a plain `route add` collide with it ("File exists") and
+        // then vanish. Each round clears whatever global default remains — we
+        // only get here when no *physical* default exists, so anything present is
+        // the dying tunnel's — and installs the real one.
+        let (ifn, gw) = &self.phys.v4_gw;
+        for _ in 0..5 {
+            let present = cmd_output("netstat", &["-rn"])
+                .is_ok_and(|t| parse_physical_default_v4(&t).is_ok());
+            if present {
+                return;
+            }
+            tracing::warn!(
+                gateway = %gw,
+                interface = %ifn,
+                "physical default route missing after VPN teardown; restoring it"
+            );
+            let _ = run("route", &["-n", "delete", "-net", "default"]);
+            if let Err(error) = run("route", &["-n", "add", "-net", "default", gw]) {
+                tracing::warn!(%error, "restoring physical default route failed");
+            }
+            // Brief blocking pause is acceptable here: teardown correctness (the
+            // machine coming back online) outweighs a moment of reactor delay.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
     }
 }
 
@@ -169,17 +204,18 @@ pub(super) fn cleanup(mut handle: VpnHandle) {
 /// called *before* [`setup`] installs the `/1` routes, while the default route
 /// still reflects the real NIC.
 pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
-    let (ifname4, gw4) = default_route(&["-n", "get", "default"])
+    // Read the routing TABLE (`netstat -rn`), not a route LOOKUP (`route get
+    // default`). Once our `/1` split routes are installed, a lookup of 0.0.0.0
+    // resolves into `0.0.0.0/1` and deterministically returns our own utun with a
+    // non-IP link gateway — so lookup-based discovery can never work mid-session.
+    // The table still lists the physical `default` entry alongside the splits.
+    // Tunnel interfaces and non-IP gateways are skipped by the parser: the
+    // physical NIC is never a tunnel, and adopting one would build an
+    // interface-scoped default that the kernel rejects ("bad address"), wedging
+    // every reconcile.
+    let table = cmd_output("netstat", &["-rn"])?;
+    let (ifname4, gw4) = parse_physical_default_v4(&table)
         .context("no IPv4 default route — not connected to a network?")?;
-    // The physical NIC is never a tunnel. During tunnel bring-up (or with a stale
-    // leftover utun holding a default route) the live default can point at a utun;
-    // adopting it as our egress would build an interface-scoped default with a
-    // non-IP link gateway that macOS rejects, wedging the reconcile loop. Treat
-    // that as "no usable physical default" so callers fall back to the last-known
-    // NIC instead.
-    if is_tunnel_iface(&ifname4) {
-        bail!("IPv4 default route points at tunnel interface {ifname4}, not a physical NIC");
-    }
     let if4 = iface_index(&ifname4)?;
     // v6 is best-effort: many hosts have no v6 default, in which case the engine
     // runs v4-only. A dual-stack NIC shares one index, so reuse if4 as a fallback.
@@ -438,9 +474,21 @@ fn create_utun() -> anyhow::Result<(OwnedFd, String)> {
     Ok((owned, ifname))
 }
 
-/// Parse the `interface:` and `gateway:` lines from `route get <args>`.
+/// Run `route get <args>` and parse the physical default it reports.
 fn default_route(route_args: &[&str]) -> anyhow::Result<(String, String)> {
-    let out = cmd_output("route", route_args)?;
+    parse_default_route(&cmd_output("route", route_args)?)
+}
+
+/// Parse the `interface:`/`gateway:` lines from `route get` output, validating
+/// that they describe a usable physical default (real interface + IP gateway).
+///
+/// Split from the command call so it can be unit-tested against captured output.
+/// Critically, `route -n get default` with no default route present writes
+/// "not in table" to *stderr* and exits **0** (verified on Darwin 25) — so this
+/// sees empty stdout and must return a clean error, which is what lets callers
+/// treat "no default route right now" as a transient (retry / keep last-known)
+/// rather than crashing the connect.
+fn parse_default_route(out: &str) -> anyhow::Result<(String, String)> {
     let mut ifname = None;
     let mut gateway = None;
     for line in out.lines() {
@@ -462,6 +510,39 @@ fn default_route(route_args: &[&str]) -> anyhow::Result<(String, String)> {
         bail!("default route via {ifname} has a non-IP gateway {gateway:?}");
     }
     Ok((ifname, gateway))
+}
+
+/// Find the physical IPv4 default in `netstat -rn` output: the first `default`
+/// row in the `Internet:` section whose gateway is a real IP and whose interface
+/// is not a tunnel. Row format (Darwin): `Destination Gateway Flags Netif
+/// [Expire]`. Returns `(ifname, gateway)`.
+fn parse_physical_default_v4(table: &str) -> anyhow::Result<(String, String)> {
+    let mut in_v4 = false;
+    for line in table.lines() {
+        let l = line.trim();
+        if l == "Internet:" {
+            in_v4 = true;
+            continue;
+        }
+        if l == "Internet6:" {
+            break;
+        }
+        if !in_v4 {
+            continue;
+        }
+        let mut parts = l.split_whitespace();
+        if parts.next() != Some("default") {
+            continue;
+        }
+        let (Some(gw), Some(_flags), Some(netif)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        if !is_tunnel_iface(netif) && gateway_is_ip(gw) {
+            return Ok((netif.to_string(), gw.to_string()));
+        }
+    }
+    bail!("routing table has no physical IPv4 default entry")
 }
 
 /// Interfaces that must never be treated as the physical egress: our own tunnel
@@ -818,4 +899,133 @@ fn cmd_output(cmd: &str, args: &[&str]) -> anyhow::Result<String> {
         );
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{gateway_is_ip, is_tunnel_iface, parse_default_route, parse_physical_default_v4};
+
+    // Captured verbatim from `netstat -rn` on a live Wi-Fi (en1) host, truncated.
+    const NETSTAT_IDLE: &str = "Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+default            10.100.0.1         UGScg                 en1
+10.100/16          link#17            UCS                   en1      !
+10.100.0.1/32      link#17            UCS                   en1      !
+10.100.0.1         20:5:b6:1:87:b1    UHLWIir               en1   1188
+
+Internet6:
+Destination                             Gateway                                 Flags               Netif Expire
+default                                 fe80::%utun0                            UGcIg               utun0
+";
+
+    // The mid-session shape: our /1 splits and the physical default coexist.
+    // (`route get default` would resolve into 0.0.0.0/1 → utun here, which is
+    // exactly why discovery must read the table instead.)
+    const NETSTAT_VPN_UP: &str = "Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+0/1                utun4              USc                 utun4
+default            10.100.0.1         UGScg                 en1
+10.100/16          link#17            UCS                   en1      !
+128.0/1            utun4              USc                 utun4
+
+Internet6:
+Destination                             Gateway                                 Flags               Netif Expire
+default                                 fe80::%utun0                            UGcIg               utun0
+";
+
+    // A tunnel that has fully grabbed the v4 default, with the physical entry
+    // withdrawn (the configd-behind-kill-switch scenario): no usable physical.
+    const NETSTAT_TUNNEL_ONLY: &str = "Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+default            link#25            UCS                 utun4
+
+Internet6:
+Destination                             Gateway                                 Flags               Netif Expire
+default                                 fe80::%utun4                            UGcIg               utun4
+";
+
+    #[test]
+    fn table_parse_finds_physical_default_when_idle() {
+        let (ifn, gw) = parse_physical_default_v4(NETSTAT_IDLE).unwrap();
+        assert_eq!((ifn.as_str(), gw.as_str()), ("en1", "10.100.0.1"));
+    }
+
+    #[test]
+    fn table_parse_finds_physical_default_mid_session() {
+        let (ifn, gw) = parse_physical_default_v4(NETSTAT_VPN_UP).unwrap();
+        assert_eq!((ifn.as_str(), gw.as_str()), ("en1", "10.100.0.1"));
+    }
+
+    #[test]
+    fn table_parse_rejects_tunnel_only_default() {
+        // Must NOT return utun4 (and must not mistake the v6 section's default
+        // for a v4 one): this is the "no usable physical default" case that
+        // callers answer with the last-known-good interface.
+        assert!(parse_physical_default_v4(NETSTAT_TUNNEL_ONLY).is_err());
+    }
+
+    #[test]
+    fn table_parse_handles_empty_output() {
+        assert!(parse_physical_default_v4("").is_err());
+    }
+
+    // Captured verbatim from `route -n get default` on a live Wi-Fi (en1) host.
+    const REAL_V4: &str = "   route to: default
+destination: default
+       mask: default
+    gateway: 10.100.0.1
+  interface: en1
+      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING,GLOBAL>
+ recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
+       0         0         0         0         0         0      1500         0";
+
+    #[test]
+    fn parses_real_physical_default() {
+        let (ifn, gw) = parse_default_route(REAL_V4).unwrap();
+        assert_eq!(ifn, "en1");
+        assert_eq!(gw, "10.100.0.1");
+    }
+
+    #[test]
+    fn empty_output_is_clean_error() {
+        // `route -n get default` prints "not in table" to stderr and exits 0
+        // when there is no default route, so parse sees empty stdout. This MUST
+        // be an error, not a panic — it's the "no interface line" case that a
+        // boot-time / mid-churn absent default route hits.
+        assert!(parse_default_route("").is_err());
+        assert!(parse_default_route("   route to: default\n").is_err());
+    }
+
+    #[test]
+    fn rejects_link_gateway_that_broke_route_add() {
+        // The exact shape that produced `route ... add default index: 25 utun4`.
+        let out = "   route to: default\n    gateway: index: 25 utun4\n  interface: utun4\n";
+        assert!(parse_default_route(out).is_err());
+    }
+
+    #[test]
+    fn tunnel_ifaces_are_never_physical() {
+        assert!(is_tunnel_iface("utun0"));
+        assert!(is_tunnel_iface("utun4"));
+        assert!(is_tunnel_iface("ipsec0"));
+        assert!(!is_tunnel_iface("en0"));
+        assert!(!is_tunnel_iface("en1"));
+        assert!(!is_tunnel_iface("bridge0"));
+    }
+
+    #[test]
+    fn gateway_ip_validation() {
+        assert!(gateway_is_ip("10.100.0.1"));
+        assert!(gateway_is_ip("192.168.1.1"));
+        assert!(gateway_is_ip("fe80::1%en0")); // v6 link-local with zone
+        assert!(!gateway_is_ip("index: 25 utun4"));
+        assert!(!gateway_is_ip("link#19"));
+        assert!(!gateway_is_ip(""));
+    }
 }
