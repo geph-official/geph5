@@ -12,7 +12,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use ed25519_dalek::VerifyingKey;
 use geph5_broker_protocol::{
-    BrokerClient, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, JsonSigned, Mac, StatEvent,
+    AccountLevel, BrokerClient, DOMAIN_EXIT_DESCRIPTOR, ExitDescriptor, JsonSigned, Mac, StatEvent,
 };
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use reqwest::Method;
@@ -278,7 +278,17 @@ pub async fn broker_loop() -> anyhow::Result<()> {
                             SCHEDULER_LAG_SECS.load(Ordering::Relaxed),
                         ),
                     ];
-                    stats.extend(crate::google_selfcheck::google_selfcheck_stat_events(&server_name));
+                    // "free" = free-eligible (allowed_levels), not the broker's live
+                    // free rotation, so exits don't hop between dashboard groups.
+                    let level = if exit_metadata().allowed_levels.contains(&AccountLevel::Free) {
+                        "free"
+                    } else {
+                        "plus"
+                    };
+                    stats.extend(crate::google_selfcheck::google_selfcheck_stat_events(
+                        &server_name,
+                        level,
+                    ));
                     client
                         .report_stats(Mac::new(
                             stats,

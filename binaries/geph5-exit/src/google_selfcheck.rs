@@ -73,9 +73,9 @@ static STATE: Mutex<SelfCheckState> = Mutex::new(SelfCheckState {
 });
 
 /// Gauges for the broker loop to append to its regular stats report.
-pub fn google_selfcheck_stat_events(server_name: &str) -> Vec<StatEvent> {
+pub fn google_selfcheck_stat_events(server_name: &str, level: &str) -> Vec<StatEvent> {
     let state = STATE.lock().unwrap().clone();
-    let exit_tag: &[(&str, &str)] = &[("exit", server_name)];
+    let exit_tag: &[(&str, &str)] = &[("exit", server_name), ("level", level)];
     let mut events = vec![];
     let as_gauge = |name: &str, val: Option<bool>| {
         val.map(|v| StatEvent::gauge(name, exit_tag, if v { 1.0 } else { 0.0 }))
@@ -89,7 +89,11 @@ pub fn google_selfcheck_stat_events(server_name: &str) -> Vec<StatEvent> {
         let mismatch = *country != configured;
         events.push(StatEvent::gauge(
             "google_selfcheck_geo_mismatch",
-            &[("exit", server_name), ("google_country", country)],
+            &[
+                ("exit", server_name),
+                ("level", level),
+                ("google_country", country),
+            ],
             if mismatch { 1.0 } else { 0.0 },
         ));
     }
