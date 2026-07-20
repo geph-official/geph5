@@ -22,10 +22,13 @@ pkill -9 -f 'target/release/geph5' 2>/dev/null
 sleep 1
 
 echo "[recover] deleting split-default routes (if present)..."
-route -n delete -net 0.0.0.0/1      2>/dev/null
-route -n delete -net 128.0.0.0/1    2>/dev/null
-route -n delete -inet6 -net ::/1    2>/dev/null
-route -n delete -inet6 -net 8000::/1 2>/dev/null
+# Explicit -netmask/-prefixlen forms: route(8)'s slash-form /1 parsing is not
+# trustworthy (its `change` resolves 0.0.0.0/1 to the global default), so stick
+# to exact-match syntax for anything touching the top of the routing table.
+route -n delete -net 0.0.0.0 -netmask 128.0.0.0    2>/dev/null
+route -n delete -net 128.0.0.0 -netmask 128.0.0.0  2>/dev/null
+route -n delete -inet6 -net :: -prefixlen 1        2>/dev/null
+route -n delete -inet6 -net 8000:: -prefixlen 1    2>/dev/null
 
 echo "[recover] tearing down PF kill switch (if any)..."
 pfctl -a geph -F all 2>/dev/null   # flush our anchor's rules
@@ -38,6 +41,27 @@ networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | grep -v '^\*' | 
 done
 dscacheutil -flushcache 2>/dev/null
 killall -HUP mDNSResponder 2>/dev/null
+
+echo "[recover] clearing any geph-planted configd IPv6 state..."
+# Remove State:/Network/Service/*/IPv6 dicts carrying geph's tun address
+# (2001:db8:6765::). Match on the address, NOT on "InterfaceName : utun":
+# other software (iCloud Private Relay, other VPNs) legitimately registers its
+# own utuns here, and deleting theirs would break *their* networking. A stale
+# geph-planted dict that outlives its utun poisons reachability/DNS system-wide.
+echo "list State:/Network/Service/.*/IPv6" | scutil 2>/dev/null \
+  | grep -oE 'State:/Network/Service/[^/]+/IPv6' | while IFS= read -r key; do
+  if echo "show $key" | scutil 2>/dev/null | grep -q '2001:db8:6765'; then
+    echo "[recover] removing $key"
+    printf 'remove %s\n' "$key" | scutil 2>/dev/null
+  fi
+done
+# Undo any experimental manual-v6 on real services (2001:db8 is geph's marker).
+networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | grep -v '^\*' | while IFS= read -r svc; do
+  if networksetup -getinfo "$svc" 2>/dev/null | grep -q '2001:db8'; then
+    echo "[recover] resetting $svc IPv6 to automatic"
+    networksetup -setv6automatic "$svc" 2>/dev/null
+  fi
+done
 
 echo "[recover] restoring IPv4 default route if missing..."
 # While the kill switch was up, configd's router probes were blackholed and macOS

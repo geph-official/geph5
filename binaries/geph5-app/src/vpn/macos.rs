@@ -45,17 +45,31 @@ use anyhow::{Context, bail};
 /// PF anchor name holding our kill-switch rules.
 const PF_ANCHOR: &str = "geph";
 
-// tun addressing — matches the Linux/Windows implementations.
+// tun addressing — v4 matches the Linux/Windows implementations.
 const TUN_V4: &str = "100.64.0.1";
-const TUN_V6: &str = "fd00:6765::1";
+// Global-scope (2000::/3), NOT a fd00::/8 ULA: RFC 6724 source selection won't
+// pair a ULA source with global v6 destinations, so with a ULA tun address
+// macOS suppresses AAAA results (v6-only hosts fail to "resolve") and
+// dual-stack hosts always pick v4 — v6 silently never uses the tunnel. The
+// address itself is arbitrary because the exit NATs v6 from its own pool;
+// 2001:db8::/32 (RFC 3849, documentation-only) is never routed on the real
+// internet, so squatting it cannot shadow a reachable destination.
+const TUN_V6: &str = "2001:db8:6765::1";
 const TUN_V6_PREFIX: &str = "64";
 const TUN_MTU: &str = "16384";
 
 // Split-default routes: two `/1`s cover the whole address space and, being more
 // specific than the physical `/0` default, win route lookups — so all traffic
 // heads into the tun while the physical default is left intact underneath.
-const V4_SPLIT: [&str; 2] = ["0.0.0.0/1", "128.0.0.0/1"];
-const V6_SPLIT: [&str; 2] = ["::/1", "8000::/1"];
+//
+// Expressed as explicit (net, netmask) / (net, prefixlen) pairs, never as
+// `net/1` slash syntax: route(8)'s `change` resolves a slash-form `/1` through
+// the routing table and rewrites whatever it lands on — for `0.0.0.0/1` that is
+// the GLOBAL DEFAULT, silently hijacking the machine's default route onto the
+// tun (and taking it down with the tun at teardown).
+const V4_SPLIT: [(&str, &str); 2] = [("0.0.0.0", "128.0.0.0"), ("128.0.0.0", "128.0.0.0")];
+const V6_SPLIT: [&str; 2] = ["::", "8000::"];
+const V6_SPLIT_PREFIXLEN: &str = "1";
 
 // Sentinel DNS: the engine routes these into the tunnel (and rewrites port-53
 // traffic), so pointing the system at them keeps DNS from leaking to the LAN
@@ -133,11 +147,8 @@ impl VpnHandle {
         }
         restore_dns(&self.dns_backup);
         del_scoped_default(&self.phys);
-        for net in V4_SPLIT {
-            let _ = run(
-                "route",
-                &["-n", "delete", "-net", net, "-interface", &self.ifname],
-            );
+        for (net, mask) in V4_SPLIT {
+            let _ = run("route", &["-n", "delete", "-net", net, "-netmask", mask]);
         }
         for net in V6_SPLIT {
             let _ = run(
@@ -148,8 +159,8 @@ impl VpnHandle {
                     "-inet6",
                     "-net",
                     net,
-                    "-interface",
-                    &self.ifname,
+                    "-prefixlen",
+                    V6_SPLIT_PREFIXLEN,
                 ],
             );
         }
@@ -373,31 +384,101 @@ pub(super) fn reconcile(
 }
 
 fn upsert_split_routes(ifname: &str) -> anyhow::Result<()> {
-    for net in V4_SPLIT {
-        if run(
+    // route(8) cannot be trusted here, in two independent ways (verified on
+    // Darwin 25): `change` resolves the destination through the table — so
+    // `change 0.0.0.0/1` rewrites the global default — and every subcommand
+    // exits 0 even when it fails ("not in table" on stderr), so a
+    // change-then-add dance takes the change's fake success and never adds,
+    // silently installing nothing (this is exactly how the v6 splits never
+    // made it in and v6 tunneling broke). Instead: exact-mask delete (a no-op
+    // when absent, and exact-match deletes never touch the default), exact-mask
+    // add, then verify against the routing table — the only truthful signal.
+    for (net, mask) in V4_SPLIT {
+        let _ = run("route", &["-n", "delete", "-net", net, "-netmask", mask]);
+        let _ = run(
             "route",
-            &["-n", "change", "-net", net, "-interface", ifname],
-        )
-        .is_err()
-        {
-            run("route", &["-n", "add", "-net", net, "-interface", ifname])
-                .with_context(|| format!("adding route {net}"))?;
+            &["-n", "add", "-net", net, "-netmask", mask, "-interface", ifname],
+        );
+    }
+    for net in V6_SPLIT {
+        let _ = run(
+            "route",
+            &[
+                "-n",
+                "delete",
+                "-inet6",
+                "-net",
+                net,
+                "-prefixlen",
+                V6_SPLIT_PREFIXLEN,
+            ],
+        );
+        let _ = run(
+            "route",
+            &[
+                "-n",
+                "add",
+                "-inet6",
+                "-net",
+                net,
+                "-prefixlen",
+                V6_SPLIT_PREFIXLEN,
+                "-interface",
+                ifname,
+            ],
+        );
+    }
+    let table = cmd_output("netstat", &["-rn"])?;
+    for (net, _) in V4_SPLIT {
+        if !split_route_present(&table, net, ifname) {
+            bail!("IPv4 split route {net}/1 via {ifname} did not install");
         }
     }
     for net in V6_SPLIT {
-        if run(
-            "route",
-            &["-n", "change", "-inet6", "-net", net, "-interface", ifname],
-        )
-        .is_err()
-        {
-            let _ = run(
-                "route",
-                &["-n", "add", "-inet6", "-net", net, "-interface", ifname],
+        // v6 stays best-effort (the host stack may have v6 disabled outright),
+        // but the failure must be loud: silently missing v6 splits means v6
+        // traffic bypasses the tunnel entirely.
+        if !split_route_present(&table, net, ifname) {
+            tracing::warn!(
+                net,
+                ifname,
+                "IPv6 split route did not install; IPv6 will not be tunneled"
             );
         }
     }
     Ok(())
+}
+
+/// Whether the routing table (`netstat -rn` output) contains a `/1` split route
+/// for `net` via `netif`. netstat truncates trailing zero octets in the
+/// Destination column (`0.0.0.0/1` renders as `0/1`, `128.0.0.0/1` as `128/1`,
+/// `8000::/1` stays `8000::/1`), so destinations are compared after
+/// normalization.
+fn split_route_present(table: &str, net: &str, netif: &str) -> bool {
+    let want = normalize_split_dest(net);
+    table.lines().any(|l| {
+        let mut parts = l.split_whitespace();
+        let Some(dest) = parts.next() else {
+            return false;
+        };
+        dest.strip_suffix("/1")
+            .is_some_and(|d| normalize_split_dest(d) == want)
+            && parts.any(|f| f == netif)
+    })
+}
+
+/// Normalize a v4/v6 network for comparison with netstat's truncated rendering:
+/// drop trailing `.0` octets of a dotted quad (`128.0.0.0` → `128`); leave v6
+/// forms untouched.
+fn normalize_split_dest(net: &str) -> String {
+    if net.contains(':') {
+        return net.to_string();
+    }
+    let mut octets: Vec<&str> = net.split('.').collect();
+    while octets.len() > 1 && octets.last() == Some(&"0") {
+        octets.pop();
+    }
+    octets.join(".")
 }
 
 /// Open a `utun` control socket, let the kernel pick the next free unit, and return
@@ -779,11 +860,22 @@ pub(super) fn cleanup_stale() {
     // leaves PF enabled with no geph rules.
     let _ = run("pfctl", &["-a", PF_ANCHOR, "-F", "all"]);
     let _ = run("pfctl", &["-f", "/etc/pf.conf"]);
-    for net in V4_SPLIT {
-        let _ = run("route", &["-n", "delete", "-net", net]);
+    for (net, mask) in V4_SPLIT {
+        let _ = run("route", &["-n", "delete", "-net", net, "-netmask", mask]);
     }
     for net in V6_SPLIT {
-        let _ = run("route", &["-n", "delete", "-inet6", "-net", net]);
+        let _ = run(
+            "route",
+            &[
+                "-n",
+                "delete",
+                "-inet6",
+                "-net",
+                net,
+                "-prefixlen",
+                V6_SPLIT_PREFIXLEN,
+            ],
+        );
     }
     // Reset any service still pointed at our sentinel resolvers back to DHCP.
     for svc in list_network_services() {
@@ -973,6 +1065,48 @@ default                                 fe80::%utun4                            
     #[test]
     fn table_parse_handles_empty_output() {
         assert!(parse_physical_default_v4("").is_err());
+    }
+
+    // Rendering captured live on Darwin 25: netstat truncates trailing zero
+    // octets ("0.0.0.0/1" → "0/1"; "10.100.0.0/16" → "10.100/16").
+    const NETSTAT_SPLITS: &str = "Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+0/1                utun4              UScg                utun4
+default            10.100.0.1         UGScg                 en1
+10.100/16          link#17            UCS                   en1      !
+128/1              utun4              UScg                utun4
+
+Internet6:
+Destination                             Gateway                                 Flags               Netif Expire
+::/1                                    utun4                                   UScg                utun4
+8000::/1                                utun4                                   UScg                utun4
+default                                 fe80::%utun0                            UGcIg               utun0
+";
+
+    #[test]
+    fn split_route_detection() {
+        use super::split_route_present;
+        for net in ["0.0.0.0", "128.0.0.0", "::", "8000::"] {
+            assert!(split_route_present(NETSTAT_SPLITS, net, "utun4"), "{net}");
+            // Wrong interface must not match.
+            assert!(!split_route_present(NETSTAT_SPLITS, net, "utun9"), "{net}");
+        }
+        // The plain default row must never satisfy a split check.
+        assert!(!split_route_present(NETSTAT_SPLITS, "default", "en1"));
+        // Missing entirely.
+        assert!(!split_route_present("Routing tables\n", "0.0.0.0", "utun4"));
+    }
+
+    #[test]
+    fn split_dest_normalization() {
+        use super::normalize_split_dest;
+        assert_eq!(normalize_split_dest("0.0.0.0"), "0");
+        assert_eq!(normalize_split_dest("128.0.0.0"), "128");
+        assert_eq!(normalize_split_dest("10.100.0.0"), "10.100");
+        assert_eq!(normalize_split_dest("::"), "::");
+        assert_eq!(normalize_split_dest("8000::"), "8000::");
     }
 
     // Captured verbatim from `route -n get default` on a live Wi-Fi (en1) host.
