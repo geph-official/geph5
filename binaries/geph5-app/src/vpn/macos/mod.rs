@@ -45,6 +45,7 @@ use route_socket::{Gateway, RouteSocket, RouteSpec};
 
 mod discovery;
 mod dns;
+mod ipv6_presence;
 mod firewall;
 mod route_socket;
 
@@ -115,6 +116,8 @@ pub(super) struct PhysIface {
     if6: u32,
     v4_gw: (String, Ipv4Addr),
     v6_gw: Option<(String, Ipv6Addr)>,
+    /// configd service ID of the primary service, for the IPv6-presence claim.
+    v4_service_id: String,
 }
 
 /// Owns the utun fd; the device (and its routes) live as long as this handle, so
@@ -126,6 +129,8 @@ pub(super) struct VpnHandle {
     dns_backup: dns::DnsBackup,
     /// PF state captured when the kill switch was applied; `None` until then.
     pf_state: Option<firewall::PfState>,
+    /// The `State:` IPv6 key we claimed on the primary service, if any.
+    v6_presence_path: Option<String>,
 }
 
 impl VpnHandle {
@@ -143,6 +148,9 @@ impl VpnHandle {
         // Lift the kill switch first so teardown traffic isn't blocked.
         if let Some(state) = self.pf_state.take() {
             firewall::teardown(state);
+        }
+        if let Some(path) = self.v6_presence_path.take() {
+            ipv6_presence::remove(&path);
         }
         dns::restore(&self.dns_backup);
         del_scoped_default(&self.phys);
@@ -221,6 +229,7 @@ pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
         if6,
         v4_gw: (v4.ifname, v4.router),
         v6_gw,
+        v4_service_id: v4.service_id,
     })
 }
 
@@ -237,6 +246,7 @@ pub(super) fn setup(phys: PhysIface, uid: u32, allow_lan: bool) -> anyhow::Resul
             phys,
             dns_backup: Vec::new(),
             pf_state: None,
+            v6_presence_path: None,
         },
         |mut handle| handle.cleanup(),
     );
@@ -296,6 +306,8 @@ impl VpnHandle {
         add_scoped_default(&self.phys).context("installing interface-scoped default route")?;
 
         self.dns_backup = dns::set_sentinel(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
+        self.v6_presence_path =
+            ipv6_presence::publish(&self.phys.v4_service_id, &ifname, TUN_V6);
         Ok(())
     }
 }
@@ -359,6 +371,13 @@ pub(super) fn reconcile(
     }
     handle.phys = physical;
     dns::reassert_sentinel(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
+    if let Some(old) = handle.v6_presence_path.take()
+        && !old.contains(&handle.phys.v4_service_id)
+    {
+        ipv6_presence::remove(&old);
+    }
+    handle.v6_presence_path =
+        ipv6_presence::publish(&handle.phys.v4_service_id, &ifname, TUN_V6);
     Ok(())
 }
 
@@ -682,6 +701,7 @@ pub(super) fn cleanup_stale() {
     firewall::teardown_stale();
     delete_split_routes();
     dns::cleanup_stale(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
+    ipv6_presence::cleanup_stale(TUN_V6);
 }
 
 // ---- command helpers ----
