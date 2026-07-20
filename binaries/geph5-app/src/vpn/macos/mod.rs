@@ -680,20 +680,8 @@ pub(super) fn route_change_loop(mut on_change: impl FnMut()) {
 /// manager doesn't start on a half-configured machine. Best-effort / idempotent.
 pub(super) fn cleanup_stale() {
     firewall::teardown_stale();
-    // Pre-0.4 versions replaced the PF main ruleset outright; put the system's
-    // back in case one of those crashed here. Harmless otherwise.
-    let _ = run("pfctl", &["-f", "/etc/pf.conf"]);
     delete_split_routes();
     dns::cleanup_stale(SENTINEL_DNS_V4, SENTINEL_DNS_V6);
-    // Pre-0.4 versions wrote sentinel DNS into persistent preferences via
-    // networksetup; sweep those back to DHCP too.
-    let services = cmd_output("networksetup", &["-listallnetworkservices"]).unwrap_or_default();
-    for svc in services.lines().skip(1).filter(|l| !l.starts_with('*')) {
-        let cur = cmd_output("networksetup", &["-getdnsservers", svc]).unwrap_or_default();
-        if cur.contains(SENTINEL_DNS_V4) || cur.contains(SENTINEL_DNS_V6) {
-            let _ = run("networksetup", &["-setdnsservers", svc, "Empty"]);
-        }
-    }
 }
 
 // ---- command helpers ----
