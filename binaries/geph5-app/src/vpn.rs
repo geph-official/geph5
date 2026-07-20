@@ -79,9 +79,12 @@ impl Vpn {
             #[cfg(target_os = "macos")]
             {
                 let (uid, _) = service_user.context("macOS VPN requires a service user")?;
-                let physical =
-                    backend::physical_iface().context("discovering physical interface")?;
-                backend::reconcile(handle, physical, uid, allow_lan)?;
+                // The macOS backend rediscovers the physical interface itself and
+                // falls back to the one captured at setup when the live default
+                // route is momentarily unusable (down, or transiently owned by the
+                // engine's own utun during bring-up), so a reconcile never fails
+                // just because the default route is in flux.
+                backend::reconcile(handle, uid, allow_lan)?;
             }
             #[cfg(target_os = "windows")]
             {

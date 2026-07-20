@@ -171,12 +171,23 @@ pub(super) fn cleanup(mut handle: VpnHandle) {
 pub(super) fn physical_iface() -> anyhow::Result<PhysIface> {
     let (ifname4, gw4) = default_route(&["-n", "get", "default"])
         .context("no IPv4 default route — not connected to a network?")?;
+    // The physical NIC is never a tunnel. During tunnel bring-up (or with a stale
+    // leftover utun holding a default route) the live default can point at a utun;
+    // adopting it as our egress would build an interface-scoped default with a
+    // non-IP link gateway that macOS rejects, wedging the reconcile loop. Treat
+    // that as "no usable physical default" so callers fall back to the last-known
+    // NIC instead.
+    if is_tunnel_iface(&ifname4) {
+        bail!("IPv4 default route points at tunnel interface {ifname4}, not a physical NIC");
+    }
     let if4 = iface_index(&ifname4)?;
     // v6 is best-effort: many hosts have no v6 default, in which case the engine
     // runs v4-only. A dual-stack NIC shares one index, so reuse if4 as a fallback.
     let (if6, v6_gw) = match default_route(&["-n", "get", "-inet6", "default"]) {
-        Ok((ifname6, gw6)) => (iface_index(&ifname6).unwrap_or(if4), Some((ifname6, gw6))),
-        Err(_) => (if4, None),
+        Ok((ifname6, gw6)) if !is_tunnel_iface(&ifname6) => {
+            (iface_index(&ifname6).unwrap_or(if4), Some((ifname6, gw6)))
+        }
+        _ => (if4, None),
     };
     Ok(PhysIface {
         if4,
@@ -268,10 +279,23 @@ impl VpnHandle {
 /// physical-interface changes remain fail-closed.
 pub(super) fn reconcile(
     handle: &mut VpnHandle,
-    physical: PhysIface,
     uid: u32,
     allow_lan: bool,
 ) -> anyhow::Result<()> {
+    // Re-derive the physical egress so a real network switch (Wi-Fi <-> Ethernet)
+    // is picked up, but fall back to the interface captured at setup when the live
+    // default route can't be resolved to a real NIC — the network is momentarily
+    // down, or the default is transiently owned by the engine's own utun during
+    // bring-up. Rebuilding the scoped route from a tunnel would install a bogus
+    // link gateway and wedge every reconcile; the last-known-good physical stays
+    // valid until the network genuinely changes.
+    let physical = match physical_iface() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::debug!("keeping last-known physical interface; rediscovery failed: {e:#}");
+            handle.phys.clone()
+        }
+    };
     let ifname = handle.ifname.clone();
     pf_load(&pf_ruleset(&ifname, uid, allow_lan)).context("reasserting PF kill switch")?;
     run(
@@ -427,10 +451,32 @@ fn default_route(route_args: &[&str]) -> anyhow::Result<(String, String)> {
             gateway = Some(v.trim().to_string());
         }
     }
-    Ok((
-        ifname.context("`route get default` had no interface line")?,
-        gateway.context("`route get default` had no gateway line")?,
-    ))
+    let ifname = ifname.context("`route get default` had no interface line")?;
+    let gateway = gateway.context("`route get default` had no gateway line")?;
+    // A gatewayless point-to-point route renders its gateway as a link reference
+    // (e.g. `index: 25 utun4`), not an IP. That is meaningless as the gateway
+    // argument to `route add`, so reject it here rather than shell out a command
+    // the kernel refuses with "bad address" — the value that started this whole
+    // fire drill.
+    if !gateway_is_ip(&gateway) {
+        bail!("default route via {ifname} has a non-IP gateway {gateway:?}");
+    }
+    Ok((ifname, gateway))
+}
+
+/// Interfaces that must never be treated as the physical egress: our own tunnel
+/// and other VPNs' tunnels. A `route add default … -ifscope <tunnel>` with the
+/// tunnel's link gateway is invalid and only ever appears when discovery races a
+/// tunnel that has (transiently) grabbed the default route.
+fn is_tunnel_iface(name: &str) -> bool {
+    name.starts_with("utun") || name.starts_with("ipsec")
+}
+
+/// A usable route gateway is a real IP address. IPv6 gateways may carry a
+/// `%zone` scope suffix (e.g. `fe80::1%en0`), which is stripped before parsing.
+fn gateway_is_ip(gw: &str) -> bool {
+    let addr = gw.split('%').next().unwrap_or(gw);
+    addr.parse::<std::net::IpAddr>().is_ok()
 }
 
 /// Kernel index for an interface name.
