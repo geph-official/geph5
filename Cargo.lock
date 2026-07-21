@@ -2243,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-app"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2366,7 +2366,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2392,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-ip-to-asn"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2566,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2640,7 +2640,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-rt"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "async-channel",
  "bytes",
