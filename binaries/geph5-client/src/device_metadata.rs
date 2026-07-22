@@ -61,11 +61,13 @@ async fn fetch_ip_from_service() -> anyhow::Result<String> {
     // (On Linux the engine's own sockets already bypass the tun by uid, so the
     // binding env is unset and this branch is skipped.)
     if crate::bound_dialer::binding_active() {
-        let dests: Vec<std::net::SocketAddr> = tokio::net::lookup_host("checkip.amazonaws.com:443")
-            .await?
-            .filter(|a| a.is_ipv4())
-            .collect();
-        anyhow::ensure!(!dests.is_empty(), "could not resolve checkip over the tunnel");
+        // Resolve over the physical NIC's own DNS servers, NOT `getaddrinfo`: under
+        // VPN the OS resolver points at the tun DNS sentinel, which isn't carrying
+        // traffic during a reconnect and would hang ~10s (blocking the whole
+        // connect). See `china::resolve_a_physical`.
+        let dests = crate::china::resolve_a_physical("checkip.amazonaws.com", 443)
+            .await
+            .context("could not resolve checkip over the physical NIC")?;
         let loopback = crate::broker::bind_forward::forward_addrs(dests)
             .await
             .context("could not set up device-ip egress forwarder")?;

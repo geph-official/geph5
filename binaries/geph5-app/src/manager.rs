@@ -129,16 +129,18 @@ impl ManagerImpl {
         // unprivileged service user cannot be established, don't start it.
         let service_user =
             platform::ensure_service_user().map_err(|e| format!("engine service user: {e:#}"))?;
-        let child = supervisor::spawn_query(service_user).map_err(|e| format!("{e:?}"))?;
-        inner.query = Some(child);
-        if let Err(error) =
-            supervisor::wait_control_ready(&supervisor::query_control(), CHILD_READY_TIMEOUT).await
+        let mut child = supervisor::spawn_query(service_user).map_err(|e| format!("{e:?}"))?;
+        if let Err(error) = supervisor::wait_control_ready(
+            &mut child,
+            &supervisor::query_control(),
+            CHILD_READY_TIMEOUT,
+        )
+        .await
         {
-            if let Some(child) = inner.query.take() {
-                geph5_rt::spawn_blocking(move || platform::kill_child(child)).await;
-            }
+            geph5_rt::spawn_blocking(move || platform::kill_child(child)).await;
             return Err(format!("{error:?}"));
         }
+        inner.query = Some(child);
         Ok(())
     }
 
@@ -146,22 +148,13 @@ impl ManagerImpl {
     /// retained whenever VPN remains desired; mode transitions tear it down only
     /// after the replacement proxy child and PAC configuration are ready.
     async fn reconcile_tunnel(inner: &mut Inner) -> Result<(), String> {
-        // Resolve every front before replacing a VPN child. On first bring-up
-        // this uses the physical resolver before capture starts; on reconnect it
-        // uses the still-running old child. After that child is stopped, host DNS
-        // is intentionally fail-closed until its replacement is carrying packets.
-        let pre_resolve_broker_fronts = inner.settings.connected && inner.settings.vpn;
+        // No DNS happens here: the engine resolves broker fronts itself, on
+        // demand, over the physical NIC's own resolvers (GEPH_PHYS_DNS) — see
+        // geph5-client's `fronted_http` / `china::resolve_a_physical`.
         let tunnel_config = if inner.settings.connected {
-            // build_tunnel_config resolves fronted-broker DNS with a blocking
-            // getaddrinfo; run it off the async runtime so a slow resolver can't
-            // starve a reactor worker.
-            let settings = inner.settings.clone();
-            let cfg = geph5_rt::spawn_blocking(move || {
-                supervisor::build_tunnel_config(&settings, pre_resolve_broker_fronts)
-            })
-            .await
-            .map_err(|e| format!("{e:#}"))?;
-            Some(cfg)
+            Some(
+                supervisor::build_tunnel_config(&inner.settings).map_err(|e| format!("{e:#}"))?,
+            )
         } else {
             None
         };
@@ -185,6 +178,15 @@ impl ManagerImpl {
             return Ok(());
         }
 
+        // The old child is dead by here, so any conflict on the proxy ports is a
+        // foreign process; report it by name rather than letting the engine die
+        // on the bind and time out opaquely.
+        if let Some(proxy) = &inner.settings.proxy {
+            supervisor::ensure_proxy_ports_free(proxy)
+                .await
+                .map_err(|e| format!("{e:#}"))?;
+        }
+
         let service_user =
             platform::ensure_service_user().map_err(|e| format!("engine service user: {e:#}"))?;
         let want_vpn = inner.settings.vpn;
@@ -201,15 +203,20 @@ impl ManagerImpl {
             service_user,
             inner.vpn.packet_mode(want_vpn),
             inner.vpn.bind_indices(want_vpn),
+            inner.vpn.phys_dns(want_vpn),
         )
         .map_err(|e| format!("{e:?}"))?;
         if let Err(error) = inner.vpn.attach_transport(want_vpn, spawned.transport) {
             platform::kill_child(spawned.child);
             return Err(format!("attaching VPN packet transport: {error:#}"));
         }
-        let child = spawned.child;
-        if let Err(error) =
-            supervisor::wait_control_ready(&supervisor::live_control(), CHILD_READY_TIMEOUT).await
+        let mut child = spawned.child;
+        if let Err(error) = supervisor::wait_control_ready(
+            &mut child,
+            &supervisor::live_control(),
+            CHILD_READY_TIMEOUT,
+        )
+        .await
         {
             inner.vpn.stop_transport();
             platform::kill_child(child);

@@ -144,6 +144,23 @@ impl VpnHandle {
         (self.phys.if4, self.phys.if6)
     }
 
+    /// The real ISP resolvers, already snapshotted into `dns_backup` when we
+    /// overrode each service's DNS with the sentinels. Deduped; parsed to IpAddr.
+    pub(super) fn phys_dns(&self) -> Vec<std::net::IpAddr> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for (_, prior) in &self.dns_backup {
+            for s in prior.iter().flatten() {
+                if let Ok(ip) = s.parse::<std::net::IpAddr>() {
+                    if seen.insert(ip) {
+                        out.push(ip);
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn cleanup(&mut self) {
         // Lift the kill switch first so teardown traffic isn't blocked.
         if let Some(state) = self.pf_state.take() {

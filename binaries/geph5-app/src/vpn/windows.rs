@@ -40,15 +40,21 @@ use std::{
 
 use anyhow::{Context, bail};
 use windows_sys::Win32::{
-    Foundation::{ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS, NO_ERROR},
+    Foundation::{
+        ERROR_BUFFER_OVERFLOW, ERROR_NOT_FOUND, ERROR_OBJECT_ALREADY_EXISTS, ERROR_SUCCESS,
+        NO_ERROR,
+    },
     NetworkManagement::IpHelper::{
-        CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DeleteIpForwardEntry2, FreeMibTable,
-        GetIpForwardTable2, InitializeIpForwardEntry, InitializeUnicastIpAddressEntry,
-        MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2, MIB_UNICASTIPADDRESS_ROW,
+        CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DNS_INTERFACE_SETTINGS,
+        DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
+        DeleteIpForwardEntry2, FreeMibTable, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST,
+        GAA_FLAG_SKIP_UNICAST, GetAdaptersAddresses, GetIpForwardTable2, IP_ADAPTER_ADDRESSES_LH,
+        InitializeIpForwardEntry, InitializeUnicastIpAddressEntry, MIB_IPFORWARD_ROW2,
+        MIB_IPFORWARD_TABLE2, MIB_UNICASTIPADDRESS_ROW, SetInterfaceDnsSettings,
     },
     Networking::WinSock::{
-        ADDRESS_FAMILY, AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0, SOCKADDR_IN,
-        SOCKADDR_IN6, SOCKADDR_INET,
+        ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0,
+        SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_INET,
     },
 };
 use wintun::{Adapter, Session, Wintun};
@@ -125,6 +131,12 @@ impl VpnHandle {
         (self.phys.index4, self.phys.index6)
     }
 
+    /// The physical adapter's own DNS resolvers (its DHCP/ISP servers), for the
+    /// engine to resolve over the physical NIC via `GEPH_PHYS_DNS`.
+    pub(super) fn phys_dns(&self) -> Vec<IpAddr> {
+        physical_dns_servers(&[self.phys.index4, self.phys.index6])
+    }
+
     /// The WinTUN interface LUID, the key every IP Helper call below is scoped to.
     fn luid(&self) -> u64 {
         unsafe { self.adapter.get_luid().Value }
@@ -142,7 +154,7 @@ impl VpnHandle {
 
     fn cleanup(&mut self) {
         self.firewall.remove();
-        let _ = self.adapter.set_dns_servers(&[]);
+        let _ = set_tun_dns(self.adapter.get_guid(), &[]);
         delete_split_routes(self.luid());
     }
 }
@@ -202,7 +214,7 @@ pub(super) fn setup(phys: PhysIface, allow_lan: bool) -> anyhow::Result<VpnHandl
         .context("assign tun IPv4 address")?;
     let _ = set_unicast_address(luid, IpAddr::V6(TUN_V6_ADDR), TUN_V6_PREFIX);
     let _ = adapter.set_mtu(TUN_MTU);
-    let _ = adapter.set_dns_servers(&sentinel_dns());
+    let _ = set_tun_dns(adapter.get_guid(), &sentinel_dns());
 
     // Kill switch before capture routes. (The engine's own broker/bridge/exit sockets reach the
     // physical NIC per-process via IP_UNICAST_IF + the loopback forwarder, so
@@ -236,7 +248,7 @@ pub(super) fn reconcile(
         .context("reassert tun IPv4 address")?;
     let _ = set_unicast_address(luid, IpAddr::V6(TUN_V6_ADDR), TUN_V6_PREFIX);
     let _ = handle.adapter.set_mtu(TUN_MTU);
-    let _ = handle.adapter.set_dns_servers(&sentinel_dns());
+    let _ = set_tun_dns(handle.adapter.get_guid(), &sentinel_dns());
     handle
         .firewall
         .replace(&geph_app_ids(), luid, allow_lan)
@@ -289,7 +301,7 @@ pub(super) fn cleanup_stale() {
 /// Best-effort removal of leftover state from a previous run.
 fn cleanup_stale_with_wintun(wintun: &Wintun) {
     if let Ok(adapter) = Adapter::open(wintun, TUN_NAME) {
-        let _ = adapter.set_dns_servers(&[]);
+        let _ = set_tun_dns(adapter.get_guid(), &[]);
         delete_split_routes(unsafe { adapter.get_luid().Value });
     }
     // Delete any leftover kill-switch sublayer (and its filters) by GUID, in case
@@ -314,6 +326,55 @@ fn geph_app_ids() -> Vec<std::path::PathBuf> {
 //
 // Everything here is keyed by the WinTUN interface LUID and runs in-process, in
 // place of the `netsh`/`powershell` subprocesses the reconnect path used to spawn.
+
+/// Set (or clear, with an empty list) the tun adapter's DNS servers via a direct,
+/// correctly-formed `SetInterfaceDnsSettings` call — instant and validation-free.
+/// NOT wintun's `set_dns_servers`: its own `SetInterfaceDnsSettings` binding has
+/// `NameServer`/`Domain` swapped, so it always fails and falls back to
+/// `netsh set dns` without `validate=no`; netsh then probes the server, which
+/// blocks ~12s whenever the tunnel isn't carrying packets — i.e. on every single
+/// exit switch, dominating the reconnect gap.
+fn set_tun_dns(guid: u128, servers: &[IpAddr]) -> anyhow::Result<()> {
+    let guid = windows_sys::core::GUID::from_u128(guid);
+    let v4: Vec<String> = servers
+        .iter()
+        .filter(|ip| ip.is_ipv4())
+        .map(|ip| ip.to_string())
+        .collect();
+    let v6: Vec<String> = servers
+        .iter()
+        .filter(|ip| ip.is_ipv6())
+        .map(|ip| ip.to_string())
+        .collect();
+    // One call per family; an empty NameServer string clears that family.
+    for (list, v6_flag) in [(v4, 0u64), (v6, DNS_SETTING_IPV6 as u64)] {
+        let joined: Vec<u16> = list
+            .join(",")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let settings = DNS_INTERFACE_SETTINGS {
+            Version: DNS_INTERFACE_SETTINGS_VERSION1,
+            Flags: DNS_SETTING_NAMESERVER as u64 | v6_flag,
+            Domain: std::ptr::null_mut(),
+            NameServer: joined.as_ptr() as *mut u16,
+            SearchList: std::ptr::null_mut(),
+            RegistrationEnabled: 0,
+            RegisterAdapterName: 0,
+            EnableLLMNR: 0,
+            QueryAdapterName: 0,
+            ProfileNameServer: std::ptr::null_mut(),
+        };
+        let code = unsafe { SetInterfaceDnsSettings(guid, &settings) };
+        if code != NO_ERROR {
+            bail!(
+                "SetInterfaceDnsSettings(ipv6={}) failed: 0x{code:08X}",
+                v6_flag != 0
+            );
+        }
+    }
+    Ok(())
+}
 
 /// Fill a `SOCKADDR_INET` in place with `ip` (address family + address; port and
 /// scope left zeroed). Writing a union field is safe in Rust; only reads are not.
@@ -434,6 +495,77 @@ fn default_route_ifindex(family: ADDRESS_FAMILY) -> Option<u32> {
         FreeMibTable(table as *const c_void);
     }
     best.map(|(_, idx)| idx)
+}
+
+/// The DNS servers configured on the physical adapter(s) whose interface index is
+/// in `indices` (the physical default-route interface we pin the engine to). Read
+/// via `GetAdaptersAddresses`. We only ever change the *tun* adapter's DNS (the
+/// sentinel), so the physical adapter still carries its real DHCP/ISP resolvers.
+fn physical_dns_servers(indices: &[u32]) -> Vec<IpAddr> {
+    let flags = GAA_FLAG_SKIP_UNICAST | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST;
+    let mut size: u32 = 16 * 1024;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut out: Vec<IpAddr> = Vec::new();
+    // Size-probe / retry loop: GetAdaptersAddresses reports ERROR_BUFFER_OVERFLOW
+    // and updates `size` when the buffer is too small.
+    for _ in 0..3 {
+        buf.resize(size as usize, 0);
+        let ret = unsafe {
+            GetAdaptersAddresses(
+                AF_UNSPEC as u32,
+                flags,
+                std::ptr::null(),
+                buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+                &mut size,
+            )
+        };
+        if ret == ERROR_BUFFER_OVERFLOW {
+            continue;
+        }
+        if ret != ERROR_SUCCESS {
+            return out;
+        }
+        let mut adapter = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+        while !adapter.is_null() {
+            let a = unsafe { &*adapter };
+            let if4 = unsafe { a.Anonymous1.Anonymous.IfIndex };
+            if indices.contains(&if4) || indices.contains(&a.Ipv6IfIndex) {
+                let mut dns = a.FirstDnsServerAddress;
+                while !dns.is_null() {
+                    let d = unsafe { &*dns };
+                    if let Some(ip) = unsafe { sockaddr_to_ip(d.Address.lpSockaddr) }
+                        && !out.contains(&ip)
+                    {
+                        out.push(ip);
+                    }
+                    dns = d.Next;
+                }
+            }
+            adapter = a.Next;
+        }
+        return out;
+    }
+    out
+}
+
+/// Decode a Win32 `SOCKADDR` (v4 or v6) into an `IpAddr`.
+unsafe fn sockaddr_to_ip(sa: *const SOCKADDR) -> Option<IpAddr> {
+    if sa.is_null() {
+        return None;
+    }
+    match unsafe { (*sa).sa_family } {
+        AF_INET => {
+            let sin = sa as *const SOCKADDR_IN;
+            let bytes = unsafe { (*sin).sin_addr.S_un.S_addr }.to_ne_bytes();
+            Some(IpAddr::V4(Ipv4Addr::from(bytes)))
+        }
+        AF_INET6 => {
+            let sin6 = sa as *const SOCKADDR_IN6;
+            let bytes = unsafe { (*sin6).sin6_addr.u.Byte };
+            Some(IpAddr::V6(Ipv6Addr::from(bytes)))
+        }
+        _ => None,
+    }
 }
 
 /// The stdio packet pump bridging the WinTUN session and one engine child's

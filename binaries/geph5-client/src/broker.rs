@@ -44,18 +44,14 @@ pub(crate) trait ConfigHelperExt {
 
 impl ConfigHelperExt for BrokerSource {
     fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
-        // In full-tunnel VPN mode, a broker source that needs DNS resolution
-        // cannot bootstrap: its `getaddrinfo` isn't physical-NIC-pinned (we can't
-        // intercept the system resolver's sockets), so the query would route into
-        // the not-yet-established tunnel and hang. Ignore those sources entirely;
-        // only DNS-free ones (fronted with `override_dns`, and direct-TCP) can
-        // reach the broker before the tunnel is up.
+        // In full-tunnel VPN mode, HTTP-shaped sources resolve their hostname on
+        // demand over the physical NIC's own DNS servers inside
+        // `FrontedHttpTransport` (see `china::resolve_a_physical`) — never the
+        // system resolver, whose query would route into the not-yet-established
+        // tunnel and hang. Only sources whose resolution we cannot control
+        // (the AWS SDK owns its own resolver) are still skipped.
         if crate::bound_dialer::binding_active() {
             let skip = match self {
-                BrokerSource::Direct(_) => Some("direct"),
-                BrokerSource::Fronted {
-                    override_dns: None, ..
-                } => Some("fronted-without-override_dns"),
                 BrokerSource::AwsLambda { .. } => Some("aws_lambda"),
                 _ => None,
             };

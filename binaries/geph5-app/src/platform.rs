@@ -619,6 +619,26 @@ pub(crate) struct EngineLaunch {
     pub service_user: Option<(u32, u32)>,
     pub packet_mode: PacketMode,
     pub bind_indices: Option<(u32, u32)>,
+    /// The physical NIC's own DNS resolvers, passed to the engine as
+    /// `GEPH_PHYS_DNS` so it can resolve over the physical interface instead of
+    /// the tun's DNS sentinel while full-tunnel binding is active. Empty when not
+    /// in VPN mode or when they could not be determined.
+    pub phys_dns: Vec<std::net::IpAddr>,
+}
+
+/// Set `GEPH_PHYS_DNS` (comma-separated) on the engine command when we have the
+/// physical NIC's resolvers, so the engine resolves over the physical interface
+/// instead of the tun sentinel. No-op when empty.
+fn set_phys_dns_env(command: &mut std::process::Command, phys_dns: &[std::net::IpAddr]) {
+    if phys_dns.is_empty() {
+        return;
+    }
+    let list = phys_dns
+        .iter()
+        .map(|ip| ip.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    command.env("GEPH_PHYS_DNS", list);
 }
 
 #[allow(dead_code)]
@@ -1049,6 +1069,7 @@ fn spawn_engine_posix(launch: EngineLaunch) -> anyhow::Result<SpawnedEngine> {
         command.env("GEPH_VPN_BIND_IF4", if4.to_string());
         command.env("GEPH_VPN_BIND_IF6", if6.to_string());
     }
+    set_phys_dns_env(&mut command, &launch.phys_dns);
     let service_user = launch.service_user;
     unsafe {
         command.pre_exec(move || child_pre_exec(service_user, vpn_fd));
@@ -1129,6 +1150,7 @@ fn spawn_engine_windows(launch: EngineLaunch) -> anyhow::Result<SpawnedEngine> {
         command.env("GEPH_VPN_BIND_IF4", if4.to_string());
         command.env("GEPH_VPN_BIND_IF6", if6.to_string());
     }
+    set_phys_dns_env(&mut command, &launch.phys_dns);
     command.creation_flags(0x08000000);
     let child = command.spawn().context(
         "could not spawn geph5-client (is it installed on PATH? or set GEPH_CLIENT_BIN)",

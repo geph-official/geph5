@@ -15,7 +15,7 @@
 //! broker egress forwarder.
 
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     pin::Pin,
     task::{Context, Poll},
 };
@@ -35,6 +35,28 @@ pub fn binding_active() -> bool {
         std::env::var_os("GEPH_VPN_BIND_IF4").is_some()
             || std::env::var_os("GEPH_VPN_BIND_IF6").is_some()
     })
+}
+
+/// The physical NIC's own DNS resolver addresses, as set by the manager in
+/// `GEPH_PHYS_DNS` (comma-separated IPs) alongside the bind indices, so the engine
+/// can resolve over the physical interface instead of the tun's DNS sentinel
+/// (which isn't carrying traffic mid-reconnect and would hang). Port 53 assumed;
+/// IPv4 only, because [`udp_socket_v4`] is the one interface binding we have.
+/// Empty when the env is unset (non-VPN, or the manager could not determine them).
+/// Cached.
+pub fn physical_dns_servers() -> &'static [SocketAddr] {
+    use std::sync::OnceLock;
+    static V: OnceLock<Vec<SocketAddr>> = OnceLock::new();
+    V.get_or_init(|| {
+        std::env::var("GEPH_PHYS_DNS")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|s| s.trim().parse::<IpAddr>().ok())
+            .filter(|ip| ip.is_ipv4())
+            .map(|ip| SocketAddr::new(ip, 53))
+            .collect()
+    })
+    .as_slice()
 }
 
 /// A UDP socket for the engine's own name resolution, pinned to the physical

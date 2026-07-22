@@ -37,15 +37,29 @@ impl RpcTransport for FrontedHttpTransport {
         );
         let start = Instant::now();
         let mut request_builder = if crate::bound_dialer::binding_active() {
-            // Windows full-tunnel: route this connection through a loopback
+            // Windows/macOS full-tunnel: route this connection through a loopback
             // forwarder whose upstream is dialed via the bound dialer
             // (physical-NIC-pinned), so only *our* socket to the shared front IP
-            // bypasses the tunnel. Reached only for fronted sources with fixed
-            // `override_dns` addresses (others are ignored in VPN mode).
-            let dests = self
-                .dns
-                .clone()
-                .context("fronted broker source without override_dns is unusable in VPN mode")?;
+            // bypasses the tunnel. Sources without fixed `override_dns` addresses
+            // resolve the front on demand over the physical NIC's own DNS servers
+            // (never `getaddrinfo`, which would route into the not-yet-established
+            // tunnel and hang) — this replaced the manager's ahead-of-time
+            // "pre-resolve" of fronts into `override_dns`.
+            let dests = match self.dns.clone() {
+                Some(dests) => dests,
+                None => {
+                    let url =
+                        reqwest::Url::parse(&self.url).context("unparseable broker front URL")?;
+                    let host = url
+                        .host_str()
+                        .context("broker front URL has no host")?
+                        .to_string();
+                    let port = url.port_or_known_default().unwrap_or(443);
+                    crate::china::resolve_a_physical(&host, port)
+                        .await
+                        .context("could not resolve broker front over the physical NIC")?
+                }
+            };
             if reqwest::Url::parse(&self.url).ok().and_then(|u| u.port()).is_some() {
                 tracing::warn!(
                     url = self.url,

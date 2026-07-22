@@ -6,15 +6,13 @@
 //! sibling `geph5-client` binary rather than re-executing itself.
 
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
-    sync::mpsc,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
 use anyhow::Context as _;
 use geph5_broker_protocol::{Credential, ExitConstraint};
 use geph5_misc_rpc::{
-    client_config::BrokerSource,
     client_control::ControlClient,
     manager_control::{ProxySettings, TunnelSettings},
 };
@@ -135,10 +133,7 @@ fn config_from_template() -> anyhow::Result<geph5_misc_rpc::client_config::Confi
 
 /// Config for the **tunnel** engine: the real, credentialed engine that brings up
 /// the proxy/tunnel. Only ever spawned while connected.
-pub(crate) fn build_tunnel_config(
-    settings: &Settings,
-    pre_resolve_broker_fronts: bool,
-) -> anyhow::Result<String> {
+pub(crate) fn build_tunnel_config(settings: &Settings) -> anyhow::Result<String> {
     let mut cfg = config_from_template()?;
     cfg.credentials = Credential::Secret(settings.secret.clone().unwrap_or_default());
     cfg.exit_constraint = settings.exit_constraint.clone();
@@ -151,16 +146,12 @@ pub(crate) fn build_tunnel_config(
     platform::configure_engine_control(&mut cfg, EngineRole::Tunnel);
     match &settings.proxy {
         Some(p) => {
-            let ip: IpAddr = if p.listen_all {
-                Ipv4Addr::UNSPECIFIED.into()
-            } else {
-                Ipv4Addr::LOCALHOST.into()
-            };
-            cfg.socks5_listen = Some(SocketAddr::new(ip, p.socks5_port));
-            cfg.http_proxy_listen = Some(SocketAddr::new(ip, p.http_port));
+            let (socks5, http, pac) = proxy_listen_addrs(p);
+            cfg.socks5_listen = Some(socks5);
+            cfg.http_proxy_listen = Some(http);
             // PAC is always up alongside the proxies so autoconf can be toggled
             // live without a child restart.
-            cfg.pac_listen = Some(PAC_ADDR);
+            cfg.pac_listen = Some(pac);
         }
         None => {
             // Local proxy off: the engine binds no ports at all.
@@ -176,125 +167,124 @@ pub(crate) fn build_tunnel_config(
     let secret = settings.secret.as_deref().unwrap_or_default();
     let cache_tag = blake3::hash(secret.as_bytes()).to_hex();
     cfg.cache = Some(platform::cache_dir().join(format!("db-{cache_tag}")));
-    if pre_resolve_broker_fronts && let Some(broker) = cfg.broker.as_mut() {
-        pre_resolve_fronted_broker_sources(broker);
-    }
     let val = serde_json::to_value(&cfg).context("could not serialize child config")?;
     serde_yaml::to_string(&val).context("could not serialize child config")
 }
 
-fn pre_resolve_fronted_broker_sources(source: &mut BrokerSource) {
-    match source {
-        BrokerSource::Fronted {
-            front,
-            override_dns,
-            ..
-        } if override_dns.is_none() => match resolve_front_override_dns(front) {
-            Ok(addrs) => {
-                tracing::info!(
-                    front = %front,
-                    addr_count = addrs.len(),
-                    "pre-resolved fronted broker source for VPN bootstrap"
-                );
-                *override_dns = Some(addrs);
-            }
-            Err(err) => {
-                tracing::warn!(
-                    front = %front,
-                    err = %err,
-                    "could not pre-resolve fronted broker source for VPN bootstrap"
-                );
-            }
-        },
-        BrokerSource::Race(sources) => {
-            for source in sources {
-                pre_resolve_fronted_broker_sources(source);
-            }
-        }
-        BrokerSource::PriorityRace(sources) => {
-            for source in sources.values_mut() {
-                pre_resolve_fronted_broker_sources(source);
-            }
-        }
-        _ => {}
-    }
+/// The listen addresses the tunnel engine binds for these proxy settings.
+fn proxy_listen_addrs(p: &ProxySettings) -> (SocketAddr, SocketAddr, SocketAddr) {
+    let ip: IpAddr = if p.listen_all {
+        Ipv4Addr::UNSPECIFIED.into()
+    } else {
+        Ipv4Addr::LOCALHOST.into()
+    };
+    (
+        SocketAddr::new(ip, p.socks5_port),
+        SocketAddr::new(ip, p.http_port),
+        PAC_ADDR,
+    )
 }
 
-/// How long we wait for the fronted-broker pre-resolve before giving up. This is
-/// only a best-effort optimization for VPN bootstrap (a failure/timeout leaves
-/// `override_dns = None` and the engine resolves the front itself), so we keep the
-/// budget tight: a healthy resolver answers in tens of milliseconds, and anything
-/// slower is not worth blocking the connect on.
-const FRONT_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
+/// How long the proxy-port pre-flight keeps retrying before declaring a
+/// conflict: long enough for the just-killed previous engine's listeners to
+/// disappear, short enough not to stall the connect flow noticeably.
+const PORT_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 
-fn resolve_front_override_dns(front: &str) -> anyhow::Result<Vec<SocketAddr>> {
-    let (host, port) = front_lookup_target(front)?;
-    // `getaddrinfo` (via `to_socket_addrs`) has no timeout and cannot be
-    // cancelled once it's blocking in the OS resolver. So run it on a detached
-    // thread and bound only our *wait* for it: on timeout we abandon the thread
-    // (it self-reaps when the resolver eventually returns) and report failure,
-    // which the caller already treats as "leave override_dns unset".
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(
-            (host.as_str(), port)
-                .to_socket_addrs()
-                .map(|it| it.collect::<Vec<_>>())
-                .with_context(|| format!("could not resolve {host}:{port}")),
+/// Verify that the proxy ports the tunnel engine is about to bind are free.
+///
+/// The engine races all its subsystems, so a single failed proxy-port bind
+/// kills the whole child and surfaces only as an opaque "engine never became
+/// reachable" timeout. Checking here instead lets the error name the port and,
+/// where possible, the process holding it. Test-binds use the same
+/// `sillad::tcp::TcpListener` the engine uses, so bind semantics (SO_REUSEADDR
+/// etc.) match exactly.
+pub async fn ensure_proxy_ports_free(proxy: &ProxySettings) -> anyhow::Result<()> {
+    let (socks5, http, pac) = proxy_listen_addrs(proxy);
+    ensure_ports_free(&[socks5, http, pac], PORT_PREFLIGHT_TIMEOUT).await
+}
+
+async fn ensure_ports_free(addrs: &[SocketAddr], timeout: Duration) -> anyhow::Result<()> {
+    let start = std::time::Instant::now();
+    loop {
+        let mut conflict = None;
+        for addr in addrs {
+            if let Err(err) = sillad::tcp::TcpListener::bind(*addr).await {
+                conflict = Some((*addr, err));
+                break;
+            }
+        }
+        let Some((addr, err)) = conflict else {
+            return Ok(());
+        };
+        if start.elapsed() < timeout {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            continue;
+        }
+        let port = addr.port();
+        let holder = geph5_rt::spawn_blocking(move || port_holder(port))
+            .await
+            .map(|h| format!(" by {h}"))
+            .unwrap_or_default();
+        anyhow::bail!(
+            "local proxy port {addr} is already taken{holder} ({err}); close the program using it (an older Geph still running?) or change the proxy ports in settings"
         );
-    });
-    let resolved = rx
-        .recv_timeout(FRONT_RESOLVE_TIMEOUT)
-        .context("front DNS pre-resolve timed out")??;
-    let mut addrs = Vec::new();
-    for addr in resolved {
-        if !addrs.contains(&addr) {
-            addrs.push(addr);
-        }
     }
-    if addrs.is_empty() {
-        anyhow::bail!("front resolved to no socket addresses");
-    }
-    Ok(addrs)
 }
 
-fn front_lookup_target(front: &str) -> anyhow::Result<(String, u16)> {
-    let url = url::Url::parse(front).context("front is not a valid URL")?;
-    let host = url
-        .host_str()
-        .context("front URL has no hostname")?
-        .to_string();
-    let port = url
-        .port_or_known_default()
-        .context("front URL has no explicit or scheme-default port")?;
-    Ok((host, port))
+/// Best-effort lookup of the process listening on `port`, via lsof.
+#[cfg(unix)]
+fn port_holder(port: u16) -> Option<String> {
+    let output = std::process::Command::new("lsof")
+        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fcp"])
+        .output()
+        .ok()?;
+    // -F output is one field per line: `p<pid>` then `c<command>`.
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut pid = None;
+    let mut cmd = None;
+    for line in text.lines() {
+        match line.as_bytes().first() {
+            Some(b'p') if pid.is_none() => pid = Some(line[1..].to_string()),
+            Some(b'c') if cmd.is_none() => cmd = Some(line[1..].to_string()),
+            _ => {}
+        }
+    }
+    Some(format!("{} (pid {})", cmd?, pid?))
+}
+
+#[cfg(not(unix))]
+fn port_holder(_port: u16) -> Option<String> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Settings, build_tunnel_config, front_lookup_target};
+    use super::{Settings, build_tunnel_config, ensure_ports_free};
     use geph5_broker_protocol::ExitConstraint;
     use geph5_misc_rpc::manager_control::{ProxySettings, TunnelSettings};
+    use std::time::Duration;
 
     #[test]
-    fn front_lookup_target_uses_https_default_port() {
-        assert_eq!(
-            front_lookup_target("https://www.cdn77.com/").unwrap(),
-            ("www.cdn77.com".to_string(), 443)
-        );
+    fn ports_free_passes_on_unused_ports() {
+        // Grab ephemeral ports, then release them so the pre-flight sees them free.
+        let addrs: Vec<_> = (0..2)
+            .map(|_| {
+                std::net::TcpListener::bind("127.0.0.1:0")
+                    .unwrap()
+                    .local_addr()
+                    .unwrap()
+            })
+            .collect();
+        geph5_rt::block_on(ensure_ports_free(&addrs, Duration::from_millis(100))).unwrap();
     }
 
     #[test]
-    fn front_lookup_target_preserves_explicit_port() {
-        assert_eq!(
-            front_lookup_target("http://example.com:8080/path").unwrap(),
-            ("example.com".to_string(), 8080)
-        );
-    }
-
-    #[test]
-    fn front_lookup_target_rejects_urls_without_socket_target() {
-        assert!(front_lookup_target("file:///tmp/front").is_err());
+    fn ports_free_names_the_conflicting_port() {
+        let holder = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let taken = holder.local_addr().unwrap();
+        let err = geph5_rt::block_on(ensure_ports_free(&[taken], Duration::from_millis(100)))
+            .unwrap_err();
+        assert!(err.to_string().contains(&taken.to_string()), "{err}");
     }
 
     #[test]
@@ -335,7 +325,7 @@ mod tests {
             ..Settings::default()
         };
 
-        let yaml = build_tunnel_config(&settings, false).unwrap();
+        let yaml = build_tunnel_config(&settings).unwrap();
         let value: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
         let config: geph5_misc_rpc::client_config::Config = serde_json::from_value(value).unwrap();
         assert!(!config.allow_lan);
@@ -376,6 +366,7 @@ pub fn spawn_tunnel(
     service_user: Option<(u32, u32)>,
     packet_mode: PacketMode,
     bind_indices: Option<(u32, u32)>,
+    phys_dns: Vec<std::net::IpAddr>,
 ) -> anyhow::Result<SpawnedEngine> {
     let config_path = write_engine_config("child-config.yaml", config_yaml)?;
     platform::spawn_engine(EngineLaunch {
@@ -384,6 +375,7 @@ pub fn spawn_tunnel(
         service_user,
         packet_mode,
         bind_indices,
+        phys_dns,
     })
 }
 
@@ -399,6 +391,9 @@ pub fn spawn_query(service_user: Option<(u32, u32)>) -> anyhow::Result<std::proc
         service_user,
         packet_mode: PacketMode::None,
         bind_indices: None,
+        // The query engine is not physical-NIC-bound (it tunnels its broker calls
+        // through the active tunnel), so it needs no physical resolvers.
+        phys_dns: Vec::new(),
     })?;
     match spawned.transport {
         platform::ChildTransport::None => Ok(spawned.child),
@@ -445,17 +440,29 @@ pub fn query_control() -> ControlClient {
 }
 
 /// Wait until the given engine's control protocol answers, up to `timeout`.
-pub async fn wait_control_ready(client: &ControlClient, timeout: Duration) -> anyhow::Result<()> {
+/// Fails fast, with the exit status, if the engine process dies first.
+pub async fn wait_control_ready(
+    child: &mut std::process::Child,
+    client: &ControlClient,
+    timeout: Duration,
+) -> anyhow::Result<()> {
     let deadline = Duration::from_millis(100);
     let start = std::time::Instant::now();
     loop {
         // start_time() is a cheap, always-available control method.
         match client.start_time().await {
             Ok(_) => return Ok(()),
-            Err(_) if start.elapsed() < timeout => {
+            Err(e) => {
+                if let Ok(Some(status)) = child.try_wait() {
+                    anyhow::bail!(
+                        "engine exited during startup ({status}); see the manager log for the engine's own error"
+                    );
+                }
+                if start.elapsed() >= timeout {
+                    anyhow::bail!("engine never became reachable: {e:?}");
+                }
                 tokio::time::sleep(deadline).await;
             }
-            Err(e) => anyhow::bail!("engine never became reachable: {e:?}"),
         }
     }
 }

@@ -51,19 +51,21 @@ pub fn is_chinese_host(host: &str) -> bool {
     false
 }
 
-/// AliDNS public resolver (anycast).
+/// AliDNS public resolver (anycast). Last-resort fallback only: used when the
+/// manager provided no physical resolvers (`GEPH_PHYS_DNS` unset, e.g. Linux).
 const ALIDNS: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(223, 5, 5, 5), 53));
 
-/// Resolve a Chinese domain by querying AliDNS directly over a UDP socket pinned
-/// to the physical interface, bypassing the system resolver entirely.
+/// Resolve a Chinese domain directly over a UDP socket pinned to the physical
+/// interface, bypassing the system resolver entirely: the physical NIC's own
+/// DHCP/ISP resolvers first (no hardcoded third-party resolver contacted when the
+/// manager provided them), falling back to AliDNS only when none are available.
 ///
 /// Exists because in full-tunnel VPN mode with `spoof_dns` on, the system
 /// resolver's only reachable upstream is our own fake-DNS responder (the kill
 /// switch's DNS-leak guard blocks every other resolver path), so
 /// `tokio::net::lookup_host` on the china-passthrough path would hand back a
-/// fake-pool address and the "direct" dial would blackhole. Querying a Chinese
-/// public resolver also gives the China-side geo-DNS answer the passthrough
-/// wants, rather than the exit-side view.
+/// fake-pool address and the "direct" dial would blackhole. For a user in China
+/// the ISP resolver *is* the China-side geo-DNS view the passthrough wants.
 ///
 /// A records only: the passthrough dials whatever this returns, every Chinese
 /// site is v4-reachable, and a v4-pinned socket is the one interface binding we
@@ -76,7 +78,16 @@ pub async fn resolve_via_alidns(host: &str, port: u16) -> anyhow::Result<Vec<Soc
             .build()
     });
     let ips = CACHE
-        .try_get_with(host.to_string(), query_alidns_a(host))
+        .try_get_with(host.to_string(), async {
+            for &resolver in crate::bound_dialer::physical_dns_servers() {
+                if let Ok(ips) = query_a(resolver, host).await
+                    && !ips.is_empty()
+                {
+                    return anyhow::Ok(ips);
+                }
+            }
+            query_a(ALIDNS, host).await
+        })
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
     Ok(ips
@@ -85,10 +96,38 @@ pub async fn resolve_via_alidns(host: &str, port: u16) -> anyhow::Result<Vec<Soc
         .collect())
 }
 
-async fn query_alidns_a(host: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
+/// Resolve `host` to A records by querying the physical NIC's own DNS servers
+/// (from `GEPH_PHYS_DNS`, set by the manager) directly over a physical-NIC-pinned
+/// UDP socket, trying each until one answers. Never touches the OS resolver, so it
+/// works while the tun owns the default route — during a reconnect the tun's DNS
+/// sentinel is not yet carrying traffic and `getaddrinfo` would hang ~10s. Returns
+/// `SocketAddr`s at `port`. Errors if no physical DNS server is available.
+pub async fn resolve_a_physical(host: &str, port: u16) -> anyhow::Result<Vec<SocketAddr>> {
+    let servers = crate::bound_dialer::physical_dns_servers();
+    anyhow::ensure!(
+        !servers.is_empty(),
+        "no physical DNS servers available (GEPH_PHYS_DNS unset/empty)"
+    );
+    let mut last_err = anyhow::anyhow!("no physical DNS servers to try");
+    for &resolver in servers {
+        match query_a(resolver, host).await {
+            Ok(ips) if !ips.is_empty() => {
+                return Ok(ips
+                    .into_iter()
+                    .map(|ip| SocketAddr::new(IpAddr::V4(ip), port))
+                    .collect());
+            }
+            Ok(_) => last_err = anyhow::anyhow!("empty answer from {resolver} for {host}"),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+async fn query_a(resolver: SocketAddr, host: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
     let socket = crate::bound_dialer::udp_socket_v4().await?;
     // Connecting the socket makes the OS discard responses from anyone else.
-    socket.connect(ALIDNS).await?;
+    socket.connect(resolver).await?;
     let query_id: u16 = rand::random();
     let mut query = Packet::new_query(query_id);
     query.set_flags(PacketFlag::RECURSION_DESIRED);
@@ -136,8 +175,8 @@ async fn query_alidns_a(host: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
     let ips = recv_valid
         .timeout(Duration::from_secs(3))
         .await
-        .ok_or_else(|| anyhow::anyhow!("no answer from alidns for {host}"))?;
-    tracing::debug!(host, ips = debug(&ips), "resolved directly via alidns");
+        .ok_or_else(|| anyhow::anyhow!("no answer from {resolver} for {host}"))?;
+    tracing::debug!(host, %resolver, ips = debug(&ips), "resolved directly over physical NIC");
     Ok(ips)
 }
 

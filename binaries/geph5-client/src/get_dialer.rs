@@ -101,8 +101,18 @@ pub async fn get_dialer(
             .context("could not get connect token")?;
 
         let start = Instant::now();
-        let metadata = match get_device_metadata(ctx).await {
-            Ok(metadata) => {
+        // `get_device_metadata` fetches the device's public IP (for the broker's
+        // ASN/country bridge tuning). In full-tunnel VPN mode it now resolves
+        // checkip over the physical NIC's own DNS servers (see
+        // `device_metadata`/`china::resolve_a_physical`), so it succeeds fast even
+        // mid-reconnect and is cached per day — no more ~10s `getaddrinfo` hang.
+        // The timeout is only a backstop; on any miss we still send at least the
+        // `version` (which independently gates a bridge route), never bare null, so
+        // a momentary IP miss doesn't also drop the version.
+        const METADATA_BUDGET: Duration = Duration::from_secs(2);
+        let version_only = || serde_json::json!({ "version": env!("CARGO_PKG_VERSION") });
+        let metadata = match tokio::time::timeout(METADATA_BUDGET, get_device_metadata(ctx)).await {
+            Ok(Ok(metadata)) => {
                 tracing::debug!(
                     metadata = debug(&metadata),
                     elapsed = debug(start.elapsed()),
@@ -110,12 +120,19 @@ pub async fn get_dialer(
                 );
                 serde_json::to_value(&metadata)?
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 tracing::warn!(
                     err = debug(err),
-                    "CANNOT GET DEVICE METADATA, PROCEEDING NONETHELESS"
+                    "could not get device metadata, proceeding with version only"
                 );
-                serde_json::Value::Null
+                version_only()
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    budget = debug(METADATA_BUDGET),
+                    "device metadata timed out, proceeding with version only"
+                );
+                version_only()
             }
         };
 

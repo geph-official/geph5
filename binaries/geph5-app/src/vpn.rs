@@ -157,6 +157,28 @@ impl Vpn {
         }
     }
 
+    /// The physical NIC's own DNS resolvers, for the engine to resolve over the
+    /// physical interface (via `GEPH_PHYS_DNS`) instead of the tun sentinel. Empty
+    /// off-VPN, on Linux (engine bypasses the tun by uid; system DNS is physical),
+    /// or when they can't be determined.
+    pub(crate) fn phys_dns(&self, want_vpn: bool) -> Vec<std::net::IpAddr> {
+        if !want_vpn {
+            return Vec::new();
+        }
+        let Some(handle) = self.handle.as_ref() else {
+            return Vec::new();
+        };
+        #[cfg(target_os = "linux")]
+        {
+            let _ = handle;
+            Vec::new()
+        }
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            handle.phys_dns()
+        }
+    }
+
     pub(crate) fn attach_transport(
         &mut self,
         want_vpn: bool,
