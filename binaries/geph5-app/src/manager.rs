@@ -172,8 +172,16 @@ impl ManagerImpl {
         inner.vpn.stop_transport();
 
         if !inner.settings.connected {
-            reconcile_system_proxy(inner).await?;
+            // Fail-closed teardown must be unconditional and come first. Tear the
+            // VPN kill switch (and routes/DNS) down before the fallible, possibly
+            // hanging system-proxy restore — the proxy step does a
+            // CreateProcessAsUserW into the console session and an unbounded wait,
+            // so ordering it ahead of cleanup (with `?`) could return early and
+            // strand the machine behind a default-block filter with no engine to
+            // carry traffic. This mirrors `shutdown_teardown`'s ordering; the tunnel
+            // child is already dead by here, so the kill switch has nothing to guard.
             inner.vpn.cleanup();
+            reconcile_system_proxy(inner).await?;
             return Ok(());
         }
 

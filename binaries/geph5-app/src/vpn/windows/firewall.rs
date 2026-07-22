@@ -31,6 +31,7 @@
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
+use anyhow::Context;
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::NetworkManagement::WindowsFilteringPlatform::*;
 use windows_sys::Win32::System::Rpc::RPC_C_AUTHN_WINNT;
@@ -174,34 +175,96 @@ impl Firewall for WfpKillSwitch {
     fn remove(&mut self) {
         if self.installed {
             // Non-dynamic filters do not vanish when a handle closes; delete our
-            // sublayer (and every filter under it) explicitly.
-            purge_stale();
+            // sublayer (and every filter under it) explicitly. Retry a few times:
+            // a transient BFE/RPC failure here would otherwise leave the machine
+            // fail-closed (blackholed) with no engine left to carry traffic.
+            let mut last_err = None;
+            for attempt in 1..=3 {
+                match purge_stale() {
+                    Ok(()) => {
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(attempt, err = %e, "kill switch removal attempt failed");
+                        last_err = Some(e);
+                    }
+                }
+            }
+            match last_err {
+                None => tracing::info!("WFP kill switch removed"),
+                // Loud, not silent: this is exactly the state that presents to the
+                // user as "no internet after disconnect". The startup purge
+                // (`cleanup_stale`) is the backstop; a reboot clears it regardless.
+                Some(e) => tracing::error!(
+                    err = %e,
+                    "WFP kill switch removal FAILED; network may be blackholed until \
+                     the manager restarts (startup purge) or the machine reboots"
+                ),
+            }
+            // The VpnHandle (and this struct) is dropped by the caller regardless,
+            // so there is no in-session retry beyond the loop above; clear the flag.
             self.installed = false;
-            tracing::info!("WFP kill switch removed");
         }
     }
 }
 
-/// Best-effort removal of a leftover sublayer (and its filters) from a previous
-/// run that did not clean up — e.g. a future build that used a *persistent*
-/// session. A dynamic session is already gone once its owner dies, so this is
-/// usually a no-op; failures (most commonly "not found") are ignored.
-pub(super) fn purge_stale() {
-    let engine = match open_engine() {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+/// Delete our sublayer (and every filter under it) from BFE. This is the
+/// *primary* removal path for the non-dynamic kill switch — `remove` calls it on
+/// disconnect, and `cleanup_stale` calls it at startup to clear filters a crashed
+/// or force-terminated manager left behind. Non-dynamic filters persist until
+/// deleted explicitly or the machine reboots, so this is not a no-op.
+///
+/// Returns `Err` if the engine cannot be opened, enumeration fails, or — as a
+/// post-condition — any owned filter still remains after deletion (e.g. a sublayer
+/// that stayed "in use"). Silently swallowing that failure is what leaves the
+/// machine blackholed behind a default-block filter while reporting a clean
+/// disconnect, so callers must surface (log/propagate) the result.
+pub(super) fn purge_stale() -> anyhow::Result<()> {
+    let engine = open_engine().context("purge_stale: open engine")?;
+    let result = purge_owned(engine);
+    unsafe { FwpmEngineClose0(engine) };
+    result
+}
+
+/// Delete every owned filter, then the sublayer, then verify none remain. Runs on
+/// an already-open `engine`; the caller closes it.
+fn purge_owned(engine: HANDLE) -> anyhow::Result<()> {
     // A sublayer cannot be deleted while filters still reference it. Enumerate
     // both ALE layers and remove only filters carrying our unique sublayer key.
-    unsafe {
-        if let Ok(ids) = owned_filter_ids(engine) {
-            for id in ids {
-                let _ = FwpmFilterDeleteById0(engine, id);
-            }
+    let ids = owned_filter_ids(engine).context("enumerate owned filters")?;
+    let mut errors: Vec<String> = Vec::new();
+    for id in ids {
+        if let Err(e) = check(
+            unsafe { FwpmFilterDeleteById0(engine, id) },
+            "FwpmFilterDeleteById0",
+        ) {
+            errors.push(e.to_string());
         }
-        let _ = FwpmSubLayerDeleteByKey0(engine, &SUBLAYER_KEY);
-        FwpmEngineClose0(engine);
     }
+    // A missing sublayer (nothing was installed / already removed) reports
+    // "not found" here; that is fine as long as the post-condition below holds.
+    if let Err(e) = check(
+        unsafe { FwpmSubLayerDeleteByKey0(engine, &SUBLAYER_KEY) },
+        "FwpmSubLayerDeleteByKey0",
+    ) {
+        errors.push(e.to_string());
+    }
+    // Post-condition: nothing we own may remain. This turns a silent "in use"
+    // failure into a real error instead of a false success.
+    let remaining = owned_filter_ids(engine).context("re-enumerate after purge")?;
+    if !remaining.is_empty() {
+        anyhow::bail!(
+            "{} kill-switch filter(s) still installed after purge{}",
+            remaining.len(),
+            if errors.is_empty() {
+                String::new()
+            } else {
+                format!(" (delete errors: {})", errors.join("; "))
+            }
+        );
+    }
+    Ok(())
 }
 
 fn owned_filter_ids(engine: HANDLE) -> anyhow::Result<Vec<u64>> {

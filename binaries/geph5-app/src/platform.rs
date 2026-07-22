@@ -362,7 +362,7 @@ mod linux {
 mod windows {
     use anyhow::bail;
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE,
+        CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE, WAIT_OBJECT_0,
     };
     use windows_sys::Win32::Networking::WinInet::{
         INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED, InternetSetOptionW,
@@ -376,7 +376,7 @@ mod windows {
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CreateProcessAsUserW, GetExitCodeProcess, PROCESS_INFORMATION,
-        STARTUPINFOW, WaitForSingleObject,
+        STARTUPINFOW, TerminateProcess, WaitForSingleObject,
     };
 
     use geph5_misc_rpc::manager_control::SessionContext;
@@ -404,7 +404,17 @@ mod windows {
         let session_id = unsafe { WTSGetActiveConsoleSessionId() };
         // 0xFFFFFFFF: no session is currently attached to the physical console.
         if session_id == u32::MAX {
-            tracing::debug!("no active console session; skipping system proxy config");
+            // Skipping a *clear* (disconnect) leaves a stale AutoConfigURL pointing
+            // at the now-dead PAC port, so make that visible; skipping a *set*
+            // (connect) is benign.
+            if connected {
+                tracing::debug!("no active console session; skipping system proxy config");
+            } else {
+                tracing::warn!(
+                    "no active console session on disconnect; leaving system proxy (PAC) \
+                     unchanged — browsers may use a stale PAC until the next login/connect"
+                );
+            }
             return Ok(());
         }
 
@@ -413,10 +423,16 @@ mod windows {
         // user (e.g. the login screen), so we skip rather than fail.
         let mut token: HANDLE = std::ptr::null_mut();
         if unsafe { WTSQueryUserToken(session_id, &mut token) } == 0 {
-            tracing::debug!(
-                err = %std::io::Error::last_os_error(),
-                "no interactive user token; skipping system proxy config"
-            );
+            let err = std::io::Error::last_os_error();
+            if connected {
+                tracing::debug!(%err, "no interactive user token; skipping system proxy config");
+            } else {
+                tracing::warn!(
+                    %err,
+                    "no interactive user token on disconnect; leaving system proxy (PAC) \
+                     unchanged — browsers may use a stale PAC until the next login/connect"
+                );
+            }
             return Ok(());
         }
 
@@ -470,7 +486,19 @@ mod windows {
             }
 
             CloseHandle(pi.hThread);
-            WaitForSingleObject(pi.hProcess, u32::MAX);
+            // Bound the wait: this child is a SYSTEM-spawns-into-user-session
+            // process (the pattern AV/EDR loves to block or stall), and an
+            // unbounded wait would hang the entire disconnect behind it. Give it a
+            // finite window; if it doesn't exit, terminate it and fail cleanly.
+            // With the teardown reordered (kill switch removed before this runs),
+            // that failure no longer strands connectivity — it just surfaces a
+            // proxy-clear error instead of hanging the GUI forever.
+            const APPLY_PROXY_TIMEOUT_MS: u32 = 10_000;
+            if WaitForSingleObject(pi.hProcess, APPLY_PROXY_TIMEOUT_MS) != WAIT_OBJECT_0 {
+                let _ = TerminateProcess(pi.hProcess, 1);
+                CloseHandle(pi.hProcess);
+                bail!("__apply-proxy child did not exit within {APPLY_PROXY_TIMEOUT_MS} ms; terminated");
+            }
             let mut code: u32 = 0;
             GetExitCodeProcess(pi.hProcess, &mut code);
             CloseHandle(pi.hProcess);
@@ -1280,8 +1308,18 @@ pub(crate) fn unregister_manager() -> anyhow::Result<()> {
     #[cfg(target_os = "windows")]
     {
         const NAME: &str = "Geph Manager";
+        // `schtasks /End` is a TerminateProcess: no CTRL_C reaches the manager, so
+        // its graceful `shutdown_teardown` never runs and the non-dynamic WFP kill
+        // switch (plus routes/DNS) is left stranded. `/Delete` then removes the task
+        // itself, so the usual restart-time backstop (`cleanup_stale`) never runs
+        // either — the host would stay blackholed until reboot. This process is
+        // separate from the manager and the WFP objects survive its death, so purge
+        // them here directly. (Intercepting TerminateProcess is impossible by
+        // design; the installer's *upgrade* path is instead covered by the new
+        // manager's own startup `cleanup_stale`.)
         let _ = run_status("schtasks", &["/End", "/TN", NAME]);
         let _ = run_status("schtasks", &["/Delete", "/TN", NAME, "/F"]);
+        crate::vpn::cleanup_stale();
         println!("Unregistered the \"{NAME}\" scheduled task.");
         Ok(())
     }
