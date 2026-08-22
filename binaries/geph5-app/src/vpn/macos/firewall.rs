@@ -106,10 +106,12 @@ pub fn apply(utun: &str, uid: u32, allow_lan: bool) -> anyhow::Result<PfState> {
     if allow_lan {
         for net in LAN_NETS {
             let net: IpNetwork = net.parse().expect("static LAN net");
+            // No direction qualifier: a LAN peer's inbound SYN must match here
+            // and create state, or the listener's SYN-ACK (outbound, but not a
+            // pure SYN) would fall through to the final block (#158).
             rules.push(
                 FilterRuleBuilder::default()
                     .action(FilterRuleAction::Pass)
-                    .direction(Direction::Out)
                     .quick(true)
                     .to(pfctl::Ip::from(net))
                     .keep_state(StatePolicy::Keep)
