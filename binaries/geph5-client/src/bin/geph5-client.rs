@@ -8,6 +8,9 @@ use bytes::Bytes;
 use clap::Parser;
 use geph5_client::{Client, Config};
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 /// Run the Geph5 client.
 #[derive(Parser)]
 struct CliArgs {
