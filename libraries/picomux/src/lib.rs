@@ -37,7 +37,6 @@ use tap::Tap;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 
 use crate::frame::{Header, PingInfo};
-pub use buffer_table::{GlobalBufferTableStats, global_buffer_table_stats};
 
 const INIT_WINDOW: usize = 10;
 const MAX_WINDOW: usize = 1500;
@@ -205,11 +204,6 @@ async fn picomux_inner(
     let outgoing = Outgoing::new(write);
     let (send_pong, recv_pong) = async_channel::unbounded();
     let buffer_table = BufferTable::new();
-    // DIAG: counts frames pulled off the wire by the read loop.
-    let frames_recv = Arc::new(AtomicU64::new(0));
-    // DIAG: ping/pong accounting to detect missing pongs.
-    let pings_sent = Arc::new(AtomicU64::new(0));
-    let pongs_recv = Arc::new(AtomicU64::new(0));
 
     let create_stream = |stream_id, metadata: Bytes| {
         let mut buffer_recv = buffer_table.create_entry(stream_id);
@@ -379,7 +373,6 @@ async fn picomux_inner(
             };
             if let Ok(info) = (tick, recv_liveness.recv()).race().await {
                 lc = Some(info);
-                pings_sent.fetch_add(1, Ordering::Relaxed);
                 let ping_body = serde_json::to_vec(&PingInfo {
                     next_ping_in_ms: info.ping_interval.as_millis() as _,
                 })
@@ -394,22 +387,7 @@ async fn picomux_inner(
                     body: ping_body.into(),
                 });
                 let start = Instant::now();
-                let q_before = outgoing.queue_len();
-                let w_before = outgoing.written();
-                let recv_before = frames_recv.load(Ordering::Relaxed);
                 if recv_pong.recv().timeout(info.timeout).await.is_none() {
-                    tracing::warn!(
-                        q_before,
-                        q_now = outgoing.queue_len(),
-                        w_before,
-                        w_now = outgoing.written(),
-                        in_write = outgoing.in_write(),
-                        recv_before,
-                        recv_now = frames_recv.load(Ordering::Relaxed),
-                        pings_sent = pings_sent.load(Ordering::Relaxed),
-                        pongs_recv = pongs_recv.load(Ordering::Relaxed),
-                        "PINGPONG-TIMEOUT-DIAG"
-                    );
                     return Err(std::io::Error::new(
                         ErrorKind::TimedOut,
                         "ping-pong timed out",
@@ -426,7 +404,6 @@ async fn picomux_inner(
     let read_loop = async {
         loop {
             let frame = Frame::read(&mut inner_read).await?;
-            frames_recv.fetch_add(1, Ordering::Relaxed);
             let stream_id = frame.header.stream_id;
             tracing::trace!(
                 command = frame.header.command,
@@ -484,7 +461,6 @@ async fn picomux_inner(
                     outgoing.enqueue(Frame::new_empty(0, CMD_PONG))
                 }
                 CMD_PONG => {
-                    pongs_recv.fetch_add(1, Ordering::Relaxed);
                     let _ = send_pong.send(()).await;
                 }
                 other => {
@@ -500,9 +476,6 @@ async fn picomux_inner(
     if let Err(e) = &result {
         tracing::warn!(
             err = %e,
-            frames_recv = frames_recv.load(Ordering::Relaxed),
-            pings_sent = pings_sent.load(Ordering::Relaxed),
-            pongs_recv = pongs_recv.load(Ordering::Relaxed),
             "MUX-DIED"
         );
     }

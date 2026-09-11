@@ -914,6 +914,14 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn delete_account(&self, secret: String) -> Result<(), GenericError> {
+        // Temporary kill switch; re-enable once account deletion can resume.
+        const ACCOUNT_DELETION_ENABLED: bool = false;
+        if !ACCOUNT_DELETION_ENABLED {
+            return Err(GenericError(
+                "Account deletion is temporarily disabled".to_string(),
+            ));
+        }
+
         // validate secret; get user_id
         let user_id = validate_secret(&secret).await?;
         // cancel stripe

@@ -101,6 +101,7 @@ impl BwAccount {
     /// simply submit another token), but the loop lives on.
     pub async fn credit_bw(&self, token: ClientToken, sig: SingleUnblindedSignature) {
         if let Some(broker) = &CONFIG_FILE.wait().broker {
+            let client = BrokerClient(BrokerRpcTransport::new(&broker.url));
             let mut delay = Duration::from_secs(1);
             // Whether an earlier attempt reached the broker ambiguously: a
             // transport error or timeout that may have committed the spend on
@@ -112,8 +113,6 @@ impl BwAccount {
             // Without this, every lost response silently burns a paid token.
             let mut ambiguous_prior = false;
             for attempt in 0..4 {
-                let transport = BrokerRpcTransport::new(&broker.url);
-                let client = BrokerClient(transport);
                 match client.consume_bw_token(token, sig.clone()).await {
                     Ok(Ok(())) => break,
                     Ok(Err(err)) => {

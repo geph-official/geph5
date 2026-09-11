@@ -7,11 +7,11 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-async-trait = "0.1.89"
+async-trait = "0.1.92"
 geph5-rt = { version = "0.3", path = "../geph5-rt" }
 sillad = { version = "0.3", path = "../sillad" }
 native-tls={version="0.2.18", features=["vendored"]}
 tokio-native-tls = "0.3.1"
-tokio = { version = "1.52", features = ["io-util"] }
+tokio = { version = "1.53", features = ["io-util"] }
 tracing = "0.1.44"
 tachyonix = "0.3.1"

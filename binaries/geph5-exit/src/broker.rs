@@ -36,13 +36,18 @@ pub struct BrokerRpcTransport {
 
 impl BrokerRpcTransport {
     pub fn new(url: &str) -> Self {
-        Self {
-            url: url.to_string(),
-            client: reqwest::ClientBuilder::new()
+        // Client clones share the connection pool, including across bandwidth
+        // token redemptions and retries. Pools are separated by destination.
+        static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+            reqwest::ClientBuilder::new()
                 .timeout(Duration::from_secs(10))
                 .http1_only()
                 .build()
-                .unwrap(),
+                .unwrap()
+        });
+        Self {
+            url: url.to_string(),
+            client: CLIENT.clone(),
         }
     }
 }

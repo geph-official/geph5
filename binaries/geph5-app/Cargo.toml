@@ -19,17 +19,17 @@ nanorpc = "0.1.13"
 nanorpc-sillad = { version = "0.2", path = "../../libraries/nanorpc-sillad" }
 sillad = { version = "0.3", path = "../../libraries/sillad" }
 
-anyhow = "1.0.102"
-async-trait = "0.1.89"
-blake3 = "1.8.5"
-clap = { version = "4.6.1", features = ["derive"] }
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+blake3 = "1.8.7"
+clap = { version = "4.6.6", features = ["derive"] }
 isocountry = "0.3.2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 scopeguard = "1.2.0"
 thiserror = "1.0.69"
-tokio = { version = "1.52", features = ["sync", "signal", "macros"] }
+tokio = { version = "1.53", features = ["sync", "signal", "macros"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 url = "2"

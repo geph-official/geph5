@@ -1,16 +1,11 @@
 use std::{
-    collections::HashMap,
-    hash::BuildHasherDefault,
-    sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use ahash::AHasher;
-use dashmap::DashMap;
+use ahash::AHashMap;
 use futures_intrusive::sync::SharedSemaphore;
+use parking_lot::RwLock;
 
 use crate::{INIT_WINDOW, MAX_WINDOW, frame::Frame};
 
@@ -18,71 +13,8 @@ const STREAM_ID_TOMBSTONE_TTL: Duration = Duration::from_secs(3600);
 const TOMBSTONE_PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 
 #[allow(clippy::type_complexity)]
-type Inner = DashMap<
-    u32,
-    (async_channel::Sender<(Frame, Instant)>, SharedSemaphore),
-    BuildHasherDefault<AHasher>,
->;
-type Tombstones = DashMap<u32, Instant, BuildHasherDefault<AHasher>>;
-
-struct RegistryEntry {
-    inner: Weak<Inner>,
-    tombstones: Weak<Tombstones>,
-}
-
-/// Registry of live buffer tables, keyed by a unique table id so an entry can be
-/// removed the moment its table is gone. Previously this was an append-only `Vec`
-/// pruned only inside `global_buffer_table_stats()`; a process that never called
-/// that (any client) leaked one entry per mux for its whole lifetime.
-static REGISTRY: OnceLock<Mutex<HashMap<u64, RegistryEntry>>> = OnceLock::new();
-static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(0);
-
-fn registry() -> &'static Mutex<HashMap<u64, RegistryEntry>> {
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Removes a table's registry entry when the last `BufferTable` clone is dropped.
-/// Held in an `Arc` inside `BufferTable`, so registration is reference-counted
-/// across clones and cleaned up deterministically rather than lazily.
-struct RegistrationGuard {
-    id: u64,
-}
-
-impl Drop for RegistrationGuard {
-    fn drop(&mut self) {
-        if let Some(reg) = REGISTRY.get() {
-            reg.lock().unwrap().remove(&self.id);
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GlobalBufferTableStats {
-    pub live_tables: usize,
-    pub active_streams: usize,
-    pub active_stream_capacity: usize,
-    pub tombstones: usize,
-    pub tombstone_capacity: usize,
-}
-
-pub fn global_buffer_table_stats() -> GlobalBufferTableStats {
-    let guard = registry().lock().unwrap();
-    let mut stats = GlobalBufferTableStats::default();
-    for entry in guard.values() {
-        // Entries are removed on table drop, so the weaks normally upgrade; skip
-        // any caught mid-drop rather than counting a dead table.
-        let (Some(inner), Some(tombstones)) = (entry.inner.upgrade(), entry.tombstones.upgrade())
-        else {
-            continue;
-        };
-        stats.live_tables += 1;
-        stats.active_streams += inner.len();
-        stats.active_stream_capacity += inner.capacity();
-        stats.tombstones += tombstones.len();
-        stats.tombstone_capacity += tombstones.capacity();
-    }
-    stats
-}
+type Inner = RwLock<AHashMap<u32, (async_channel::Sender<(Frame, Instant)>, SharedSemaphore)>>;
+type Tombstones = RwLock<AHashMap<u32, Instant>>;
 
 /// A table containing all the buffers for the streams within a mux.
 #[derive(Clone)]
@@ -90,38 +22,23 @@ pub struct BufferTable {
     inner: Arc<Inner>,
     tombstones: Arc<Tombstones>,
     next_prune: Arc<parking_lot::Mutex<Instant>>,
-    // Deregisters this table from REGISTRY when the last clone drops.
-    _registration: Arc<RegistrationGuard>,
 }
 
 impl BufferTable {
     pub fn new() -> Self {
-        let inner = Arc::new(DashMap::with_hasher(
-            BuildHasherDefault::<AHasher>::default(),
-        ));
-        let tombstones = Arc::new(DashMap::with_hasher(
-            BuildHasherDefault::<AHasher>::default(),
-        ));
-        let id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
-        registry().lock().unwrap().insert(
-            id,
-            RegistryEntry {
-                inner: Arc::downgrade(&inner),
-                tombstones: Arc::downgrade(&tombstones),
-            },
-        );
+        let inner = Arc::new(RwLock::new(AHashMap::default()));
+        let tombstones = Arc::new(RwLock::new(AHashMap::default()));
         Self {
             inner,
             tombstones,
             next_prune: Arc::new(parking_lot::Mutex::new(
                 Instant::now() + TOMBSTONE_PRUNE_INTERVAL,
             )),
-            _registration: Arc::new(RegistrationGuard { id }),
         }
     }
 
     pub fn contains_id(&self, id: u32) -> bool {
-        self.inner.contains_key(&id)
+        self.inner.read().contains_key(&id)
     }
 
     pub fn is_reserved(&self, id: u32) -> bool {
@@ -132,8 +49,10 @@ impl BufferTable {
     pub fn create_entry(&self, stream_id: u32) -> BufferReceive {
         let (send_incoming, recv_incoming) = async_channel::unbounded::<(Frame, Instant)>();
         let send_more = SharedSemaphore::new(false, INIT_WINDOW);
-        self.tombstones.remove(&stream_id);
-        self.inner.insert(stream_id, (send_incoming, send_more));
+        self.tombstones.write().remove(&stream_id);
+        self.inner
+            .write()
+            .insert(stream_id, (send_incoming, send_more));
         BufferReceive {
             id: stream_id,
             recv: recv_incoming,
@@ -146,25 +65,36 @@ impl BufferTable {
     }
 
     pub fn send_to(&self, stream_id: u32, frame: Frame) {
-        if let Some(inner) = self.inner.get(&stream_id) {
-            if inner.0.len() > MAX_WINDOW * 2 {
+        let sender = self
+            .inner
+            .read()
+            .get(&stream_id)
+            .map(|entry| entry.0.clone());
+        if let Some(sender) = sender {
+            if sender.len() > MAX_WINDOW * 2 {
                 tracing::warn!(
                     stream_id,
                     frame = debug(frame.header),
                     "individual buffer is full, so dropping message"
                 );
             } else {
-                let _ = inner.0.try_send((frame, Instant::now()));
+                let _ = sender.try_send((frame, Instant::now()));
             }
         }
     }
 
     /// Waits until the send window for the given stream is at least 1, then decrement it by 1.
     pub async fn wait_send_window(&self, stream_id: u32) {
-        let semaph = if let Some(inner) = self.inner.get(&stream_id) {
-            let before = inner.1.permits();
+        // Release the table lock before either await (including the missing-ID path).
+        let semaph = self
+            .inner
+            .read()
+            .get(&stream_id)
+            .map(|entry| entry.1.clone());
+        let semaph = if let Some(semaph) = semaph {
+            let before = semaph.permits();
             tracing::debug!(stream_id, before, "decrementing send window");
-            inner.1.clone()
+            semaph
         } else {
             futures_util::future::pending().await
         };
@@ -173,25 +103,30 @@ impl BufferTable {
 
     /// Increases the send window for the given stream.
     pub fn incr_send_window(&self, stream_id: u32, amount: u16) {
-        if let Some(inner) = self.inner.get(&stream_id) {
-            let before = inner.1.permits();
+        let semaph = self
+            .inner
+            .read()
+            .get(&stream_id)
+            .map(|entry| entry.1.clone());
+        if let Some(semaph) = semaph {
+            let before = semaph.permits();
             tracing::debug!(
                 stream_id,
                 before,
                 after = display(amount as usize + before),
                 "increasing send window"
             );
-            inner.1.release(amount as _);
+            semaph.release(amount as _);
         }
     }
 
     fn is_tombstoned(&self, id: u32) -> bool {
-        if let Some(expiry) = self.tombstones.get(&id) {
+        let mut tombstones = self.tombstones.write();
+        if let Some(expiry) = tombstones.get(&id) {
             if *expiry > Instant::now() {
                 return true;
             }
-            drop(expiry);
-            self.tombstones.remove(&id);
+            tombstones.remove(&id);
         }
         false
     }
@@ -204,7 +139,7 @@ impl BufferTable {
         }
         *next_prune = now + TOMBSTONE_PRUNE_INTERVAL;
         drop(next_prune);
-        self.tombstones.retain(|_, expiry| *expiry > now);
+        self.tombstones.write().retain(|_, expiry| *expiry > now);
     }
 }
 
@@ -213,7 +148,7 @@ pub struct BufferReceive {
     id: u32,
     recv: async_channel::Receiver<(Frame, Instant)>,
     inner: Arc<Inner>,
-    tombstones: Arc<DashMap<u32, Instant, BuildHasherDefault<AHasher>>>,
+    tombstones: Arc<Tombstones>,
 
     queue_delay: Option<Duration>,
 }
@@ -235,8 +170,9 @@ impl BufferReceive {
 
 impl Drop for BufferReceive {
     fn drop(&mut self) {
-        self.inner.remove(&self.id);
+        self.inner.write().remove(&self.id);
         self.tombstones
+            .write()
             .insert(self.id, Instant::now() + STREAM_ID_TOMBSTONE_TTL);
     }
 }
@@ -265,6 +201,46 @@ mod tests {
         let _recv = table.create_entry(123);
         assert!(table.contains_id(123));
         assert!(table.is_reserved(123));
-        assert!(table.tombstones.get(&123).is_none());
+        assert!(table.tombstones.read().get(&123).is_none());
+    }
+
+    #[test]
+    fn pending_window_wait_does_not_lock_table() {
+        use std::{future::Future, task::Context};
+
+        let table = BufferTable::new();
+        let _recv = table.create_entry(123);
+        table.inner.write().get_mut(&123).unwrap().1 = SharedSemaphore::new(false, 0);
+        let mut cx = Context::from_waker(futures_util::task::noop_waker_ref());
+
+        // Both an exhausted window and an unknown stream must release the lock.
+        for id in [123, 456] {
+            let mut wait = Box::pin(table.wait_send_window(id));
+            assert!(wait.as_mut().poll(&mut cx).is_pending());
+            assert!(table.inner.try_write().is_some());
+            if id == 123 {
+                table.incr_send_window(id, 1);
+                assert!(wait.as_mut().poll(&mut cx).is_ready());
+            }
+        }
+    }
+
+    #[test]
+    fn expired_tombstones_are_removed() {
+        let table = BufferTable::new();
+        let expired = Instant::now() - Duration::from_secs(1);
+        table.tombstones.write().insert(123, expired);
+        assert!(!table.is_reserved(123));
+        assert!(!table.tombstones.read().contains_key(&123));
+
+        table.tombstones.write().insert(456, expired);
+        table
+            .tombstones
+            .write()
+            .insert(789, Instant::now() + STREAM_ID_TOMBSTONE_TTL);
+        *table.next_prune.lock() = expired;
+        table.prune_expired_tombstones();
+        assert!(!table.tombstones.read().contains_key(&456));
+        assert!(table.is_reserved(789));
     }
 }

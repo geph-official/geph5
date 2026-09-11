@@ -8,8 +8,8 @@ license.workspace = true
 
 [dependencies]
 hex = "0.4.3"
-async-trait = "0.1.89"
-pin-project = "1.1.11"
+async-trait = "0.1.92"
+pin-project = "1.1.13"
 sillad = { version = "0.3", path = "../sillad" }
 geph5-rt = { version = "0.3", path = "../geph5-rt" }
-tokio = { version = "1.52", features = ["io-util"] }
+tokio = { version = "1.53", features = ["io-util"] }

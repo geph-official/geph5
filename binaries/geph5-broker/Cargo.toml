@@ -5,14 +5,14 @@ edition = "2024"
 license = "MPL-2.0"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.104"
 axum = { version = "0.7.9", features = ["json"] }
 base64 = "0.22.1"
-futures-util = "0.3.32"
+futures-util = "0.3.34"
 once_cell = { version = "1.21.4", features = ["parking_lot"] }
 pollster = "0.3.0"
-serde = "1.0.228"
-serde_json = "1.0.149"
+serde = "1.0.229"
+serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 geph5-rt = { path = "../../libraries/geph5-rt" }
 sqlx = { version = "0.7", features = [
@@ -22,27 +22,27 @@ sqlx = { version = "0.7", features = [
 ] }
 geph5-broker-protocol = { path = "../../libraries/geph5-broker-protocol" }
 geph5-misc-rpc = { path = "../../libraries/geph5-misc-rpc" }
-async-trait = "0.1.89"
+async-trait = "0.1.92"
 nanorpc = "0.1.13"
 thiserror = "1.0.69"
 tracing = "0.1.44"
-rand = "0.8.6"
-moka = { version = "0.12.15", features = ["future"] }
-blake3 = "1.8.5"
+rand = "0.8.8"
+moka = { version = "0.12.16", features = ["future"] }
+blake3 = "1.8.7"
 isocountry = "0.3.2"
 ed25519-dalek = {version="2", default-features=false, features=["serde"]}
-tokio = { version = "1.52", features = ["full"] }
+tokio = { version = "1.53", features = ["full"] }
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 nanorpc-sillad = { path = "../../libraries/nanorpc-sillad" }
 sillad = { path = "../../libraries/sillad" }
 mizaru2 = { path = "../../libraries/mizaru2" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 stdcode = "0.1.14"
-bytes = { version = "1.11.1", features = ["serde"] }
+bytes = { version = "1.12.1", features = ["serde"] }
 argon2 = "0.5.3"
 rusty_pool = "0.7.0"
 oneshot = "0.1.13"
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 reqwest = { version = "0.12.28", default-features = false, features=["json", "rustls-tls-webpki-roots"] }
 hex = "0.4.3"
 tap = "1.0.1"

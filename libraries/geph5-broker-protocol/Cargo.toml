@@ -7,21 +7,21 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow = "1.0.102"
-async-trait = "0.1.89"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
 nanorpc = "0.1.13"
-serde_json = "1.0.149"
+serde_json = "1.0.151"
 thiserror = "1.0.69"
-serde = { version = "1.0.228", features = ["derive"] }
-bytes = { version = "1.11.1", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+bytes = { version = "1.12.1", features = ["serde"] }
 ed25519-dalek = { version = "2", default-features = false, features = [
     "serde",
 ] }
 stdcode = "0.1.14"
-blake3 = { version = "1.8.5", features = ["serde"] }
+blake3 = { version = "1.8.7", features = ["serde"] }
 isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
-serde_with = { version = "3.18.0", features = ["hex"] }
+serde_with = { version = "3.22.0", features = ["hex"] }
 geph5-stats = { version = "0.1.0", path = "../geph5-stats" }
 mizaru2 = { version = "0.2.18", path = "../mizaru2" }
 sillad-meeklike = { version = "0.2", path = "../sillad-meeklike" }
