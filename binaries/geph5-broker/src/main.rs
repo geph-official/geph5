@@ -192,6 +192,10 @@ async fn async_main() -> anyhow::Result<()> {
 
     let _ = CONFIG_FILE.set(config);
 
+    database::secret_hash_rollout::run(&database::POSTGRES)
+        .await
+        .context("Account-secret hash rollout failed; broker has not started serving requests")?;
+
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
     Lazy::force(&BW_MIZARU_SK);

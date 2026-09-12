@@ -1,12 +1,12 @@
--- Run manually with psql -X -v ON_ERROR_STOP=1 -f this_file.sql.
--- Run the create and backfill files in separate psql invocations, in order.
+-- Embedded and executed by the broker before serving requests.
+-- Each file owns its transaction; never wrap both in an outer transaction.
 BEGIN;
 SET LOCAL idle_in_transaction_session_timeout = '10s';
 
 SET LOCAL lock_timeout = '250ms';
 SET LOCAL statement_timeout = '2s';
 
--- Account services must be stopped for this coordinated cutover. Keep this
+-- Other account writers must be stopped for this coordinated cutover. Keep this
 -- transaction separate from the backfill so its schema locks release first.
 CREATE TABLE public.auth_secret_hash (
     id INTEGER PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,

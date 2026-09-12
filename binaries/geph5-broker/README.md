@@ -66,21 +66,15 @@ payment_support_secret: support-secret
 ## Account-secret hash cutover
 
 This change requires a coordinated restart of the broker and `geph-payments-2`.
-There is no automatic broker migration runner. Stop both services and pause
-manual account changes before executing the two scripts, then start both updated
-binaries only after the second script succeeds. The GUI no longer offers legacy
+The broker embeds the two files in `sql/` and executes them directly at startup,
+before listeners or background jobs start. No SQLx migration framework or history
+table is used. Stop the old broker and payments service and pause manual account
+changes, then start the updated broker. Once it reports that the cutover committed
+and starts serving, start the updated payments binary. The GUI no longer offers legacy
 conversion; the broker rejects legacy conversion while retaining ordinary legacy
 username/password authentication.
 
-From this directory, with `POSTGRES_URL` set to the intended database:
-
-```sh
-psql "$POSTGRES_URL" -X -v ON_ERROR_STOP=1 -f sql/auth_secret_hash_01_create.sql
-psql "$POSTGRES_URL" -X -v ON_ERROR_STOP=1 -f sql/auth_secret_hash_02_backfill.sql
-```
-
-Run these as separate commands and check each exit status. Each file owns its
-transaction; do not wrap both in another transaction or use `psql --single-transaction`.
+Each file owns its transaction; the broker does not wrap them in another transaction.
 The first creates the empty table and indexes, copies the original table's grants
 (including support access), and commits before the backfill.
 The second verifies the hashes, preserves existing referral codes, fills missing
@@ -89,10 +83,15 @@ table using `RESTRICT`. It preserves user IDs, passwords, tokens, and subscripti
 
 Both scripts limit lock waits to 250 ms. Schema statements have a two-second
 execution timeout; bulk statements in the second script have five minutes each.
-A failed script rolls back on disconnect. If the second fails, leave the first
-committed and retry **only the second** after resolving the error: plaintext and
-the original support functions remain intact. After success, the old binaries
-cannot be used. The second script is not intended to be rerun after success.
+A failed script rolls back on disconnect and startup fails before serving requests.
+If the second fails, the first stays committed; restarting the broker retries only
+the second after the error is resolved. Plaintext and the original support functions
+remain intact until it succeeds. Subsequent starts skip both files once the plaintext
+table is gone and the hash table exists. A dedicated connection holds a nonblocking
+advisory lock across both files to prevent concurrent brokers from running the rollout;
+another broker attempting startup during the rollout exits with a retry instruction.
+The connection closes on success or failure, releasing the lock. Old writers do not
+participate in this lock and must be stopped. After success, old binaries cannot be used.
 
 Validate the cutover with existing-account login, new registration, website login,
 referral codes, and support grants. The registration transaction stores the hash
@@ -102,5 +101,5 @@ For local verification, set `GEPH_TEST_DATABASE_URL` to disposable PostgreSQL on
 loopback. Run `cargo test -p geph5-broker -- --include-ignored` from the workspace
 root, and `python3 tests/test_secret_hash_cutover.py` from this directory. Set
 `GEPH_HASH_VOLUME_TEST=1` for the optional 3.55-million-account backfill test.
-The SQL tests create and remove their own databases; the broker tests use temporary
-tables. Both reject non-loopback database hosts.
+The SQL and startup-rollout tests create and remove their own databases; other broker
+database tests use temporary tables. All reject non-loopback database hosts.
