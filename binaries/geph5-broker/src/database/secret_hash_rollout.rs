@@ -1,9 +1,11 @@
 use anyhow::{Context, ensure};
 use sqlx::{Connection, PgConnection, PgPool};
 
-const CREATE: &str = include_str!("../../sql/auth_secret_hash_01_create.sql");
-const BACKFILL: &str = include_str!("../../sql/auth_secret_hash_02_backfill.sql");
-// Session lock spans the two separately committed SQL files. It only coordinates
+const ACCOUNT_CREATE: &str = include_str!("../../sql/auth_secret_hash_01_create.sql");
+const ACCOUNT_BACKFILL: &str = include_str!("../../sql/auth_secret_hash_02_backfill.sql");
+const TOKEN_CREATE: &str = include_str!("../../sql/auth_token_hash_01_create.sql");
+const TOKEN_BACKFILL: &str = include_str!("../../sql/auth_token_hash_02_backfill.sql");
+// Session lock spans all separately committed SQL files. It only coordinates
 // new brokers; old account writers must be stopped for the cutover.
 const ROLLOUT_LOCK: i64 = 0x6765706853686132;
 
@@ -14,7 +16,7 @@ pub async fn run(pool: &PgPool) -> anyhow::Result<()> {
     let result = run_on_connection(&mut connection).await;
     let closed = connection.close().await;
     result?;
-    closed.context("Closing account-secret rollout connection")?;
+    closed.context("Closing secret hash rollout connection")?;
     Ok(())
 }
 
@@ -25,42 +27,76 @@ async fn run_on_connection(connection: &mut PgConnection) -> anyhow::Result<()> 
         .await?;
     ensure!(
         locked,
-        "Another broker is running the account-secret rollout; retry startup after it finishes"
+        "Another broker is running the secret hash rollout; retry startup after it finishes"
     );
 
-    let (plaintext, hashes): (bool, bool) = sqlx::query_as(
-        "SELECT to_regclass('public.auth_secret') IS NOT NULL,
-                to_regclass('public.auth_secret_hash') IS NOT NULL",
+    run_pair(
+        connection,
+        "auth_secret",
+        "auth_secret_hash",
+        ("auth_secret_hash_01_create.sql", ACCOUNT_CREATE),
+        ("auth_secret_hash_02_backfill.sql", ACCOUNT_BACKFILL),
+        "SELECT id, secret_hash FROM auth_secret_hash LIMIT 0",
     )
-    .fetch_one(&mut *connection)
     .await?;
+    run_pair(
+        connection,
+        "auth_tokens",
+        "auth_token_hash",
+        ("auth_token_hash_01_create.sql", TOKEN_CREATE),
+        ("auth_token_hash_02_backfill.sql", TOKEN_BACKFILL),
+        "SELECT user_id, token_hash FROM auth_token_hash LIMIT 0",
+    )
+    .await?;
+    Ok(())
+}
+
+async fn run_pair(
+    connection: &mut PgConnection,
+    source: &str,
+    destination: &str,
+    create: (&str, &str),
+    backfill: (&str, &str),
+    validation: &str,
+) -> anyhow::Result<()> {
+    let (plaintext, hashes): (bool, bool) =
+        sqlx::query_as("SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL")
+            .bind(format!("public.{source}"))
+            .bind(format!("public.{destination}"))
+            .fetch_one(&mut *connection)
+            .await?;
     ensure!(
         plaintext || hashes,
-        "Neither auth_secret nor auth_secret_hash exists; check the broker database configuration"
+        "Neither {source} nor {destination} exists; check the broker database configuration"
     );
 
     if plaintext {
         if !hashes {
-            tracing::info!("creating account-secret hash table (SQL file 1/2)");
-            sqlx::raw_sql(CREATE)
+            tracing::info!(file = create.0, "creating hash table");
+            sqlx::raw_sql(create.1)
                 .execute(&mut *connection)
                 .await
-                .context("auth_secret_hash_01_create.sql failed")?;
+                .with_context(|| format!("{} failed", create.0))?;
         }
-        tracing::info!("backfilling and cutting over account secrets (SQL file 2/2)");
-        sqlx::raw_sql(BACKFILL)
+        tracing::info!(file = backfill.0, "backfilling and cutting over to hashes");
+        sqlx::raw_sql(backfill.1)
             .execute(&mut *connection)
             .await
-            .context("auth_secret_hash_02_backfill.sql failed; restart retries the backfill, keeping the committed table")?;
-        tracing::info!("account-secret hash cutover committed");
+            .with_context(|| {
+                format!(
+                    "{} failed; restart retries the backfill, keeping the committed table",
+                    backfill.0
+                )
+            })?;
+        tracing::info!(destination, "secret hash cutover committed");
     }
 
     // Also fail before serving if the application search path cannot resolve the
     // destination, or an existing table has an incompatible column layout.
-    sqlx::query("SELECT id, secret_hash FROM auth_secret_hash LIMIT 0")
+    sqlx::query(validation)
         .execute(&mut *connection)
         .await
-        .context("Account-secret hash table is not usable")?;
+        .with_context(|| format!("{destination} table is not usable"))?;
     Ok(())
 }
 
@@ -152,6 +188,37 @@ mod tests {
             // aborted transaction, and the first file committed independently.
             run(&pool).await?;
             verify_cutover(&pool).await?;
+            // Upgrade a database where the account-secret cutover already ran.
+            sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+                .execute(&pool).await?;
+            sqlx::raw_sql(FIXTURE).execute(&pool).await?;
+            sqlx::raw_sql(ACCOUNT_CREATE).execute(&pool).await?;
+            sqlx::raw_sql(ACCOUNT_BACKFILL).execute(&pool).await?;
+            sqlx::raw_sql("CREATE VIEW token_dependency AS SELECT user_id FROM auth_tokens")
+                .execute(&pool).await?;
+            let failure = run(&pool).await.unwrap_err();
+            assert!(failure.to_string().contains("auth_token_hash_02_backfill.sql failed"));
+            assert!(!table_exists(&pool, "auth_secret").await?);
+            assert!(table_exists(&pool, "auth_tokens").await?);
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM auth_token_hash")
+                .fetch_one(&pool).await?;
+            assert_eq!(count, 0);
+            sqlx::raw_sql("DROP VIEW token_dependency;
+                INSERT INTO auth_token_hash VALUES (sha256(convert_to('unchanged-token', 'UTF8')), 999)")
+                .execute(&pool).await?;
+            // A reader permits backfill but blocks DROP; the SQL timeout bounds
+            // that wait and leaves every original token usable on retry.
+            let mut reader = pool.begin().await?;
+            sqlx::raw_sql("LOCK TABLE auth_tokens IN ACCESS SHARE MODE")
+                .execute(&mut *reader).await?;
+            let failure = tokio::time::timeout(std::time::Duration::from_secs(3), run(&pool))
+                .await?.unwrap_err();
+            assert!(format!("{failure:#}").contains("lock timeout"));
+            reader.rollback().await?;
+            // A pre-existing destination mapping is overwritten directly from
+            // the source, without a separate full-table verification scan.
+            run(&pool).await?;
+            verify_cutover(&pool).await?;
             anyhow::Ok(())
         }
         .await;
@@ -184,6 +251,11 @@ mod tests {
             .fetch_one(pool)
             .await?;
         assert_eq!(version, 123);
+        assert!(!table_exists(pool, "auth_tokens").await?);
+        let user_id: i32 = sqlx::query_scalar(
+            "SELECT user_id FROM auth_token_hash WHERE token_hash = sha256(convert_to('unchanged-token', 'UTF8'))",
+        ).fetch_one(pool).await?;
+        assert_eq!(user_id, 1);
         Ok(())
     }
 }

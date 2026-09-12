@@ -194,7 +194,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     database::secret_hash_rollout::run(&database::POSTGRES)
         .await
-        .context("Account-secret hash rollout failed; broker has not started serving requests")?;
+        .context("Secret hash rollout failed; broker has not started serving requests")?;
 
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);

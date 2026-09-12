@@ -127,16 +127,20 @@ pub async fn validate_username_pwd(username: &str, password: &str) -> Result<i32
 }
 
 pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
+    new_auth_token_in_pool(&POSTGRES, user_id).await
+}
+
+async fn new_auth_token_in_pool(pool: &PgPool, user_id: i32) -> anyhow::Result<String> {
     let token: String = std::iter::repeat(())
         .map(|()| rand::thread_rng().sample(rand::distributions::Alphanumeric))
         .map(char::from)
         .take(30)
         .collect();
 
-    match sqlx::query("INSERT INTO auth_tokens (token, user_id) VALUES ($1, $2)")
-        .bind(&token)
+    match sqlx::query("INSERT INTO auth_token_hash (token_hash, user_id) VALUES ($1, $2)")
+        .bind(secret_hash(&token).as_slice())
         .bind(user_id)
-        .execute(&*POSTGRES)
+        .execute(pool)
         .await
     {
         Ok(_) => Ok(token),
@@ -145,11 +149,18 @@ pub async fn new_auth_token(user_id: i32) -> anyhow::Result<String> {
 }
 
 #[cached(time = 86400, result = true)]
-async fn get_user_id_from_token(token: String) -> anyhow::Result<Option<i32>> {
+async fn get_user_id_from_token(token_hash: [u8; 32]) -> anyhow::Result<Option<i32>> {
+    get_user_id_from_token_hash_in_pool(&POSTGRES, &token_hash).await
+}
+
+async fn get_user_id_from_token_hash_in_pool(
+    pool: &PgPool,
+    token_hash: &[u8; 32],
+) -> anyhow::Result<Option<i32>> {
     let user_id: Option<(i32,)> =
-        sqlx::query_as("SELECT user_id FROM auth_tokens WHERE token = $1")
-            .bind(token)
-            .fetch_optional(&*POSTGRES)
+        sqlx::query_as("SELECT user_id FROM auth_token_hash WHERE token_hash = $1")
+            .bind(token_hash.as_slice())
+            .fetch_optional(pool)
             .await?;
 
     Ok(user_id.map(|(user_id,)| user_id))
@@ -157,7 +168,7 @@ async fn get_user_id_from_token(token: String) -> anyhow::Result<Option<i32>> {
 
 // Refactored function that uses the helper without caching its own result
 pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, AccountLevel)>> {
-    let user_id = match get_user_id_from_token(token.clone()).await? {
+    let user_id = match get_user_id_from_token(secret_hash(&token)).await? {
         Some(id) => id,
         None => return Ok(None),
     };
@@ -385,6 +396,58 @@ mod tests {
             .fetch_one(&pool)
             .await?;
         assert_eq!(count, 0);
+        pool.close().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires GEPH_TEST_DATABASE_URL pointing to disposable loopback PostgreSQL"]
+    async fn device_tokens_store_and_validate_only_hashes() -> anyhow::Result<()> {
+        let pool = temporary_account_pool().await?;
+        pool.execute(
+            "CREATE TEMP TABLE auth_token_hash (
+            token_hash BYTEA PRIMARY KEY CHECK (octet_length(token_hash) = 32),
+            user_id INTEGER NOT NULL)",
+        )
+        .await?;
+        let first = new_auth_token_in_pool(&pool, 42).await?;
+        let second = new_auth_token_in_pool(&pool, 42).await?;
+        assert_eq!(first.len(), 30);
+        assert!(first.bytes().all(|b| b.is_ascii_alphanumeric()));
+        assert_ne!(first, second);
+        for token in [&first, &second] {
+            let hash = secret_hash(token);
+            assert_eq!(
+                get_user_id_from_token_hash_in_pool(&pool, &hash).await?,
+                Some(42)
+            );
+            let stored: Vec<u8> = sqlx::query_scalar(
+                "SELECT token_hash FROM auth_token_hash WHERE token_hash = sha256(convert_to($1, 'UTF8'))",
+            ).bind(token).fetch_one(&pool).await?;
+            assert_eq!(stored, hash);
+            for invalid in [
+                hex::encode(stored),
+                format!(" {token}"),
+                "wrong".to_string(),
+            ] {
+                assert_eq!(
+                    get_user_id_from_token_hash_in_pool(&pool, &secret_hash(&invalid)).await?,
+                    None
+                );
+            }
+        }
+        sqlx::query("DELETE FROM auth_token_hash WHERE token_hash = $1")
+            .bind(secret_hash(&first).as_slice())
+            .execute(&pool)
+            .await?;
+        assert_eq!(
+            get_user_id_from_token_hash_in_pool(&pool, &secret_hash(&first)).await?,
+            None
+        );
+        assert_eq!(
+            get_user_id_from_token_hash_in_pool(&pool, &secret_hash(&second)).await?,
+            Some(42)
+        );
         pool.close().await;
         Ok(())
     }

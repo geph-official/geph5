@@ -16,7 +16,8 @@ CREATE TABLE public.revenue (
     eurocents BIGINT NOT NULL, method TEXT NOT NULL, metadata JSONB NOT NULL
 );
 CREATE TABLE public.auth_password (user_id INTEGER PRIMARY KEY, username TEXT, pwdhash TEXT);
-CREATE TABLE public.auth_tokens (token TEXT PRIMARY KEY, user_id INTEGER);
+CREATE TABLE public.auth_tokens (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
+CREATE INDEX auth_tokens_user_id ON public.auth_tokens (user_id);
 -- The broker's manual scripts must not interact with payment migration history.
 CREATE TABLE public._sqlx_migrations (version BIGINT PRIMARY KEY, checksum BYTEA NOT NULL);
 INSERT INTO public._sqlx_migrations VALUES (123, decode('abcd', 'hex'));

@@ -28,7 +28,7 @@ payment_support_secret: support-secret
 | `users` | `id` (PK), `createtime` | Canonical user record. A row is created whenever a new secret account is issued. Other tables reference this `id`. |
 | `auth_secret_hash` | `id` (PK, FK -> `users.id`), `secret_hash` (unique, 32-byte `bytea`) | Stores plain SHA-256 of the exact UTF-8 login secret, without a prefix, salt, or stretching. Registration also stores the existing client-compatible referral code. |
 | `auth_password` | `user_id` (PK, FK -> `users.id`), `username`, `pwdhash` | Legacy username/password credentials. Kept for backward compatibility so older clients can still authenticate. Password hashes are stored in PHC format (Argon2). |
-| `auth_tokens` | `token` (PK), `user_id` (FK -> `users.id`) | API tokens minted by the broker after successful authentication. Tokens remain valid until the row is deleted (for example via account removal). |
+| `auth_token_hash` | `token_hash` (PK, 32-byte `bytea`), `user_id` (indexed) | Plain SHA-256 of per-device API tokens minted after authentication. Clients retain and send the original tokens. Preserves the original table's lack of a foreign key; cached validation retains its existing 24-hour TTL. |
 | `last_login` | `id` (PK, FK -> `users.id`), `login_time` | Tracks the most recent successful API call per user. Updated on every token validation and used for metrics. |
 
 ### Promotions, billing, and bandwidth
@@ -63,10 +63,12 @@ payment_support_secret: support-secret
 | --- | --- | --- |
 | `used_puzzles` | `puzzle` (PK) | Deduplicates proof-of-work puzzles solved by clients. Inserting a puzzle that already exists causes the request to be rejected. |
 
-## Account-secret hash cutover
+## Account and device-secret hash cutover
 
-This change requires a coordinated restart of the broker and `geph-payments-2`.
-The broker embeds the two files in `sql/` and executes them directly at startup,
+The account-secret cutover requires a coordinated restart of the broker and
+`geph-payments-2`. The later device-token cutover requires stopping old brokers
+and other token writers; payments does not read or write these tokens.
+The broker embeds the SQL file pairs in `sql/` and executes them directly at startup,
 before listeners or background jobs start. No SQLx migration framework or history
 table is used. Stop the old broker and payments service and pause manual account
 changes, then start the updated broker. Once it reports that the cutover committed
@@ -75,31 +77,43 @@ conversion; the broker rejects legacy conversion while retaining ordinary legacy
 username/password authentication.
 
 Each file owns its transaction; the broker does not wrap them in another transaction.
-The first creates the empty table and indexes, copies the original table's grants
-(including support access), and commits before the backfill.
-The second verifies the hashes, preserves existing referral codes, fills missing
-codes, updates the three `*bysecret` support functions, and drops the plaintext
-table using `RESTRICT`. It preserves user IDs, passwords, tokens, and subscriptions.
+Within each pair, the first creates the empty table and indexes, copies the original
+table's grants (including support access), and commits before the backfill.
+The account-secret backfill verifies the hashes, preserves existing referral codes,
+fills missing codes, updates the three `*bysecret` support functions, and drops the plaintext
+table using `RESTRICT`. It preserves user IDs, passwords, and subscriptions.
 
-Both scripts limit lock waits to 250 ms. Schema statements have a two-second
-execution timeout; bulk statements in the second script have five minutes each.
+The `auth_token_hash_01_create.sql` / `auth_token_hash_02_backfill.sql` pair then
+copies every per-device token as SHA-256 of its exact UTF-8 bytes, without a prefix,
+salt, or stretching. It writes each token-to-user mapping directly, overwriting any
+conflicting destination mapping, then drops `auth_tokens` using `RESTRICT` without
+a separate verification scan. Existing clients and stored device tokens continue to work without
+reauthentication. Issuance stores only hashes; lookups and their cache keys also use
+hashes. No client or payment-service change is needed for this token migration.
+Databases that already completed the account-secret cutover run only the token pair.
+
+All scripts limit lock waits to 250 ms. Schema statements have a two-second
+execution timeout; bulk statements in each backfill have five minutes each.
 A failed script rolls back on disconnect and startup fails before serving requests.
-If the second fails, the first stays committed; restarting the broker retries only
-the second after the error is resolved. Plaintext and the original support functions
-remain intact until it succeeds. Subsequent starts skip both files once the plaintext
-table is gone and the hash table exists. A dedicated connection holds a nonblocking
-advisory lock across both files to prevent concurrent brokers from running the rollout;
-another broker attempting startup during the rollout exits with a retry instruction.
+If a backfill fails, its create script stays committed; restarting the broker retries
+that backfill after the error is resolved. Its source table remains intact until
+it succeeds. Each pair commits independently: if the token pair
+fails after account migration, the account migration remains committed. Subsequent
+starts skip each pair once its plaintext table is gone and its hash table exists.
+A dedicated connection holds a nonblocking advisory lock across all files to prevent
+concurrent brokers from running the rollout; another broker attempting startup during
+the rollout exits with a retry instruction.
 The connection closes on success or failure, releasing the lock. Old writers do not
 participate in this lock and must be stopped. After success, old binaries cannot be used.
 
-Validate the cutover with existing-account login, new registration, website login,
-referral codes, and support grants. The registration transaction stores the hash
+Validate the cutover with existing-device tokens, existing-account login, new registration,
+website login, referral codes, and support grants. The registration transaction stores the hash
 and referral code together, so no periodic plaintext-reading referral job is needed.
 
 For local verification, set `GEPH_TEST_DATABASE_URL` to disposable PostgreSQL on
 loopback. Run `cargo test -p geph5-broker -- --include-ignored` from the workspace
 root, and `python3 tests/test_secret_hash_cutover.py` from this directory. Set
 `GEPH_HASH_VOLUME_TEST=1` for the optional 3.55-million-account backfill test.
+Set `GEPH_TOKEN_HASH_VOLUME_TEST=1` for the optional 12-million-token backfill test.
 The SQL and startup-rollout tests create and remove their own databases; other broker
 database tests use temporary tables. All reject non-loopback database hosts.

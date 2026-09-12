@@ -1,4 +1,4 @@
-"""Exercise the exact manual scripts on fresh databases in loopback PostgreSQL.
+"""Exercise the exact startup SQL scripts on fresh databases in loopback PostgreSQL.
 
 GEPH_TEST_DATABASE_URL=postgres://...@127.0.0.1:55439/postgres \
     python3 tests/test_secret_hash_cutover.py
@@ -20,6 +20,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 CREATE = ROOT / "sql/auth_secret_hash_01_create.sql"
 BACKFILL = ROOT / "sql/auth_secret_hash_02_backfill.sql"
+TOKEN_CREATE = ROOT / "sql/auth_token_hash_01_create.sql"
+TOKEN_BACKFILL = ROOT / "sql/auth_token_hash_02_backfill.sql"
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -164,6 +166,57 @@ class Cutover(unittest.TestCase):
         self.assertEqual(self.scalar("SELECT count(*) FROM auth_secret_hash"), "0")
         self.assertEqual(self.scalar("SELECT count(*) FROM auth_secret"), "3")
         self.psql(path=BACKFILL)
+
+    def test_device_token_cutover_preserves_exact_tokens_and_user_mappings(self):
+        self.psql("""
+            INSERT INTO auth_tokens VALUES ('000123', 1), ('00123', 2),
+                ('UTF8-密钥', 3), ('caseSensitive', 1), ('CASESENSITIVE', 2),
+                ('orphan-token', 999999);
+        """)
+        self.psql(path=TOKEN_CREATE)
+        self.psql(path=TOKEN_BACKFILL)
+        self.assertEqual(self.scalar("SELECT to_regclass('auth_tokens') IS NULL"), "t")
+        tokens = [('unchanged-token', 1), ('000123', 1), ('00123', 2),
+                  ('UTF8-密钥', 3), ('caseSensitive', 1), ('CASESENSITIVE', 2),
+                  ('orphan-token', 999999)]
+        for token, user_id in tokens:
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            self.assertEqual(self.scalar(f"SELECT user_id FROM auth_token_hash WHERE token_hash=decode('{digest}', 'hex')"), str(user_id))
+        self.assertEqual(self.scalar("SELECT count(*) FROM auth_token_hash"), str(len(tokens)))
+        self.assertEqual(self.scalar("SELECT count(*) FROM pg_indexes WHERE tablename='auth_token_hash' AND indexdef LIKE '%(user_id)%'"), "1")
+        self.assertEqual(self.scalar("SELECT count(*) FROM auth_secret"), "3")
+        invalid = self.psql("INSERT INTO auth_token_hash VALUES ('short'::bytea, 1)", check=False)
+        self.assertNotEqual(invalid.returncode, 0)
+
+    def test_device_token_grants_are_preserved(self):
+        role = "token_support_" + uuid.uuid4().hex
+        self.psql("CREATE ROLE " + role, admin=True)
+
+        def remove_role():
+            self.psql("DROP OWNED BY " + role)
+            self.psql("DROP ROLE " + role, admin=True)
+
+        self.addCleanup(remove_role)
+        self.psql(f"GRANT SELECT ON public.auth_tokens TO {role} WITH GRANT OPTION")
+        self.psql(path=TOKEN_CREATE)
+        self.psql(path=TOKEN_BACKFILL)
+        self.assertEqual(self.scalar(f"SELECT has_table_privilege('{role}', 'auth_token_hash', 'SELECT WITH GRANT OPTION')"), "t")
+        self.assertEqual(self.scalar(f"SET ROLE {role}; SELECT count(*) FROM auth_token_hash"), "1")
+
+    @unittest.skipUnless(os.environ.get("GEPH_TOKEN_HASH_VOLUME_TEST") == "1", "opt-in token volume test")
+    def test_device_token_representative_volume(self):
+        self.psql("""
+            INSERT INTO auth_tokens
+            SELECT substr(md5(g::text), 1, 30), (g % 3550000) + 1
+            FROM generate_series(1, 12000000) g;
+            ANALYZE auth_tokens;
+        """)
+        self.psql(path=TOKEN_CREATE)
+        start = time.monotonic()
+        self.psql(path=TOKEN_BACKFILL)
+        elapsed = time.monotonic() - start
+        self.assertEqual(self.scalar("SELECT count(*) FROM auth_token_hash"), "12000001")
+        print(f"\n12,000,001-token backfill completed in {elapsed:.1f}s", flush=True)
 
     @unittest.skipUnless(os.environ.get("GEPH_HASH_VOLUME_TEST") == "1", "opt-in volume test")
     def test_representative_volume(self):
