@@ -903,14 +903,19 @@ impl BrokerProtocol for BrokerImpl {
         solution: String,
     ) -> Result<String, GenericError> {
         verify_puzzle_solution(&puzzle, &solution).await?;
-        Ok(register_secret(None).await?)
+        Ok(register_secret().await?)
     }
 
     async fn upgrade_to_secret(&self, cred: Credential) -> Result<String, AuthError> {
-        let user_id = validate_credential(cred).await?;
-        register_secret(Some(user_id))
-            .map_err(|_| AuthError::RateLimited)
-            .await
+        // Legacy conversion is disabled: a stored hash cannot recover the
+        // previously issued secret. Secret callers already possess that value.
+        match cred {
+            Credential::Secret(secret) => {
+                validate_secret(&secret).await?;
+                Ok(secret)
+            }
+            _ => Err(AuthError::Forbidden),
+        }
     }
 
     async fn delete_account(&self, secret: String) -> Result<(), GenericError> {
@@ -1065,6 +1070,17 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[tokio::test]
+    async fn legacy_conversion_is_disabled_without_database_access() {
+        let result = BrokerImpl {}
+            .upgrade_to_secret(Credential::LegacyUsernamePassword {
+                username: "legacy".into(),
+                password: "password".into(),
+            })
+            .await;
+        assert!(matches!(result, Err(AuthError::Forbidden)));
+    }
 
     #[test]
     fn parse_client_ip_accepts_ipv4() {

@@ -11,89 +11,62 @@ use std::{
 
 use moka::future::Cache;
 use rand::Rng as _;
-use sqlx::types::chrono::Utc;
+use sha2::{Digest, Sha256};
+use sqlx::{PgPool, types::chrono::Utc};
 
 use super::POSTGRES;
-use crate::{
-    CONFIG_FILE,
-    database::bandwidth::bw_consumption,
-    log_error,
-    payments::{PaymentClient, PaymentTransport},
-};
+use crate::{database::bandwidth::bw_consumption, log_error};
 
-pub async fn register_secret(user_id: Option<i32>) -> anyhow::Result<String> {
-    let mut txn = POSTGRES.begin().await?;
+pub async fn register_secret() -> anyhow::Result<String> {
+    register_secret_in_pool(&POSTGRES).await
+}
 
-    let user_id = match user_id {
-        Some(uid) => uid,
-        None => {
-            let (uid,): (i32,) =
-                sqlx::query_as("INSERT INTO users (createtime) VALUES (NOW()) RETURNING id")
-                    .fetch_one(&mut *txn)
-                    .await?;
-            uid
-        }
-    };
+async fn register_secret_in_pool(pool: &PgPool) -> anyhow::Result<String> {
+    let mut txn = pool.begin().await?;
+    let (user_id,): (i32,) =
+        sqlx::query_as("INSERT INTO users (createtime) VALUES (NOW()) RETURNING id")
+            .fetch_one(&mut *txn)
+            .await?;
 
-    let existing_secret: Option<(String,)> = sqlx::query_as(
-        r#"
-        SELECT secret
-        FROM auth_secret
-        WHERE id = $1
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(&mut *txn)
-    .await?;
+    let secret = (0..23)
+        .map(|_| rand::thread_rng().gen_range(0..9))
+        .fold(String::from("9"), |a, b| format!("{a}{b}"));
 
-    if let Some((secret,)) = existing_secret {
-        txn.commit().await?;
-        Ok(secret)
-    } else {
-        let secret = (0..23)
-            .map(|_| rand::thread_rng().gen_range(0..9))
-            .fold(String::new(), |a, b| format!("{a}{b}"));
-        let secret = format!("9{secret}");
-
-        sqlx::query(
-            r#"
-            INSERT INTO auth_secret (id, secret) 
-            VALUES ($1, $2)
-            "#,
-        )
+    sqlx::query("INSERT INTO auth_secret_hash (id, secret_hash) VALUES ($1, $2)")
         .bind(user_id)
-        .bind(secret.clone())
+        .bind(secret_hash(&secret).as_slice())
+        .execute(&mut *txn)
+        .await?;
+    // The GUI derives this locally from the original secret. Persist the code
+    // while we still have that secret, in the same transaction as the account.
+    sqlx::query("INSERT INTO invite_codes (user_id, code) VALUES ($1, $2)")
+        .bind(user_id)
+        .bind(secret_to_invite_code(&secret))
         .execute(&mut *txn)
         .await?;
 
-        let uname: Option<String> =
-            sqlx::query_scalar("select username from auth_password where user_id = $1")
-                .bind(user_id)
-                .fetch_optional(&mut *txn)
-                .await?;
-        if let Some(uname) = uname {
-            tracing::debug!("upgrading legacy username {uname} with a free gift");
+    txn.commit().await?;
+    Ok(secret)
+}
 
-            let code = PaymentClient(PaymentTransport)
-                .create_giftcard(CONFIG_FILE.wait().payment_support_secret.clone(), 1)
-                .await?
-                .map_err(|e| anyhow::anyhow!(e))?;
-            sqlx::query(
-                r#"
-            INSERT INTO free_vouchers (id, voucher, description, visible_after)
-            VALUES ($1, $2, $3, (select coalesce(max(visible_after) + '1 second', NOW()) from free_vouchers))
-            "#,
-            )
-            .bind(user_id)
-            .bind(code.clone())
-            .bind(include_str!("../free_voucher_description.json"))
-            .execute(&mut *txn)
-            .await?;
+fn secret_hash(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
+}
+
+fn secret_to_invite_code(secret: &str) -> String {
+    const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let digest = Sha256::new()
+        .chain_update(b"invite-code")
+        .chain_update(secret.as_bytes())
+        .finalize();
+    let mut code = String::with_capacity(16);
+    for chunk in digest[..10].chunks_exact(5) {
+        let block = chunk.iter().fold(0u64, |n, b| (n << 8) | u64::from(*b));
+        for group in (0..8).rev() {
+            code.push(ALPHABET[((block >> (group * 5)) & 31) as usize] as char);
         }
-
-        txn.commit().await?;
-        Ok(secret)
     }
+    code
 }
 
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
@@ -107,13 +80,17 @@ pub async fn validate_credential(credential: Credential) -> Result<i32, AuthErro
 }
 
 pub async fn validate_secret(secret: &str) -> Result<i32, AuthError> {
-    // Query the DB to see if any row matches this hash.
-    let res: Option<(i32,)> = sqlx::query_as("SELECT id FROM auth_secret WHERE secret = $1")
-        .bind(secret)
-        .fetch_optional(&*POSTGRES)
-        .await
-        .inspect_err(log_error)
-        .map_err(|_| AuthError::RateLimited)?;
+    validate_secret_in_pool(&POSTGRES, secret).await
+}
+
+async fn validate_secret_in_pool(pool: &PgPool, secret: &str) -> Result<i32, AuthError> {
+    let res: Option<(i32,)> =
+        sqlx::query_as("SELECT id FROM auth_secret_hash WHERE secret_hash = $1")
+            .bind(secret_hash(secret).as_slice())
+            .fetch_optional(pool)
+            .await
+            .inspect_err(log_error)
+            .map_err(|_| AuthError::RateLimited)?;
 
     // If we find a matching user_id, great; otherwise, Forbidden.
     if let Some((user_id,)) = res {
@@ -302,9 +279,113 @@ DO UPDATE SET login_time = EXCLUDED.login_time;
 }
 
 pub async fn delete_user_by_secret(secret: &str) -> anyhow::Result<()> {
-    sqlx::query("delete from users where id=(select id from auth_secret where secret=$1)")
-        .bind(secret)
-        .execute(&*POSTGRES)
-        .await?;
+    sqlx::query(
+        "delete from users where id=(select id from auth_secret_hash where secret_hash=$1)",
+    )
+    .bind(secret_hash(secret).as_slice())
+    .execute(&*POSTGRES)
+    .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::{
+        Executor,
+        postgres::{PgConnectOptions, PgPoolOptions},
+    };
+    use std::str::FromStr;
+
+    #[test]
+    fn secret_hash_and_referral_vectors() {
+        assert_eq!(
+            hex::encode(secret_hash("abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // Also checked against PostgreSQL's backfill and the GUI's Crockford
+        // encoding: leading zeroes and exact bytes must not be normalized.
+        assert_ne!(secret_hash("01"), secret_hash("1"));
+        assert_eq!(
+            secret_to_invite_code("900000000000000000000001"),
+            "XRZ1GB4DF6YMV2SN"
+        );
+    }
+
+    async fn temporary_account_pool() -> anyhow::Result<PgPool> {
+        let options = PgConnectOptions::from_str(&std::env::var("GEPH_TEST_DATABASE_URL")?)?;
+        anyhow::ensure!(
+            matches!(options.get_host(), "127.0.0.1" | "localhost" | "::1"),
+            "account tests require a loopback PostgreSQL server"
+        );
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .max_lifetime(None)
+            .idle_timeout(None)
+            .connect_with(options)
+            .await?;
+        pool.execute("CREATE TEMP TABLE users (id SERIAL PRIMARY KEY, createtime TIMESTAMP NOT NULL);
+            CREATE TEMP TABLE auth_secret_hash (id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                secret_hash BYTEA NOT NULL UNIQUE CHECK (octet_length(secret_hash) = 32));
+            CREATE TEMP TABLE invite_codes (user_id INTEGER PRIMARY KEY REFERENCES users(id), code TEXT NOT NULL UNIQUE);")
+            .await?;
+        Ok(pool)
+    }
+
+    #[tokio::test]
+    #[ignore = "requires GEPH_TEST_DATABASE_URL pointing to disposable loopback PostgreSQL"]
+    async fn registration_and_authentication_use_hashes() -> anyhow::Result<()> {
+        let pool = temporary_account_pool().await?;
+        let secret = register_secret_in_pool(&pool).await?;
+        assert_eq!(secret.len(), 24);
+        assert!(secret.starts_with('9'));
+        assert!(secret[1..].bytes().all(|b| (b'0'..=b'8').contains(&b)));
+        let id = validate_secret_in_pool(&pool, &secret).await?;
+        let stored: Vec<u8> =
+            sqlx::query_scalar("SELECT secret_hash FROM auth_secret_hash WHERE id=$1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await?;
+        let expected: Vec<u8> = sqlx::query_scalar("SELECT sha256(convert_to($1, 'UTF8'))")
+            .bind(&secret)
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(stored, expected);
+        let code: String = sqlx::query_scalar("SELECT code FROM invite_codes WHERE user_id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(code, secret_to_invite_code(&secret));
+        for invalid in [
+            "wrong".to_string(),
+            hex::encode(stored),
+            format!(" {secret}"),
+        ] {
+            assert!(matches!(
+                validate_secret_in_pool(&pool, &invalid).await,
+                Err(AuthError::Forbidden)
+            ));
+        }
+        pool.close().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires GEPH_TEST_DATABASE_URL pointing to disposable loopback PostgreSQL"]
+    async fn referral_failure_rolls_back_registration() -> anyhow::Result<()> {
+        let pool = temporary_account_pool().await?;
+        pool.execute("ALTER TABLE invite_codes ADD CONSTRAINT simulate_failure CHECK (false)")
+            .await?;
+        assert!(register_secret_in_pool(&pool).await.is_err());
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users")
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(count, 0);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM auth_secret_hash")
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(count, 0);
+        pool.close().await;
+        Ok(())
+    }
 }

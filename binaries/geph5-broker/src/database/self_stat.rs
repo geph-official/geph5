@@ -50,7 +50,7 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
             .await?;
 
             let (daily_logins_new,): (i64,) = sqlx::query_as(
-                "select count(id) from last_login natural join auth_secret where login_time > NOW() - INTERVAL '24 hours'",
+                "select count(id) from last_login natural join auth_secret_hash where login_time > NOW() - INTERVAL '24 hours'",
             )
             .fetch_one(&*POSTGRES)
             .await?;
