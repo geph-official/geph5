@@ -10,8 +10,6 @@ use sqlx::{
 use crate::CONFIG_FILE;
 
 pub(super) static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
-    // `connect_lazy_with` builds the pool synchronously and connects on first
-    // use, so this works from inside the tokio runtime without blocking.
     PoolOptions::new()
         .max_connections(150)
         .acquire_timeout(Duration::from_secs(1))

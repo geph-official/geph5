@@ -33,6 +33,17 @@ pub trait BrokerProtocol {
     async fn get_mizaru_subkey(&self, level: AccountLevel, epoch: u16) -> Bytes;
 
     async fn get_auth_token(&self, credential: Credential) -> Result<String, AuthError>;
+    /// Inspect an account code without authenticating retired codes.
+    async fn get_account_secret_status(
+        &self,
+        secret: String,
+    ) -> Result<AccountSecretStatus, AccountSecretError>;
+    /// Replace a legacy 9-prefixed code with a server-generated 8-prefixed code.
+    /// The same broker caches the replacement for ten minutes for retries with the old code.
+    async fn rotate_account_secret(
+        &self,
+        current_secret: String,
+    ) -> Result<String, AccountSecretError>;
     async fn get_user_info(&self, auth_token: String) -> Result<Option<UserInfo>, AuthError>;
     async fn get_user_info_by_cred(
         &self,
@@ -203,6 +214,30 @@ pub enum AuthError {
     Forbidden,
     #[error("wrong level")]
     WrongLevel,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountSecretStatus {
+    Current {
+        user_id: u64,
+        invite_code: Option<String>,
+    },
+    Retired,
+    Invalid,
+}
+
+#[derive(Clone, Debug, Error, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountSecretError {
+    #[error("incorrect account code or rotation not supported")]
+    Forbidden,
+    #[error("account code has been replaced")]
+    Retired,
+    #[error("rate limited")]
+    RateLimited,
+    #[error("account service temporarily unavailable")]
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]

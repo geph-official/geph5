@@ -27,6 +27,7 @@ payment_support_secret: support-secret
 | --- | --- | --- |
 | `users` | `id` (PK), `createtime` | Canonical user record. A row is created whenever a new secret account is issued. Other tables reference this `id`. |
 | `auth_secret_hash` | `id` (PK, FK -> `users.id`), `secret_hash` (unique, 32-byte `bytea`) | Stores plain SHA-256 of the exact UTF-8 login secret, without a prefix, salt, or stretching. Registration also stores the existing client-compatible referral code. |
+| `auth_secret_history` | `secret_hash` (PK, 32-byte `bytea`), `user_id` (FK -> `users.id`), `retired_at` | Retired account-code hashes, retained until account deletion. Used for replacement status, retry handling, and preventing code reuse. |
 | `auth_password` | `user_id` (PK, FK -> `users.id`), `username`, `pwdhash` | Legacy username/password credentials. Kept for backward compatibility so older clients can still authenticate. Password hashes are stored in PHC format (Argon2). |
 | `auth_token_hash` | `token_hash` (PK, 32-byte `bytea`), `user_id` (indexed) | Plain SHA-256 of per-device API tokens minted after authentication. Clients retain and send the original tokens. Preserves the original table's lack of a foreign key; cached validation retains its existing 24-hour TTL. |
 | `last_login` | `id` (PK, FK -> `users.id`), `login_time` | Tracks the most recent successful API call per user. Updated on every token validation and used for metrics. |
@@ -110,10 +111,76 @@ Validate the cutover with existing-device tokens, existing-account login, new re
 website login, referral codes, and support grants. The registration transaction stores the hash
 and referral code together, so no periodic plaintext-reading referral job is needed.
 
-For local verification, set `GEPH_TEST_DATABASE_URL` to disposable PostgreSQL on
-loopback. Run `cargo test -p geph5-broker -- --include-ignored` from the workspace
-root, and `python3 tests/test_secret_hash_cutover.py` from this directory. Set
-`GEPH_HASH_VOLUME_TEST=1` for the optional 3.55-million-account backfill test.
-Set `GEPH_TOKEN_HASH_VOLUME_TEST=1` for the optional 12-million-token backfill test.
-The SQL and startup-rollout tests create and remove their own databases; other broker
-database tests use temporary tables. All reject non-loopback database hosts.
+## Opt-in account-code rotation
+
+The broker creates `auth_secret_history` at startup after the hash cutover, under
+the same rollout lock. This step is idempotent and preserves existing account and
+token hashes. Registration issues 24-digit codes beginning with `8`. Only legacy codes beginning
+with `9` support rotation; `8`-prefixed codes cannot be rotated.
+There is no mandatory migration policy or automatic account rotation.
+
+Two new JSON-RPC methods use the normal request-ID response deduplication cache:
+
+* `get_account_secret_status(secret)` returns `Result<AccountSecretStatus, AccountSecretError>`.
+  Status is `{"current":{"user_id":123,"invite_code":"..."}}`, `"retired"`, or
+  `"invalid"`. `invite_code` is nullable and comes from the stored referral mapping,
+  not from the current secret. Retired/invalid statuses contain no account details.
+* `rotate_account_secret(current_secret)` returns `Result<String, AccountSecretError>`.
+  Success contains the server-generated replacement account code. It accepts a
+  legacy `9`-prefixed account code, not a device token or an `8`-prefixed code.
+
+As with other broker `Result` methods, values are wrapped in `{"Ok":...}` or
+`{"Err":...}` inside the JSON-RPC result. Errors are `"forbidden"`, `"retired"`,
+`"rate_limited"`, or `"unavailable"`. Non-`9`-prefixed inputs return `forbidden`.
+Pool acquisition timeouts return `rate_limited`; other database failures return
+`unavailable`, never an incorrect-code status.
+
+The broker generates replacements matching `^8[0-9]{23}$`: exactly 24 ASCII digits
+beginning with `8`. Existing credentials are interpreted as exact UTF-8 bytes
+without trimming or normalization. Replacements are randomly generated and only
+their hashes are stored in Postgres. A process-local Moka cache retains successful
+replacements for ten minutes, keyed by the old credential hash.
+
+Registration, rotation, and token issuance use ordinary
+`begin()` transactions, relying on the database's default isolation level being
+`serializable`. They do not set isolation levels or explicitly acquire locks.
+A shared helper retries the entire transaction up to three attempts on serialization
+failures, deadlocks, or concurrent uniqueness conflicts; validation errors are not
+retried. PostgreSQL's MVCC and uniqueness constraints coordinate credential allocation.
+
+Rotation atomically archives the old hash, installs the replacement hash, and deletes
+all device-token rows for that user. User ID, subscription, bandwidth accounting,
+and stored invite code are preserved. Once an account has rotation history, the
+broker also rejects its legacy username/password login, without deleting password
+records. Token issuance validates credentials in the same transaction as insertion,
+so a conflicting rotation and login cannot both commit an inconsistent result.
+
+For ten minutes after a successful rotation, repeating the call on the same broker
+with the old `9`-prefixed code returns the cached replacement without changing the
+account or deleting newly issued tokens. Cache reads do not extend its lifetime.
+After expiry, or on a process that lacks the cache entry (including after restart),
+the API returns `retired`. Loss of the response and cache entry can therefore leave
+the client unable to recover the replacement; this is an accepted limitation.
+The old code is immediately retired for ordinary authentication and account-status
+queries; the grace period only permits retrieval through the rotation API. Anyone
+holding the old code, including an attacker, can retrieve the cached replacement.
+
+The client must save the returned code, then obtain a fresh device token using
+`get_auth_token`. Moka coalesces concurrent calls for the same old code within a
+process. Across processes, only the winning broker retains the replacement.
+Clients use fresh request IDs for new operations and reuse IDs for transport retries.
+The existing response deduplication cache can replay an earlier success for its
+normal 120-second lifetime, including just beyond the grace-period deadline.
+
+All broker instances must run this version before exposing rotation; older instances
+do not authenticate and issue tokens in one transaction. The existing 24-hour
+device-token validation cache is intentionally unchanged: deleted tokens may remain
+usable until their cached entries expire or all processes holding them restart.
+Restarting after each rotation is not required. In-flight authenticated operations
+may finish. Rotation does not terminate established tunnels, invalidate previously
+issued anonymous connection/bandwidth tokens, revoke billing sessions, or change
+the payment service's legacy-password policy. Account deletion remains disabled.
+
+This is a first-claimant-wins recovery mechanism; it does not identify the legitimate
+owner of leaked credentials. Client UI, payments integration, and rollout activation
+are separate work.
