@@ -73,10 +73,13 @@ async fn run_on_connection(connection: &mut PgConnection) -> anyhow::Result<()> 
         .bind(None::<i32>)
         .execute(&mut *txn)
         .await
-        .context("Backfilling account rotation Plus rewards")?
+        .context("Backfilling account rotation subscription rewards")?
         .rows_affected();
     txn.commit().await?;
-    tracing::info!(rewarded, "account rotation Plus reward backfill complete");
+    tracing::info!(
+        rewarded,
+        "account rotation subscription reward backfill complete"
+    );
     Ok(())
 }
 

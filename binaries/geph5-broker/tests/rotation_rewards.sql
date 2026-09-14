@@ -39,8 +39,10 @@ EXECUTE reward(NULL);
 EXECUTE reward(NULL);
 DO $$ BEGIN
     ASSERT (SELECT count(*) FROM auth_secret_rotation_rewards) = 6;
-    ASSERT (SELECT count(*) FROM auth_secret_rotation_rewards WHERE granted) = 2;
-    ASSERT (SELECT count(*) FROM plus_periods) = 9;
+    ASSERT (SELECT count(*) FROM auth_secret_rotation_rewards WHERE granted) = 3;
+    ASSERT (SELECT count(*) FROM plus_periods) = 10;
+    ASSERT (SELECT max(end_time) FROM plus_periods WHERE user_id = 2 AND tier = 0) = NOW() + INTERVAL '17 days';
+    ASSERT NOT EXISTS (SELECT FROM plus_periods WHERE user_id = 2 AND tier = 1);
     ASSERT (SELECT max(end_time) FROM plus_periods WHERE user_id = 1) = NOW() + INTERVAL '17 days';
     ASSERT (SELECT max(end_time) FROM plus_periods WHERE user_id = 6) = NOW() + INTERVAL '27 days';
     ASSERT (SELECT start_time FROM plus_periods WHERE user_id = 6 ORDER BY period_id DESC LIMIT 1) = NOW() + INTERVAL '20 days';
@@ -50,7 +52,34 @@ INSERT INTO plus_periods (user_id, start_time, end_time, tier)
 VALUES (5, NOW(), NOW() + INTERVAL '30 days', 1);
 EXECUTE reward(NULL);
 DO $$ BEGIN
-    ASSERT (SELECT count(*) FROM plus_periods) = 10;
+    ASSERT (SELECT count(*) FROM plus_periods) = 11;
     ASSERT NOT (SELECT granted FROM auth_secret_rotation_rewards WHERE user_id = 5);
+END $$;
+-- Simulate accounts processed by the original Plus-only version.
+INSERT INTO users SELECT generate_series(8, 12);
+INSERT INTO auth_secret_history (user_id) SELECT generate_series(8, 12);
+INSERT INTO auth_secret_rotation_rewards (user_id, processed_at, granted) VALUES
+    (8, NOW() - INTERVAL '2 days', FALSE),
+    (9, NOW() - INTERVAL '2 days', FALSE),
+    (10, NOW() - INTERVAL '2 days', TRUE);
+INSERT INTO plus_periods (user_id, start_time, end_time, tier) VALUES
+    (8, NOW() - INTERVAL '3 days', NOW() + INTERVAL '10 days', 0),
+    (9, NOW() - INTERVAL '1 day', NOW() + INTERVAL '10 days', 0),
+    (10, NOW() - INTERVAL '3 days', NOW() + INTERVAL '10 days', 1),
+    (11, NOW() - INTERVAL '1 day', NOW() + INTERVAL '10 days', 0),
+    (11, NOW() + INTERVAL '10 days', NOW() + INTERVAL '20 days', 1),
+    (12, NOW() - INTERVAL '1 day', NOW() + INTERVAL '20 days', 0),
+    (12, NOW() - INTERVAL '1 day', NOW() + INTERVAL '10 days', 1);
+EXECUTE reward(NULL);
+EXECUTE reward(NULL);
+DO $$ BEGIN
+    ASSERT (SELECT count(*) FROM plus_periods) = 21;
+    ASSERT (SELECT granted FROM auth_secret_rotation_rewards WHERE user_id = 8);
+    ASSERT (SELECT max(end_time) FROM plus_periods WHERE user_id = 8 AND tier = 0) = NOW() + INTERVAL '17 days';
+    ASSERT NOT (SELECT granted FROM auth_secret_rotation_rewards WHERE user_id = 9);
+    ASSERT (SELECT count(*) FROM plus_periods WHERE user_id = 10) = 1;
+    ASSERT (SELECT max(end_time) FROM plus_periods WHERE user_id = 11 AND tier = 0) = NOW() + INTERVAL '27 days';
+    ASSERT (SELECT max(end_time) FROM plus_periods WHERE user_id = 12 AND tier = 1) = NOW() + INTERVAL '17 days';
+    ASSERT (SELECT count(*) FROM plus_periods WHERE user_id = 12 AND tier = 0) = 1;
 END $$;
 ROLLBACK;

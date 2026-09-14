@@ -185,17 +185,23 @@ This is a first-claimant-wins recovery mechanism; it does not identify the legit
 owner of leaked credentials. Client UI, payments integration, and rollout activation
 are separate work.
 
-## Secret-rotation Plus reward
+## Secret-rotation subscription reward
 
-A successful rotation by an active Plus user grants seven days (168 hours) of
-tier-1 Plus, appended after their latest tier-1 period. The reward and rotation
-commit atomically. Basic, expired, free, and future-only Plus accounts do not
-qualify. Existing subscription caches pick up the new ledger period normally.
+A successful rotation by an active Plus or Basic user grants seven days (168 hours)
+of their highest currently active tier: tier-1 Plus or tier-0 Basic. Plus rewards
+start after the latest Plus period; Basic rewards start after all paid periods,
+matching billing and avoiding overlap with scheduled Plus. The reward and rotation
+commit atomically. Expired, free, and future-only paid accounts do not qualify. Existing subscription caches pick up the new ledger period normally.
 
 At startup, after creating secret history, the broker creates
 `auth_secret_rotation_rewards` and processes previously rotated accounts. Users
-with active Plus at backfill time receive the same seven-day extension. Each
+with active Plus or Basic at backfill time receive the same seven-day extension. Each
 account is recorded once, including ineligible accounts, so retries, restarts,
 and later purchases cannot award additional rotation bonuses. A failed backfill
 rolls back and prevents startup; restarting retries it. The reward uses
 `plus_periods`, without creating payment revenue or changing recurring billing.
+
+Accounts marked ineligible by the original Plus-only rollout are reconsidered if
+they had active Basic at their recorded `processed_at` time and currently have
+active Plus or Basic. Already granted rewards remain unchanged. Accounts that
+were free at their original evaluation do not become eligible by purchasing later.
