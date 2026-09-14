@@ -37,7 +37,7 @@ payment_support_secret: support-secret
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `free_vouchers` | `id` (PK, FK -> `users.id`), `voucher`, `description`, `visible_after` | Stores promotional gift codes attached to users. If `voucher` is empty the broker will mint one on demand and update the same row. The `description` field contains localized copy as JSON. |
-| `plus_periods` | `period_id` (PK), `user_id` (FK -> `users.id`), `start_time`, `end_time`, `tier` | Ledger of paid access windows. Tier `0` corresponds to Geph Plus. The broker reads this table to count active Plus users and to enforce bandwidth plans. |
+| `plus_periods` | `period_id` (PK), `user_id` (FK -> `users.id`), `start_time`, `end_time`, `tier` | Ledger of paid access windows. Tier `1` corresponds to Geph Plus; tier `0` is Basic. The broker reads this table to count active Plus users and to enforce bandwidth plans. |
 | `subscriptions` | `id` (PK, FK -> `users.id`), `plan`, `expires`, ... | Current active subscription for each user. The broker only needs the expiry timestamp but other billing services may add additional bookkeeping columns. |
 | `stripe_recurring` | `subscription_id` (PK), `user_id` (FK -> `users.id`) | Links Stripe subscription IDs to Geph user IDs so recurring billing can be cancelled or migrated. Joined with `subscriptions` to detect recurring customers. |
 | `bw_limits` | `id` (PK, FK -> `users.id`), `mb_limit`, `renew_mb`, `renew_date` | Optional per-user bandwidth caps. The broker reads the remaining quota and reset schedule when accounting traffic. |
@@ -149,7 +149,7 @@ failures, deadlocks, or concurrent uniqueness conflicts; validation errors are n
 retried. PostgreSQL's MVCC and uniqueness constraints coordinate credential allocation.
 
 Rotation atomically archives the old hash, installs the replacement hash, and deletes
-all device-token rows for that user. User ID, subscription, bandwidth accounting,
+all device-token rows for that user. User ID, bandwidth accounting,
 and stored invite code are preserved. Once an account has rotation history, the
 broker also rejects its legacy username/password login, without deleting password
 records. Token issuance validates credentials in the same transaction as insertion,
@@ -184,3 +184,18 @@ the payment service's legacy-password policy. Account deletion remains disabled.
 This is a first-claimant-wins recovery mechanism; it does not identify the legitimate
 owner of leaked credentials. Client UI, payments integration, and rollout activation
 are separate work.
+
+## Secret-rotation Plus reward
+
+A successful rotation by an active Plus user grants seven days (168 hours) of
+tier-1 Plus, appended after their latest tier-1 period. The reward and rotation
+commit atomically. Basic, expired, free, and future-only Plus accounts do not
+qualify. Existing subscription caches pick up the new ledger period normally.
+
+At startup, after creating secret history, the broker creates
+`auth_secret_rotation_rewards` and processes previously rotated accounts. Users
+with active Plus at backfill time receive the same seven-day extension. Each
+account is recorded once, including ineligible accounts, so retries, restarts,
+and later purchases cannot award additional rotation bonuses. A failed backfill
+rolls back and prevents startup; restarting retries it. The reward uses
+`plus_periods`, without creating payment revenue or changing recurring billing.

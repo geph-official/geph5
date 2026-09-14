@@ -6,6 +6,10 @@ const ACCOUNT_BACKFILL: &str = include_str!("../../sql/auth_secret_hash_02_backf
 const TOKEN_CREATE: &str = include_str!("../../sql/auth_token_hash_01_create.sql");
 const TOKEN_BACKFILL: &str = include_str!("../../sql/auth_token_hash_02_backfill.sql");
 const SECRET_HISTORY: &str = include_str!("../../sql/auth_secret_history_01_create.sql");
+const ROTATION_REWARD_CREATE: &str =
+    include_str!("../../sql/auth_secret_rotation_rewards_01_create.sql");
+pub(super) const ROTATION_REWARD_GRANT: &str =
+    include_str!("../../sql/auth_secret_rotation_rewards_02_grant.sql");
 // Session lock spans all separately committed SQL files. It only coordinates
 // new brokers; old account writers must be stopped for the cutover.
 const ROLLOUT_LOCK: i64 = 0x6765706853686132;
@@ -57,6 +61,22 @@ async fn run_on_connection(connection: &mut PgConnection) -> anyhow::Result<()> 
         .execute(&mut *connection)
         .await
         .context("Account secret history is not usable")?;
+    sqlx::raw_sql(ROTATION_REWARD_CREATE)
+        .execute(&mut *connection)
+        .await
+        .context("Creating account rotation reward tracking")?;
+    let mut txn = connection.begin().await?;
+    sqlx::raw_sql("SET LOCAL lock_timeout = '250ms'; SET LOCAL statement_timeout = '5min';")
+        .execute(&mut *txn)
+        .await?;
+    let rewarded = sqlx::query(ROTATION_REWARD_GRANT)
+        .bind(None::<i32>)
+        .execute(&mut *txn)
+        .await
+        .context("Backfilling account rotation Plus rewards")?
+        .rows_affected();
+    txn.commit().await?;
+    tracing::info!(rewarded, "account rotation Plus reward backfill complete");
     Ok(())
 }
 

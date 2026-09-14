@@ -129,6 +129,10 @@ pub async fn rotate_account_secret(current_secret: &str) -> Result<String, Accou
                     .bind(user_id)
                     .execute(&mut *txn)
                     .await?;
+                sqlx::query(super::secret_hash_rollout::ROTATION_REWARD_GRANT)
+                    .bind(user_id)
+                    .execute(&mut *txn)
+                    .await?;
                 txn.commit().await?;
                 // Existing process-local token caches intentionally survive until expiry.
                 Ok(replacement_secret)
