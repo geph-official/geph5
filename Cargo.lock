@@ -2404,7 +2404,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.3.10"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2430,7 +2430,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.3.10"
+version = "0.4.0"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2594,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-ip-to-asn"
-version = "0.3.10"
+version = "0.2.103"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.3.10"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-rt"
-version = "0.3.10"
+version = "0.3.7"
 dependencies = [
  "async-channel",
  "bytes",
@@ -3596,7 +3596,7 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.19"
+version = "0.2.20"
 dependencies = [
  "blake3",
  "blind-rsa-signatures",
@@ -3657,7 +3657,7 @@ dependencies = [
 
 [[package]]
 name = "nanorpc-sillad"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4028,7 +4028,7 @@ dependencies = [
 
 [[package]]
 name = "picomux"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5108,7 +5108,7 @@ dependencies = [
 
 [[package]]
 name = "sillad"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5125,7 +5125,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-conntest"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "futures-concurrency",
@@ -5139,7 +5139,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-hex"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "geph5-rt",
@@ -5151,7 +5151,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-meeklike"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5183,7 +5183,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-native-tls"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "geph5-rt",
@@ -5197,7 +5197,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "arrayref",

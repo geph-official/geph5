@@ -3,7 +3,7 @@ name = "geph5-app"
 edition = "2024"
 license = "MPL-2.0"
 description = "The Geph5 desktop app: the `geph` CLI and its supervising daemon"
-version.workspace = true
+version = "0.3.10"
 repository.workspace = true
 
 [[bin]]
@@ -11,13 +11,13 @@ name = "geph5"
 path = "src/main.rs"
 
 [dependencies]
-geph5-broker-protocol = { version = "0.3", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.3", path = "../../libraries/geph5-misc-rpc" }
-geph5-rt = { version = "0.3", path = "../../libraries/geph5-rt" }
+geph5-broker-protocol = { version = "0.4.0", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.4.0", path = "../../libraries/geph5-misc-rpc" }
+geph5-rt = { version = "0.3.7", path = "../../libraries/geph5-rt" }
 
 nanorpc = "0.1.13"
-nanorpc-sillad = { version = "0.2", path = "../../libraries/nanorpc-sillad" }
-sillad = { version = "0.3", path = "../../libraries/sillad" }
+nanorpc-sillad = { version = "0.2.1", path = "../../libraries/nanorpc-sillad" }
+sillad = { version = "0.3.2", path = "../../libraries/sillad" }
 
 anyhow = "1.0.104"
 async-trait = "0.1.92"

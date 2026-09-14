@@ -23,8 +23,8 @@ isocountry = "0.3.2"
 language-tags = { version = "0.3.2", features = ["serde"] }
 serde_with = { version = "3.22.0", features = ["hex"] }
 geph5-stats = { version = "0.1.0", path = "../geph5-stats" }
-mizaru2 = { version = "0.2.18", path = "../mizaru2" }
-sillad-meeklike = { version = "0.2", path = "../sillad-meeklike" }
+mizaru2 = { version = "0.2.20", path = "../mizaru2" }
+sillad-meeklike = { version = "0.2.1", path = "../sillad-meeklike" }
 tracing = "0.1.44"
 melpow = "0.1.2"
 base64 = "0.22.1"

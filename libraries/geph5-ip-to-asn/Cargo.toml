@@ -2,7 +2,7 @@
 name = "geph5-ip-to-asn"
 edition = "2024"
 description = "Extremely simple IP-to-ASN crate used throughout Geph"
-version.workspace = true
+version = "0.2.103"
 repository.workspace = true
 license.workspace = true
 
