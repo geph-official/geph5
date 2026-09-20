@@ -209,7 +209,12 @@ async fn picomux_inner(
         let mut buffer_recv = buffer_table.create_entry(stream_id);
         let (mut write_incoming, read_incoming) = tokio::io::duplex(MSS * 2);
         let (write_outgoing, mut read_outgoing) = tokio::io::duplex(MSS * 2);
+        let (shutdown_send, shutdown) = oneshot::channel();
+        let (closed_send, closed) = oneshot::channel();
         let stream = Stream {
+            shutdown,
+            shutdown_complete: false,
+            _closed: closed_send,
             write_outgoing,
             read_incoming,
             metadata,
@@ -217,77 +222,87 @@ async fn picomux_inner(
             on_read: Box::new(|_| {}),
         };
 
-        // jelly bean movers
-        let outgoing_task = {
+        let receive_task = {
             let outgoing = outgoing.clone();
             let debloat = debloat.clone();
             async move {
-                let mut remote_window = INIT_WINDOW;
-                let mut target_remote_window = MAX_WINDOW;
+                let receive = async {
+                    let mut remote_window = INIT_WINDOW;
+                    let mut target_remote_window = MAX_WINDOW;
 
-                let mut bw_estimate = BwEstimate::new(1_000_000.0);
-                loop {
-                    let min_quantum = (target_remote_window / 10).clamp(1, 500);
-                    let frame = buffer_recv.recv().await;
-                    if frame.header.command == CMD_FIN {
-                        anyhow::bail!("received remote FIN");
-                    }
-                    let queue_delay = buffer_recv.queue_delay().unwrap();
-                    tracing::trace!(
-                        stream_id,
-                        queue_delay = debug(queue_delay),
-                        remote_window,
-                        target_remote_window,
-                        "queue delay measured"
-                    );
-                    bw_estimate.sample(frame.body.len());
-                    write_incoming
-                        .write_all(&frame.body)
-                        .await
-                        .context("could not write to incoming")?;
-                    remote_window -= 1;
-
-                    // assume the delay is 1s, very generously
-                    if debloat.load(Ordering::Relaxed) {
-                        target_remote_window = ((bw_estimate.read() / MSS as f64 * 1.0) as usize)
-                            .clamp(INIT_WINDOW, MAX_WINDOW);
-                        tracing::debug!(
-                            target_remote_window,
-                            "setting target remote send window based on bw"
-                        );
-                    }
-
-                    if remote_window + min_quantum <= target_remote_window {
-                        let quantum = target_remote_window - remote_window;
-                        outgoing.enqueue(Frame::new(
+                    let mut bw_estimate = BwEstimate::new(1_000_000.0);
+                    loop {
+                        let min_quantum = (target_remote_window / 10).clamp(1, 500);
+                        let frame = buffer_recv.recv().await;
+                        if frame.header.command == CMD_FIN {
+                            write_incoming.shutdown().await?;
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        let queue_delay = buffer_recv.queue_delay().unwrap();
+                        tracing::trace!(
                             stream_id,
-                            CMD_MORE,
-                            &(quantum as u16).to_le_bytes(),
-                        ));
-                        tracing::debug!(
-                            stream_id,
+                            queue_delay = debug(queue_delay),
                             remote_window,
                             target_remote_window,
-                            quantum,
-                            queue_delay = debug(queue_delay),
-                            "sending MORE"
+                            "queue delay measured"
                         );
-                        remote_window += quantum;
+                        bw_estimate.sample(frame.body.len());
+                        write_incoming
+                            .write_all(&frame.body)
+                            .await
+                            .context("could not write to incoming")?;
+                        remote_window -= 1;
+
+                        // assume the delay is 1s, very generously
+                        if debloat.load(Ordering::Relaxed) {
+                            target_remote_window = ((bw_estimate.read() / MSS as f64 * 1.0)
+                                as usize)
+                                .clamp(INIT_WINDOW, MAX_WINDOW);
+                            tracing::debug!(
+                                target_remote_window,
+                                "setting target remote send window based on bw"
+                            );
+                        }
+
+                        if remote_window + min_quantum <= target_remote_window {
+                            let quantum = target_remote_window - remote_window;
+                            outgoing.enqueue(Frame::new(
+                                stream_id,
+                                CMD_MORE,
+                                &(quantum as u16).to_le_bytes(),
+                            ));
+                            tracing::debug!(
+                                stream_id,
+                                remote_window,
+                                target_remote_window,
+                                quantum,
+                                queue_delay = debug(queue_delay),
+                                "sending MORE"
+                            );
+                            remote_window += quantum;
+                        }
                     }
-                }
+                };
+                let dropped = async {
+                    let _ = closed.await;
+                    Ok::<_, anyhow::Error>(())
+                };
+                (receive, dropped).race().await?;
+
+                // MORE frames must still find the send window after remote EOF.
+                // Keep the table entry until the send direction also finishes.
+                Ok::<_, anyhow::Error>(buffer_recv)
             }
         };
 
-        let incoming_task = {
+        let send_task = {
             let buffer_table = buffer_table.clone();
             let outgoing = outgoing.clone();
             async move {
-                loop {
-                    let body = pooled_read(&mut read_outgoing, 8192)
-                        .await
-                        .context("could not read_outgoing")?
-                        .context("EOF on read_outgoing")?;
-
+                while let Some(body) = pooled_read(&mut read_outgoing, MSS)
+                    .await
+                    .context("could not read_outgoing")?
+                {
                     tracing::trace!(
                         stream_id,
                         n = body.len(),
@@ -305,33 +320,19 @@ async fn picomux_inner(
                     buffer_table.wait_send_window(stream_id).await;
                     outgoing.send(frame).await?;
                 }
+                outgoing.enqueue(Frame::new_empty(stream_id, CMD_FIN));
+                let _ = shutdown_send.send(());
+                Ok::<_, anyhow::Error>(())
             }
         };
 
         {
             let outgoing = outgoing.clone();
             reaper.attach(spawn(async move {
-                scopeguard::defer!({
-                    tracing::debug!(stream_id, "enqueuing FIN to the other side");
-                    outgoing.enqueue(Frame {
-                        header: Header {
-                            version: 1,
-                            command: CMD_FIN,
-                            body_len: 0,
-                            stream_id,
-                        },
-                        body: Bytes::new(),
-                    });
-                });
-                let _: anyhow::Result<()> = (incoming_task, outgoing_task)
-                    .race()
-                    .await
-                    .inspect_err(|e| {
-                        tracing::debug!(
-                            e = debug(e),
-                            "incoming/outgoing task for individual stream stopped"
-                        )
-                    });
+                if let Err(error) = futures_util::future::try_join(send_task, receive_task).await {
+                    outgoing.enqueue(Frame::new_empty(stream_id, CMD_FIN));
+                    tracing::debug!(stream_id, ?error, "stream stopped");
+                }
             }));
         }
         stream
@@ -482,8 +483,17 @@ async fn picomux_inner(
     result
 }
 
+/// A bidirectional stream with independent read and write shutdown.
+///
+/// `AsyncWriteExt::shutdown` queues all buffered writes followed by FIN. The
+/// read direction remains usable until the peer closes its write direction.
+/// Peers must also support half-close to send a response after receiving EOF.
 #[pin_project]
 pub struct Stream {
+    #[pin]
+    shutdown: oneshot::Receiver<()>,
+    shutdown_complete: bool,
+    _closed: oneshot::Sender<()>,
     #[pin]
     read_incoming: tokio::io::DuplexStream,
     #[pin]
@@ -565,7 +575,21 @@ impl AsyncWrite for Stream {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        self.project().write_outgoing.poll_shutdown(cx)
+        let mut this = self.project();
+        std::task::ready!(this.write_outgoing.as_mut().poll_shutdown(cx))?;
+        if *this.shutdown_complete {
+            return Poll::Ready(Ok(()));
+        }
+        match std::task::ready!(this.shutdown.poll(cx)) {
+            Ok(()) => {
+                *this.shutdown_complete = true;
+                Poll::Ready(Ok(()))
+            }
+            Err(_) => Poll::Ready(Err(std::io::Error::new(
+                ErrorKind::BrokenPipe,
+                "stream closed before writes drained",
+            ))),
+        }
     }
 }
 
