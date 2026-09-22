@@ -12,7 +12,9 @@ use crate::CONFIG_FILE;
 pub(super) static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
     PoolOptions::new()
         .max_connections(150)
-        .acquire_timeout(Duration::from_secs(1))
+        // Acquisition also covers opening a connection, which can take several
+        // seconds after database recovery, including during broker startup.
+        .acquire_timeout(Duration::from_secs(10))
         .max_lifetime(Duration::from_secs(30))
         .test_before_acquire(false)
         .connect_lazy_with({
