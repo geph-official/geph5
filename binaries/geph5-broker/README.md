@@ -138,8 +138,12 @@ Pool acquisition timeouts return `rate_limited`; other database failures return
 The broker generates replacements matching `^8[0-9]{23}$`: exactly 24 ASCII digits
 beginning with `8`. Existing credentials are interpreted as exact UTF-8 bytes
 without trimming or normalization. Replacements are randomly generated and only
-their hashes are stored in Postgres. A process-local Moka cache retains successful
-replacements for ten minutes, keyed by the old credential hash.
+their hashes are stored in Postgres for authentication. A separate PostgreSQL
+recovery table retains encrypted replacements for 24 hours, keyed by the old
+credential hash. ChaCha20-Poly1305 uses a random nonce and a dedicated key derived
+from the broker master secret with BLAKE3 domain separation; the old credential
+hash is authenticated as associated data. All brokers must share the same master
+secret to recover replacements. Changing it makes existing recovery records unreadable.
 
 Registration, rotation, and token issuance use ordinary
 `begin()` transactions, relying on the database's default isolation level being
@@ -155,19 +159,28 @@ broker also rejects its legacy username/password login, without deleting passwor
 records. Token issuance validates credentials in the same transaction as insertion,
 so a conflicting rotation and login cannot both commit an inconsistent result.
 
-For ten minutes after a successful rotation, repeating the call on the same broker
-with the old `9`-prefixed code returns the cached replacement without changing the
-account or deleting newly issued tokens. Cache reads do not extend its lifetime.
-After expiry, or on a process that lacks the cache entry (including after restart),
-the API returns `retired`. Loss of the response and cache entry can therefore leave
-the client unable to recover the replacement; this is an accepted limitation.
-The old code is immediately retired for ordinary authentication and account-status
-queries; the grace period only permits retrieval through the rotation API. Anyone
-holding the old code, including an attacker, can retrieve the cached replacement.
+For 24 hours after a successful rotation, repeating the call with the old
+`9`-prefixed code returns the persisted replacement without changing the account,
+deleting newly issued tokens, or granting another subscription reward. Retrieval
+works across brokers and restarts and does not extend the deadline. PostgreSQL
+sets and checks the expiry; expired records are removed by the database GC loop.
+After expiry the API returns `retired`. Rotation and recovery storage commit in
+the same transaction. Rotations completed before this storage was deployed cannot
+be recovered from their hashes.
+
+The old code is immediately retired for ordinary authentication. For the first
+12 hours of the 24-hour recovery period, `get_account_secret_status` reports it
+as `current` with the account's user ID and invite code so existing GUIs offer
+the normal upgrade screen on additional devices. After 12 hours it reports
+`retired`, while the rotation API still permits recovery until 24 hours. Old
+rotations without recovery records report `retired` immediately. This status
+does not authorize login or token issuance. Anyone
+holding the old code, including an attacker, can retrieve the replacement through
+that API during these 24 hours.
 
 The client must save the returned code, then obtain a fresh device token using
-`get_auth_token`. Moka coalesces concurrent calls for the same old code within a
-process. Across processes, only the winning broker retains the replacement.
+`get_auth_token`. Concurrent rotations use transaction retries to retrieve the
+winning replacement from PostgreSQL.
 Clients use fresh request IDs for new operations and reuse IDs for transport retries.
 The existing response deduplication cache can replay an earlier success for its
 normal 120-second lifetime, including just beyond the grace-period deadline.

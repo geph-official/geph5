@@ -2365,6 +2365,7 @@ dependencies = [
  "blake3",
  "bytes",
  "cached",
+ "chacha20poly1305",
  "clap",
  "ed25519-dalek",
  "futures-util",

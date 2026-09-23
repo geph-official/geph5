@@ -45,6 +45,9 @@ pub async fn database_gc_loop() -> anyhow::Result<()> {
             .execute(&*POSTGRES)
             .await?;
         tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
+        sqlx::query("DELETE FROM auth_secret_recovery WHERE expires_at <= clock_timestamp()")
+            .execute(&*POSTGRES)
+            .await?;
         // NOTE: spent_bw_tokens is intentionally never garbage-collected. The
         // bandwidth tokens are blind-signed by a single, non-rotating key and
         // carry no epoch/expiry, so a (token, sig) pair stays valid forever.

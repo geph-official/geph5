@@ -5,6 +5,7 @@ const ACCOUNT_CREATE: &str = include_str!("../../sql/auth_secret_hash_01_create.
 const ACCOUNT_BACKFILL: &str = include_str!("../../sql/auth_secret_hash_02_backfill.sql");
 const TOKEN_CREATE: &str = include_str!("../../sql/auth_token_hash_01_create.sql");
 const TOKEN_BACKFILL: &str = include_str!("../../sql/auth_token_hash_02_backfill.sql");
+const SECRET_RECOVERY: &str = include_str!("../../sql/auth_secret_recovery_01_create.sql");
 const SECRET_HISTORY: &str = include_str!("../../sql/auth_secret_history_01_create.sql");
 const ROTATION_REWARD_CREATE: &str =
     include_str!("../../sql/auth_secret_rotation_rewards_01_create.sql");
@@ -61,6 +62,14 @@ async fn run_on_connection(connection: &mut PgConnection) -> anyhow::Result<()> 
         .execute(&mut *connection)
         .await
         .context("Account secret history is not usable")?;
+    sqlx::raw_sql(SECRET_RECOVERY)
+        .execute(&mut *connection)
+        .await
+        .context("Creating account secret recovery storage")?;
+    sqlx::query("SELECT secret_hash, replacement, expires_at FROM auth_secret_recovery LIMIT 0")
+        .execute(&mut *connection)
+        .await
+        .context("Account secret recovery storage is not usable")?;
     sqlx::raw_sql(ROTATION_REWARD_CREATE)
         .execute(&mut *connection)
         .await

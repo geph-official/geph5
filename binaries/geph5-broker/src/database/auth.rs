@@ -2,6 +2,10 @@
 
 use argon2::{Argon2, PasswordHash, PasswordVerifier, password_hash::Encoding};
 use cached::proc_macro::cached;
+use chacha20poly1305::{
+    ChaCha20Poly1305, KeyInit,
+    aead::{Aead, AeadCore, OsRng, Payload},
+};
 use geph5_broker_protocol::{
     AccountLevel, AccountSecretError, AccountSecretStatus, AuthError, Credential, UserInfo,
 };
@@ -53,16 +57,12 @@ pub async fn get_account_secret_status(
     secret: &str,
 ) -> Result<AccountSecretStatus, AccountSecretError> {
     // One snapshot prevents a concurrent move into history looking like Invalid.
-    let row: Option<(i32, bool, Option<String>)> = sqlx::query_as(
-        "SELECT s.id, false, i.code FROM auth_secret_hash s
-         LEFT JOIN invite_codes i ON i.user_id=s.id WHERE s.secret_hash=$1
-         UNION ALL
-         SELECT user_id, true, NULL::text FROM auth_secret_history WHERE secret_hash=$1",
-    )
-    .bind(credential_hash(secret).as_slice())
-    .fetch_optional(&*POSTGRES)
-    .await
-    .map_err(account_secret_error)?;
+    let row: Option<(i32, bool, Option<String>)> =
+        sqlx::query_as(include_str!("../../sql/account_secret_status.sql"))
+            .bind(credential_hash(secret).as_slice())
+            .fetch_optional(&*POSTGRES)
+            .await
+            .map_err(account_secret_error)?;
     Ok(match row {
         Some((_, true, _)) => AccountSecretStatus::Retired,
         Some((user_id, false, invite_code)) => AccountSecretStatus::Current {
@@ -74,74 +74,130 @@ pub async fn get_account_secret_status(
 }
 
 pub async fn rotate_account_secret(current_secret: &str) -> Result<String, AccountSecretError> {
-    static REPLACEMENTS: LazyLock<Cache<[u8; 32], String>> = LazyLock::new(|| {
-        Cache::builder()
-            .time_to_live(Duration::from_secs(600))
-            .build()
-    });
     if !current_secret.starts_with('9') {
         return Err(AccountSecretError::Forbidden);
     }
     let current = credential_hash(current_secret);
-    // Coalesce concurrent calls and retain successful replacements for retries.
-    REPLACEMENTS
-        .try_get_with(current, async {
-            retry_serializable(|| async {
-                let mut txn = POSTGRES.begin().await?;
-                let user_id: Option<i32> =
-                    sqlx::query_scalar("SELECT id FROM auth_secret_hash WHERE secret_hash=$1")
-                        .bind(current.as_slice())
-                        .fetch_optional(&mut *txn)
-                        .await?;
-                let user_id = match user_id {
-                    Some(user_id) => user_id,
-                    None => {
-                        let retired: bool = sqlx::query_scalar(
-                            "SELECT EXISTS(SELECT 1 FROM auth_secret_history WHERE secret_hash=$1)",
-                        )
-                        .bind(current.as_slice())
-                        .fetch_one(&mut *txn)
-                        .await?;
-                        return Err(if retired {
-                            AccountSecretError::Retired
-                        } else {
-                            AccountSecretError::Forbidden
-                        }
-                        .into());
-                    }
-                };
-                let replacement_secret = (0..23)
-                    .map(|_| rand::thread_rng().gen_range(0..10))
-                    .fold(String::from("8"), |a, b| format!("{a}{b}"));
-                sqlx::query(
-                    "INSERT INTO auth_secret_history (secret_hash, user_id) VALUES ($1, $2)",
+    retry_serializable(|| async {
+        let mut txn = POSTGRES.begin().await?;
+        let user_id: Option<i32> =
+            sqlx::query_scalar("SELECT id FROM auth_secret_hash WHERE secret_hash=$1")
+                .bind(current.as_slice())
+                .fetch_optional(&mut *txn)
+                .await?;
+        let user_id = match user_id {
+            Some(user_id) => user_id,
+            None => {
+                let encrypted: Option<Vec<u8>> = sqlx::query_scalar(
+                    "SELECT replacement FROM auth_secret_recovery
+                     WHERE secret_hash=$1 AND expires_at > clock_timestamp()",
                 )
                 .bind(current.as_slice())
-                .bind(user_id)
-                .execute(&mut *txn)
+                .fetch_optional(&mut *txn)
                 .await?;
-                sqlx::query("UPDATE auth_secret_hash SET secret_hash=$1 WHERE id=$2")
-                    .bind(credential_hash(&replacement_secret).as_slice())
-                    .bind(user_id)
-                    .execute(&mut *txn)
-                    .await?;
-                sqlx::query("DELETE FROM auth_token_hash WHERE user_id=$1")
-                    .bind(user_id)
-                    .execute(&mut *txn)
-                    .await?;
-                sqlx::query(super::secret_hash_rollout::ROTATION_REWARD_GRANT)
-                    .bind(user_id)
-                    .execute(&mut *txn)
-                    .await?;
-                txn.commit().await?;
-                // Existing process-local token caches intentionally survive until expiry.
-                Ok(replacement_secret)
-            })
-            .await
-            .map_err(account_secret_error)
-        })
-        .await
-        .map_err(|error| (*error).clone())
+                if let Some(encrypted) = encrypted {
+                    return decrypt_replacement(
+                        &recovery_cipher(&crate::MASTER_SECRET.to_bytes()),
+                        &current,
+                        &encrypted,
+                    );
+                }
+                let retired: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM auth_secret_history WHERE secret_hash=$1)",
+                )
+                .bind(current.as_slice())
+                .fetch_one(&mut *txn)
+                .await?;
+                return Err(if retired {
+                    AccountSecretError::Retired
+                } else {
+                    AccountSecretError::Forbidden
+                }
+                .into());
+            }
+        };
+        let replacement_secret = (0..23)
+            .map(|_| rand::thread_rng().gen_range(0..10))
+            .fold(String::from("8"), |a, b| format!("{a}{b}"));
+        sqlx::query("INSERT INTO auth_secret_history (secret_hash, user_id) VALUES ($1, $2)")
+            .bind(current.as_slice())
+            .bind(user_id)
+            .execute(&mut *txn)
+            .await?;
+        sqlx::query("UPDATE auth_secret_hash SET secret_hash=$1 WHERE id=$2")
+            .bind(credential_hash(&replacement_secret).as_slice())
+            .bind(user_id)
+            .execute(&mut *txn)
+            .await?;
+        sqlx::query("DELETE FROM auth_token_hash WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *txn)
+            .await?;
+        sqlx::query(super::secret_hash_rollout::ROTATION_REWARD_GRANT)
+            .bind(user_id)
+            .execute(&mut *txn)
+            .await?;
+        let encrypted = encrypt_replacement(
+            &recovery_cipher(&crate::MASTER_SECRET.to_bytes()),
+            &current,
+            &replacement_secret,
+        )?;
+        sqlx::query("INSERT INTO auth_secret_recovery (secret_hash, replacement) VALUES ($1, $2)")
+            .bind(current.as_slice())
+            .bind(encrypted)
+            .execute(&mut *txn)
+            .await?;
+        txn.commit().await?;
+        // Existing process-local token caches intentionally survive until expiry.
+        Ok(replacement_secret)
+    })
+    .await
+    .map_err(account_secret_error)
+}
+
+// Domain separation keeps this key independent of other uses of the signing secret.
+fn recovery_cipher(master_secret: &[u8; 32]) -> ChaCha20Poly1305 {
+    let key = blake3::derive_key("geph5 account secret recovery v1", master_secret);
+    ChaCha20Poly1305::new((&key).into())
+}
+
+fn encrypt_replacement(
+    cipher: &ChaCha20Poly1305,
+    old_hash: &[u8; 32],
+    replacement: &str,
+) -> anyhow::Result<Vec<u8>> {
+    let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+    let ciphertext = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: replacement.as_bytes(),
+                aad: old_hash,
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("Encrypting account secret recovery failed"))?;
+    Ok([nonce.as_slice(), ciphertext.as_slice()].concat())
+}
+
+fn decrypt_replacement(
+    cipher: &ChaCha20Poly1305,
+    old_hash: &[u8; 32],
+    encrypted: &[u8],
+) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        encrypted.len() >= 28,
+        "Invalid account secret recovery record"
+    );
+    let plaintext = cipher
+        .decrypt(
+            encrypted[..12].into(),
+            Payload {
+                msg: &encrypted[12..],
+                aad: old_hash,
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("Decrypting account secret recovery failed"))?;
+    Ok(String::from_utf8(plaintext)?)
 }
 
 pub async fn validate_credential(credential: Credential) -> Result<i32, AuthError> {
@@ -444,6 +500,35 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_encryption_survives_recreation_and_authenticates_record() {
+        let master = [42; 32];
+        let old_hash = credential_hash("900000000000000000000001");
+        let replacement = "800000000000000000000001";
+        let encrypted =
+            encrypt_replacement(&recovery_cipher(&master), &old_hash, replacement).unwrap();
+        assert_eq!(encrypted.len(), 52);
+        assert_eq!(
+            decrypt_replacement(&recovery_cipher(&master), &old_hash, &encrypted).unwrap(),
+            replacement
+        );
+        assert_ne!(
+            encrypted,
+            encrypt_replacement(&recovery_cipher(&master), &old_hash, replacement).unwrap()
+        );
+        assert!(decrypt_replacement(&recovery_cipher(&[43; 32]), &old_hash, &encrypted).is_err());
+        assert!(decrypt_replacement(&recovery_cipher(&master), &[0; 32], &encrypted).is_err());
+        let mut tampered = encrypted.clone();
+        tampered[20] ^= 1;
+        assert!(decrypt_replacement(&recovery_cipher(&master), &old_hash, &tampered).is_err());
+        for len in 0..encrypted.len() {
+            assert!(
+                decrypt_replacement(&recovery_cipher(&master), &old_hash, &encrypted[..len])
+                    .is_err()
+            );
+        }
+    }
 
     #[test]
     fn secret_hash_and_referral_vectors() {
