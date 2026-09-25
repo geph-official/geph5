@@ -13,6 +13,11 @@ use globset::{Glob, GlobSet};
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use simple_dns::{CLASS, Name, Packet, PacketFlag, QCLASS, QTYPE, Question, TYPE, rdata::RData};
+use tokio::sync::Semaphore;
+
+const DNS_MAX_CONNECTIONS: usize = 1000;
+const DNS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+static DNS_REQUEST_SLOTS: Semaphore = Semaphore::const_new(DNS_MAX_CONNECTIONS);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Copy, Default)]
 pub struct FilterOptions {
@@ -100,27 +105,58 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
 
     static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
+            .timeout(DNS_REQUEST_TIMEOUT)
             .resolve("cloudflare-dns.com", "1.1.1.1:0".parse().unwrap())
-            // Coalesce concurrent connection attempts before TLS negotiation.
-            // Auto negotiation can start one TLS connection per queued query.
-            .http2_prior_knowledge()
-            .pool_max_idle_per_host(16)
+            .http1_only()
+            .pool_max_idle_per_host(DNS_MAX_CONNECTIONS)
             .pool_idle_timeout(Duration::from_secs(1))
             .build()
             .unwrap()
     });
 
     let start = Instant::now();
+    // The idle pool setting does not cap active HTTP/1.1 requests. Hold a
+    // permit through the response body, sharing the timeout with queueing.
+    let _slot = tokio::time::timeout(DNS_REQUEST_TIMEOUT, DNS_REQUEST_SLOTS.acquire())
+        .await
+        .context("DNS-over-HTTPS connection pool wait timed out")?
+        .context("DNS-over-HTTPS connection pool closed")?;
+    let remaining = DNS_REQUEST_TIMEOUT
+        .checked_sub(start.elapsed())
+        .filter(|remaining| !remaining.is_zero())
+        .context("DNS-over-HTTPS connection pool wait timed out")?;
     let resp = CLIENT
         .post("https://cloudflare-dns.com/dns-query")
+        .timeout(remaining)
         .body(req)
         .header("content-type", "application/dns-message")
         .send()
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "DNS-over-HTTPS response headers failed after {:?}",
+                start.elapsed()
+            )
+        })?;
+    let retry_after = resp
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("absent");
+    resp.error_for_status_ref().with_context(|| {
+        format!(
+            "DNS-over-HTTPS HTTP response after {:?}, Retry-After: {retry_after}",
+            start.elapsed()
+        )
+    })?;
     tracing::trace!(elapsed = debug(start.elapsed()), "dns-over-https completed");
 
-    Ok(resp.bytes().await?)
+    resp.bytes().await.with_context(|| {
+        format!(
+            "DNS-over-HTTPS response body failed after {:?}",
+            start.elapsed()
+        )
+    })
 }
 
 pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Vec<SocketAddr>> {
@@ -172,7 +208,10 @@ pub async fn dns_resolve(name: &str, filter: FilterOptions) -> anyhow::Result<Ve
             anyhow::Ok(ips)
         })
         .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+        // Moka returns Arc<anyhow::Error>, which does not preserve the source
+        // chain when passed directly to anyhow!. Keep the full chain for both
+        // server logs and rich tunnel failure responses.
+        .map_err(|e| anyhow::anyhow!("{e:#}"))?;
 
     if addrs.is_empty() {
         anyhow::bail!("no addrs")
