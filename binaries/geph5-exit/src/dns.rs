@@ -102,6 +102,9 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
         reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
             .resolve("cloudflare-dns.com", "1.1.1.1:0".parse().unwrap())
+            // Coalesce concurrent connection attempts before TLS negotiation.
+            // Auto negotiation can start one TLS connection per queued query.
+            .http2_prior_knowledge()
             .pool_max_idle_per_host(16)
             .pool_idle_timeout(Duration::from_secs(1))
             .build()
