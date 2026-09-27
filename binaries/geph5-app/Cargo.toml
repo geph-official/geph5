@@ -3,7 +3,7 @@ name = "geph5-app"
 edition = "2024"
 license = "MPL-2.0"
 description = "The Geph5 desktop app: the `geph` CLI and its supervising daemon"
-version = "0.3.10"
+version.workspace = true
 repository.workspace = true
 
 [[bin]]

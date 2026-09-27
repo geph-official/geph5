@@ -191,8 +191,13 @@ mod tests {
                     override_dns: None,
                 },
                 BrokerSource::Fronted {
-                    front: "https://vuejs.org/".into(),
-                    host: "svitania-naidallszei-2.netlify.app".into(),
+                    front: "https://fonts.bunny.net/".into(),
+                    host: "geph-broker-d5ff98b7.b-cdn.net".into(),
+                    override_dns: None,
+                },
+                BrokerSource::Fronted {
+                    front: "https://gcore.com/".into(),
+                    host: "broker-gcore.geph.io".into(),
                     override_dns: None,
                 },
             ])),
