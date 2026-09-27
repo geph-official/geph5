@@ -1,5 +1,6 @@
 pub(crate) mod bind_forward;
 pub(crate) mod fronted_http;
+mod http_client;
 mod priority_race;
 mod race;
 mod tunneled_http;
@@ -44,28 +45,8 @@ pub(crate) trait ConfigHelperExt {
 
 impl ConfigHelperExt for BrokerSource {
     fn rpc_transport(&self, ctx: &AnyCtx<Config>) -> DynRpcTransport {
-        // In full-tunnel VPN mode, HTTP-shaped sources resolve their hostname on
-        // demand over the physical NIC's own DNS servers inside
-        // `FrontedHttpTransport` (see `china::resolve_a_physical`) — never the
-        // system resolver, whose query would route into the not-yet-established
-        // tunnel and hang. Only sources whose resolution we cannot control
-        // (the AWS SDK owns its own resolver) are still skipped.
-        if crate::bound_dialer::binding_active() {
-            let skip = match self {
-                BrokerSource::AwsLambda { .. } => Some("aws_lambda"),
-                _ => None,
-            };
-            if let Some(kind) = skip {
-                tracing::warn!(
-                    source = kind,
-                    "ignoring DNS-dependent broker source in full-tunnel VPN mode"
-                );
-                return DynRpcTransport::new(
-                    UnsupportedBrokerTransport("DNS-dependent broker source skipped in VPN mode")
-                        .timeout(BROKER_RPC_TIMEOUT),
-                );
-            }
-        }
+        // HTTP fronts and Lambda share physical DNS and socket binding through
+        // http_client, so they can bootstrap while the VPN tunnel is unavailable.
         match self {
             BrokerSource::Direct(s) => DynRpcTransport::new(
                 FrontedHttpTransport {
@@ -138,8 +119,10 @@ impl ConfigHelperExt for TunneledBrokerSource {
     }
 }
 
+#[cfg(not(feature = "aws_lambda"))]
 struct UnsupportedBrokerTransport(&'static str);
 
+#[cfg(not(feature = "aws_lambda"))]
 #[async_trait::async_trait]
 impl nanorpc::RpcTransport for UnsupportedBrokerTransport {
     type Error = anyhow::Error;

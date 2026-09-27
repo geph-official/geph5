@@ -1,4 +1,4 @@
-//! Per-process egress binding for the broker's fronted `reqwest` client.
+//! Per-process egress binding for the broker's `reqwest` clients.
 //!
 //! In full-tunnel mode, [`crate::bound_dialer`] pins the engine's TCP sockets to
 //! the physical NIC (Windows `IP_UNICAST_IF`, macOS `IP_BOUND_IF`). `reqwest`
@@ -11,9 +11,8 @@
 //! unrelated sites), so any other process reaching that same IP still follows the
 //! default route into the tunnel.
 //!
-//! Only fronted sources with fixed `override_dns` addresses reach this (the other
-//! broker sources need DNS and are ignored in VPN mode — see `broker.rs`), so the
-//! forwarder only ever needs a fixed list of upstream `SocketAddr`s.
+//! HTTP fronts and Lambda reach this through `http_client`, using either fixed
+//! `override_dns` addresses or addresses resolved over the physical NIC's DNS.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, sync::OnceLock};
 
