@@ -67,7 +67,10 @@ async fn open_tunnel(
     if dest_addrs.iter().any(|addr| addr.port() == 25) {
         anyhow::bail!("Proxying to port 25 is not allowed");
     }
-    if !dest_addrs.iter().all(|addr| proxy_allowed(*addr, is_free)) {
+    if !dest_addrs
+        .iter()
+        .all(|addr| proxy_allowed(*addr, is_free, &protocol))
+    {
         anyhow::bail!("Proxying to {} is not allowed", dest_host);
     }
 

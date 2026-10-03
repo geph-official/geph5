@@ -2,12 +2,17 @@ use std::net::{IpAddr, SocketAddr};
 
 use crate::CONFIG_FILE;
 
-pub fn proxy_allowed(addr: SocketAddr, is_free: bool) -> bool {
+pub fn proxy_allowed(addr: SocketAddr, is_free: bool, protocol: &str) -> bool {
     if is_free
         && !CONFIG_FILE
             .wait()
             .free_port_whitelist
             .contains(&addr.port())
+        && !(protocol == "tcp"
+            && CONFIG_FILE
+                .wait()
+                .free_tcp_port_whitelist
+                .contains(&addr.port()))
     {
         return false;
     }
