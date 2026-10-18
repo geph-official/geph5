@@ -6,9 +6,9 @@ By using or paying for Gephyra OÜ's Geph service, you agree to these terms. Any
 
 Geph uses a custom open-source architecture to tunnel traffic through a variety of recognition-resistant protocols in order to protect users' freedom on the internet. It also protects personal information with the use of encryption and masks user metadata by hiding the user's IP address and replacing it with one of ours.
 
-To protect ourselves, our customers, and the quality of our service, we block the following TCP ports:
+To protect ourselves, our customers, and the quality of our service, we block the following destination ports for all users, over both TCP and UDP:
 
-- Port 25 to prevent email spam
+- Ports 25, 465, 587, and 2525 to prevent email spam
 
 We do not block or filter domains except when requested by the owner of an IP address or when known botnet addresses cause our servers to be null-routed by hosting providers.
 

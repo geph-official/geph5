@@ -3,6 +3,11 @@ use std::net::{IpAddr, SocketAddr};
 use crate::CONFIG_FILE;
 
 pub fn proxy_allowed(addr: SocketAddr, is_free: bool, protocol: &str) -> bool {
+    // Block SMTP and mail submission for every account and protocol, even if
+    // an exit's Free allowlist includes these ports.
+    if matches!(addr.port(), 25 | 465 | 587 | 2525) {
+        return false;
+    }
     if is_free
         && !CONFIG_FILE
             .wait()
@@ -69,4 +74,36 @@ fn is_ipv6_unique_local(ip: &std::net::Ipv6Addr) -> bool {
 
 fn is_ipv6_link_local(ip: &std::net::Ipv6Addr) -> bool {
     (ip.segments()[0] & 0xffc0) == 0xfe80
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mail_submission_is_blocked_for_all_users_and_protocols() {
+        for ip in ["1.1.1.1", "2606:4700:4700::1111"] {
+            for port in [25, 465, 587, 2525] {
+                for is_free in [false, true] {
+                    for protocol in ["tcp", "udp"] {
+                        let addr = SocketAddr::new(ip.parse().unwrap(), port);
+                        assert!(
+                            !proxy_allowed(addr, is_free, protocol),
+                            "allowed {addr} with is_free={is_free} protocol={protocol}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn plus_still_allows_web_and_mail_retrieval() {
+        for ip in ["1.1.1.1", "2606:4700:4700::1111"] {
+            for port in [80, 443, 110, 143, 993, 995] {
+                let addr = SocketAddr::new(ip.parse().unwrap(), port);
+                assert!(proxy_allowed(addr, false, "tcp"), "blocked {addr}");
+            }
+        }
+    }
 }
