@@ -1,7 +1,7 @@
 use anyhow::Context;
 use futures_util::{FutureExt as _, TryFutureExt};
 use geph5_broker_protocol::{BridgeDescriptor, ExitDescriptor, RouteDescriptor};
-use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, ObfsProtocol};
+use geph5_misc_rpc::bridge::{B2eMetadata, BridgeControlClient, DEFAULT_TLS_SNI, ObfsProtocol};
 use moka::future::Cache;
 use nanorpc_sillad::DialerTransport;
 
@@ -221,7 +221,11 @@ fn generate_protocol(flavor: ProtocolFlavor) -> ObfsProtocol {
         ProtocolFlavor::Tls => ObfsProtocol::ConnTest(
             ObfsProtocol::Sosistab3New(
                 gencookie(),
-                ObfsProtocol::PlainTls(ObfsProtocol::None.into()).into(),
+                ObfsProtocol::PlainTlsWithSni {
+                    sni_domain: DEFAULT_TLS_SNI.into(),
+                    lower: ObfsProtocol::None.into(),
+                }
+                .into(),
             )
             .into(),
         ),
@@ -302,8 +306,12 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
         ObfsProtocol::PlainTls(obfs_protocol) => RouteDescriptor::PlainTls {
-            sni_domain: Some("lusheeta-toel.yandex.ru".into()),
+            sni_domain: Some(DEFAULT_TLS_SNI.into()),
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
+        },
+        ObfsProtocol::PlainTlsWithSni { sni_domain, lower } => RouteDescriptor::PlainTls {
+            sni_domain: Some(sni_domain),
+            lower: protocol_to_descriptor(*lower, addr).into(),
         },
         ObfsProtocol::Sosistab3New(cookie, obfs_protocol) => RouteDescriptor::Sosistab3 {
             cookie,
@@ -317,5 +325,39 @@ fn protocol_to_descriptor(protocol: ObfsProtocol, addr: SocketAddr) -> RouteDesc
         ObfsProtocol::Hex(obfs_protocol) => RouteDescriptor::Hex {
             lower: protocol_to_descriptor(*obfs_protocol, addr).into(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_sni_comes_from_forwarding_metadata() {
+        let addr = "192.0.2.1:12345".parse().unwrap();
+        let protocol = ObfsProtocol::PlainTlsWithSni {
+            sni_domain: "custom.example.org".into(),
+            lower: ObfsProtocol::None.into(),
+        };
+        let RouteDescriptor::PlainTls { sni_domain, lower } =
+            protocol_to_descriptor(protocol, addr)
+        else {
+            panic!("expected TLS route");
+        };
+        assert_eq!(sni_domain.as_deref(), Some("custom.example.org"));
+        assert!(matches!(*lower, RouteDescriptor::Tcp(actual) if actual == addr));
+    }
+
+    #[test]
+    fn broker_tls_stack_includes_its_server_name() {
+        let ObfsProtocol::ConnTest(lower) = generate_protocol(ProtocolFlavor::Tls) else {
+            panic!("expected connection test");
+        };
+        let ObfsProtocol::Sosistab3New(_, lower) = *lower else {
+            panic!("expected sosistab3");
+        };
+        assert!(
+            matches!(*lower, ObfsProtocol::PlainTlsWithSni { sni_domain, .. } if sni_domain == DEFAULT_TLS_SNI)
+        );
     }
 }

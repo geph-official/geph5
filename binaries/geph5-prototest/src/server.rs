@@ -18,9 +18,9 @@ pub async fn server_main(listen: SocketAddr, stack: Option<String>) -> anyhow::R
         ObfsProtocol::None
     };
 
-    let tls_acceptor = dummy_tls_acceptor();
+    let tls_acceptor = dummy_tls_acceptor()?;
     let base = sillad::tcp::TcpListener::bind(listen).await?;
-    let mut listener = listener_from_stack(protocol, base, &tls_acceptor);
+    let mut listener = listener_from_stack(protocol, base, &tls_acceptor)?;
     loop {
         let wire = listener.accept().await?;
         geph5_rt::spawn(once_wire(wire).inspect_err(|err| eprintln!("wire died: {:?}", err)))

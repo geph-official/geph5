@@ -1,5 +1,5 @@
 use anyhow::bail;
-use geph5_misc_rpc::bridge::ObfsProtocol;
+use geph5_misc_rpc::bridge::{DEFAULT_TLS_SNI, ObfsProtocol};
 
 /// Parse a comma separated protocol stack.
 /// Items are applied from bottom to top. For example:
@@ -19,6 +19,11 @@ pub fn parse_stack(spec: &str) -> anyhow::Result<ObfsProtocol> {
                 MeeklikeConfig::default(),
                 Box::new(proto),
             );
+        } else if let Some(sni_domain) = part.strip_prefix("tls=") {
+            proto = ObfsProtocol::PlainTlsWithSni {
+                sni_domain: sni_domain.into(),
+                lower: Box::new(proto),
+            };
         } else if part.eq_ignore_ascii_case("tls") {
             proto = ObfsProtocol::PlainTls(Box::new(proto));
         } else if part.eq_ignore_ascii_case("conntest") {
@@ -53,36 +58,40 @@ pub fn listener_from_stack<L: Listener>(
     proto: ObfsProtocol,
     bottom: L,
     tls_acceptor: &TlsAcceptor,
-) -> DynListener
+) -> anyhow::Result<DynListener>
 where
     L::P: 'static,
 {
-    match proto {
+    Ok(match proto {
         ObfsProtocol::None => bottom.dynamic(),
         ObfsProtocol::Sosistab3(cookie) => {
             SosistabListener::new(bottom, Cookie::new(&cookie)).dynamic()
         }
         ObfsProtocol::ConnTest(inner) => {
-            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
+            let inner = listener_from_stack(*inner, bottom, tls_acceptor)?;
             ConnTestListener::new(inner).dynamic()
         }
         ObfsProtocol::PlainTls(inner) => {
-            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
+            let inner = listener_from_stack(*inner, bottom, tls_acceptor)?;
             TlsListener::new(inner, tls_acceptor.clone()).dynamic()
         }
+        ObfsProtocol::PlainTlsWithSni { sni_domain, lower } => {
+            let inner = listener_from_stack(*lower, bottom, tls_acceptor)?;
+            TlsListener::new(inner, tls_acceptor_for_sni(&sni_domain)?).dynamic()
+        }
         ObfsProtocol::Hex(inner) => {
-            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
+            let inner = listener_from_stack(*inner, bottom, tls_acceptor)?;
             HexListener { inner }.dynamic()
         }
         ObfsProtocol::Sosistab3New(cookie, inner) => {
-            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
+            let inner = listener_from_stack(*inner, bottom, tls_acceptor)?;
             SosistabListener::new(inner, Cookie::new(&cookie)).dynamic()
         }
         ObfsProtocol::Meeklike(key, cfg, inner) => {
-            let inner = listener_from_stack(*inner, bottom, tls_acceptor);
+            let inner = listener_from_stack(*inner, bottom, tls_acceptor)?;
             MeeklikeListener::new(inner, *blake3::hash(key.as_bytes()).as_bytes(), cfg).dynamic()
         }
-    }
+    })
 }
 
 /// Recursively wrap a dialer according to the protocol stack.
@@ -105,15 +114,14 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
             }
             ObfsProtocol::PlainTls(sub) => {
                 let lower = inner(sub, lower);
-                let mut cbuilder = native_tls::TlsConnector::builder();
-                cbuilder
-                    .use_sni(true)
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true)
-                    .min_protocol_version(None)
-                    .max_protocol_version(Some(native_tls::Protocol::Tlsv12));
-                let connector = TlsConnector::from(cbuilder.build().unwrap());
-                TlsDialer::new(lower, connector, "lusheeta-toel.yandex.ru".into()).dynamic()
+                tls_dialer(lower, DEFAULT_TLS_SNI)
+            }
+            ObfsProtocol::PlainTlsWithSni {
+                sni_domain,
+                lower: sub,
+            } => {
+                let lower = inner(sub, lower);
+                tls_dialer(lower, sni_domain)
             }
             ObfsProtocol::Hex(sub) => {
                 let lower = inner(sub, lower);
@@ -143,33 +151,43 @@ pub fn dialer_from_stack(proto: &ObfsProtocol, addr: std::net::SocketAddr) -> Dy
     inner(proto, bottom)
 }
 
-/// Generate a TLS acceptor using a random self-signed certificate.
-pub fn dummy_tls_acceptor() -> TlsAcceptor {
+fn tls_dialer(lower: DynDialer, sni_domain: &str) -> DynDialer {
+    let mut builder = native_tls::TlsConnector::builder();
+    builder
+        .use_sni(true)
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .min_protocol_version(None)
+        .max_protocol_version(Some(native_tls::Protocol::Tlsv12));
+    let connector = TlsConnector::from(builder.build().unwrap());
+    TlsDialer::new(lower, connector, sni_domain.into()).dynamic()
+}
+
+/// Generate a TLS acceptor for the legacy stack's default SNI.
+pub fn dummy_tls_acceptor() -> anyhow::Result<TlsAcceptor> {
+    tls_acceptor_for_sni(DEFAULT_TLS_SNI)
+}
+
+fn tls_acceptor_for_sni(sni_domain: &str) -> anyhow::Result<TlsAcceptor> {
     use rcgen::KeyPair;
-    let subject_alt_names = (0..10)
-        .map(|_| format!("{}.com", rand::random::<u16>()))
-        .collect::<Vec<_>>();
-    let mut params = rcgen::CertificateParams::default();
+    anyhow::ensure!(!sni_domain.is_empty(), "TLS server name is empty");
+    let mut params = rcgen::CertificateParams::new(vec![sni_domain.to_owned()])?;
+    params.distinguished_name = rcgen::DistinguishedName::new();
     params
         .distinguished_name
-        .push(rcgen::DnType::CommonName, "api.example.com");
-    params.subject_alt_names = subject_alt_names
-        .iter()
-        .map(|san| rcgen::SanType::DnsName(san.clone().try_into().unwrap()))
-        .collect();
+        .push(rcgen::DnType::CommonName, sni_domain);
     params.not_before = OffsetDateTime::now_utc();
     params.not_after = OffsetDateTime::now_utc() + TimeDuration::days(365);
     params.serial_number = Some(rand::random::<u64>().into());
     params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
     params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
-    let keypair = KeyPair::generate().unwrap();
-    let cert = params.self_signed(&keypair).unwrap();
+    let keypair = KeyPair::generate()?;
+    let cert = params.self_signed(&keypair)?;
     let cert_pem = cert.pem();
     let cert_key = keypair.serialize_pem();
-    let identity = native_tls::Identity::from_pkcs8(cert_pem.as_bytes(), cert_key.as_bytes())
-        .expect("Cannot decode identity");
+    let identity = native_tls::Identity::from_pkcs8(cert_pem.as_bytes(), cert_key.as_bytes())?;
     let mut builder = native_tls::TlsAcceptor::builder(identity);
     builder.min_protocol_version(Some(native_tls::Protocol::Tlsv10));
     builder.max_protocol_version(Some(native_tls::Protocol::Tlsv12));
-    builder.build().unwrap().into()
+    Ok(builder.build()?.into())
 }
