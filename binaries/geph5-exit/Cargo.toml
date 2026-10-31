@@ -58,7 +58,8 @@ tachyonix = "0.3.1"
 clap = { version = "4.6.6", features = ["derive"] }
 flate2 = "1.1.10"
 
-tikv-jemallocator = "0.6"
+# OpenSSL's C allocations must also use jemalloc to avoid musl's global malloc lock.
+tikv-jemallocator = { version = "0.6", features = ["override_allocator_on_supported_platforms"] }
 threadpool = "1.8.1"
 oneshot = "0.1.13"
 bytes = "1.12.1"

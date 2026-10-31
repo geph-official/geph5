@@ -92,6 +92,7 @@ mod tests {
             control_listen_pipe: None,
             exit_constraint: ExitConstraint::Auto,
             allow_direct: false,
+            diagnostic_route: None,
             cache: Some(temp_db_path()),
             broker: None,
             tunneled_broker: None,

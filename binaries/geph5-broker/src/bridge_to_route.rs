@@ -115,7 +115,7 @@ pub async fn bridge_to_leaf_route(
                 //     });
                 // }
                 let protocol = if asn == 4134 {
-                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await
+                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
                 } else if country == "CN" {
                     stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
                 } else if country == "RU" {

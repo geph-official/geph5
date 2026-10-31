@@ -2,8 +2,8 @@
 
 All metrics live in the same Postgres database as the rest of the broker data.
 There is exactly one way stats flow, one place they are stored, and one
-datasource behind every Grafana panel. (InfluxDB and the old ad-hoc paths are
-deprecated; see [Decommissioning](#decommissioning-influxdb) below.)
+datasource behind every Grafana panel. InfluxDB integration was retired after
+the 2026-10-18 dependency audit; historical data remains preserved on disk.
 
 ```
 bridges ──(report_stats RPC, bridge_token MAC, 10s batches)──┐
@@ -88,7 +88,8 @@ copy carries the real Postgres credentials; the repo copy has placeholders).
 - `inputs.statsd` with `datadog_extensions = true`: tags travel **inside**
   each packet (`bridge_bytes:1048576|c|#pool:viet,asn:4134,country:CN`), so
   the config never grows per-metric rules. The `templates` block that parses
-  old dot-path stats is legacy and dies with the last old exit.
+  old dot-path stats is retained for compatibility; current Geph5 nodes
+  emit tagged DogStatsD metrics through `report_stats`.
 - `outputs.postgresql` with `schema = "metrics"`: auto-creates one table per
   measurement and new columns for new tags. Landing in the `metrics` schema
   is what *makes* a table a metric — everything downstream discovers tables
@@ -228,25 +229,48 @@ qualify your tables (`metrics.foo`) in any ad-hoc SQL too.
 
 ## Decommissioning InfluxDB
 
+The 2026-10-18 audit verified that current Geph5 bridge and exit code sends
+metrics through `report_stats`, and the broker sends them to local StatsD.
+There is no direct InfluxDB client or dependency in the current Rust code.
+Both broker replicas already configure Telegraf to write only to Postgres.
+All ten Grafana dashboards explicitly use Postgres, with no InfluxDB query
+targets or alert rules.
+
+Before retirement, the original broker's Telegraf configuration duplicated
+its StatsD input to InfluxDB and Postgres. In the retained journal entries
+for the preceding 24 hours, all successful InfluxDB writes came from this
+local Telegraf output; no bridge or exit writes were observed. The deployed
+and repository Telegraf configurations now contain only the Postgres output,
+and the Phalanx bridge template no longer supplies unused InfluxDB environment
+variables. Recent bridge, exit and broker metrics were verified in Postgres
+after the monitoring changes.
+
+The four Geph4 exits found during the audit were removed on 2026-10-19 UTC,
+including their dedicated binaries, configuration, keys and deployment files.
+Their systemd services remain masked to prevent accidental restart. Current
+Geph5 nodes send metrics through `report_stats`. The retained StatsD templates
+only parse historical dot-path metric names; they do not provision services
+or require Geph4 exits.
+
 InfluxDB history (since 2025-06) was backfilled into the hourly tier, and
 the most recent 30 days into the minutely tier (where backfilled
-`bridge_bytes_minutely` rows have `asn = ''`; per-ASN history is
-hourly-only). During the transition Telegraf dual-writes to InfluxDB and
-old fleet members keep working through deprecated shims:
+`bridge_bytes_minutely` rows have `asn = ''`; per-ASN history is hourly-only).
+Retain the historical InfluxDB files and protected configuration backups
+during retirement.
 
-- `set_stat`/`incr_stat` RPCs (unauthenticated, legacy) are forwarded by the
-  broker as classic dot-path statsd lines, parsed by the legacy `templates`
-  in telegraf.conf.
-- Old bridges still write `bridge_bytes` straight to InfluxDB; that data
-  stops being visible in Grafana once the panels read Postgres, so re-run
-  the backfill after the bridge fleet upgrades to close the gap.
+The approved production retirement completed on 2026-10-19 UTC:
 
-Once the whole fleet runs the new code and dashboards look right:
+1. Removed the original broker's duplicate Telegraf InfluxDB output, preserving
+   its StatsD inputs and Postgres output.
+2. Made Postgres the Grafana default and removed the unused InfluxDB datasource.
+   All ten dashboards remain available, and Grafana's database health is good.
+3. Removed the `influxdb.geph.io` and `chronograf.geph.io` nginx routes, then
+   disabled and masked both services. Ports 8086 and 8888 no longer listen.
+4. Removed ignored `influxdb:` configuration blocks from all three brokers,
+   preserving their authentication fields.
 
-1. Remove the `templates` block and `[[outputs.influxdb]]` from
-   telegraf.conf; redeploy.
-2. Remove the `set_stat`/`incr_stat` shims from broker + protocol.
-3. `systemctl disable --now influxdb` on the broker host; reclaim ~290 GB
-   in `/var/lib/influxdb`.
-4. Delete the InfluxDB datasource from Grafana.
-5. Drop the unused `influxdb:` block from `/etc/geph5-broker/config.yaml`.
+Historical InfluxDB files and protected configuration/Grafana database backups
+remain on the original broker. The service mask and retired nginx routes
+prevent the old InfluxDB credentials from authenticating through the retired
+endpoint. Do not restore this service with its old credentials; a future
+restoration must rotate its accounts first.

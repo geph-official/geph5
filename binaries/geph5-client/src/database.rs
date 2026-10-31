@@ -84,6 +84,23 @@ pub async fn db_read(ctx: &AnyCtx<Config>, key: &str) -> Result<Option<Vec<u8>>,
     Ok(result)
 }
 
+pub(crate) async fn db_write_batch(
+    ctx: &AnyCtx<Config>,
+    entries: &[(String, Vec<u8>)],
+) -> Result<(), sqlx::Error> {
+    let mut txn = ctx.get(DATABASE).begin().await?;
+    for (key, value) in entries {
+        sqlx::query("INSERT INTO misc (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .bind(key)
+            .bind(value)
+            .execute(&mut *txn)
+            .await?;
+    }
+    txn.commit().await?;
+    ctx.get(EVENT).notify(usize::MAX);
+    Ok(())
+}
+
 pub async fn db_read_or_wait(ctx: &AnyCtx<Config>, key: &str) -> Result<Vec<u8>, sqlx::Error> {
     loop {
         let event = ctx.get(EVENT).listen();

@@ -34,6 +34,15 @@ fn route_subtree_json(route: &RouteDescriptor) -> String {
 pub async fn get_dialer(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(VerifyingKey, ExitDescriptor, DynDialer)> {
+    if let Some(forced) = &ctx.init().diagnostic_route {
+        // Never consult the route cache, request another route, or add a direct
+        // path when a caller explicitly pins a diagnostic route.
+        return Ok((
+            forced.exit_pubkey,
+            forced.exit.clone(),
+            route_to_dialer(ctx, &forced.route),
+        ));
+    }
     if let ExitConstraint::Direct(dir) = &ctx.init().exit_constraint {
         let (dir, pubkey_hex) = dir
             .split_once('/')
@@ -375,6 +384,7 @@ mod tests {
             control_listen_pipe: None,
             exit_constraint: ExitConstraint::Auto,
             allow_direct: false,
+            diagnostic_route: None,
             cache: None,
             broker: None,
             tunneled_broker: None,
@@ -412,6 +422,57 @@ mod tests {
             exit: sample_exit_with_expiry(expiry),
             route: RouteDescriptor::Tcp("127.0.0.1:9002".parse().unwrap()),
         }
+    }
+
+    #[test]
+    fn ordinary_config_omits_diagnostic_route_for_older_engines() {
+        let value = serde_json::to_value(test_config()).unwrap();
+        assert!(value.get("diagnostic_route").is_none());
+        let decoded: Config = serde_json::from_value(value).unwrap();
+        assert!(decoded.diagnostic_route.is_none());
+    }
+
+    #[tokio::test]
+    async fn diagnostic_route_bypasses_broker_cache_and_direct_constraint() {
+        use sillad::dialer::Dialer;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut forced = sample_exit_route(0);
+        forced.route = RouteDescriptor::Tcp(listener.local_addr().unwrap());
+        let mut cfg = test_config();
+        cfg.allow_direct = true;
+        cfg.exit_constraint = ExitConstraint::Direct("intentionally invalid".into());
+        cfg.diagnostic_route = Some(forced.clone());
+        let (key, exit, dialer) = get_dialer(&AnyCtx::new(cfg)).await.unwrap();
+        assert_eq!(key, forced.exit_pubkey);
+        assert_eq!(exit, forced.exit);
+        assert!(dialer.dial().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn failed_diagnostic_route_cannot_fall_back_to_direct_exit() {
+        use sillad::dialer::Dialer;
+        let direct = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closed_addr = closed.local_addr().unwrap();
+        drop(closed);
+        let mut forced = sample_exit_route(u64::MAX);
+        forced.exit.c2e_listen = direct.local_addr().unwrap();
+        forced.route = RouteDescriptor::Tcp(closed_addr);
+        let mut cfg = test_config();
+        cfg.allow_direct = true;
+        cfg.diagnostic_route = Some(forced);
+        let (_, _, dialer) = get_dialer(&AnyCtx::new(cfg)).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), dialer.dial())
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), direct.accept())
+                .await
+                .is_err()
+        );
     }
 
     #[test]

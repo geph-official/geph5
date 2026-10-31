@@ -1,9 +1,56 @@
 use geph5_broker_protocol::BwConsumptionInfo;
 use mizaru2::ClientToken;
 use sha2::{Digest, Sha256};
-use tokio::sync::OnceCell;
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, Mutex as StdMutex},
+};
+use tokio::sync::{Mutex, OnceCell};
 
 use super::POSTGRES;
+
+/// Keep same-account charges out of the database pool until their predecessor
+/// finishes. Entries stay registered while either a holder or a waiter exists.
+#[derive(Default)]
+struct AccountLocks(StdMutex<HashMap<i32, AccountEntry>>);
+
+#[derive(Default)]
+struct AccountEntry {
+    lock: Arc<Mutex<()>>,
+    users: usize,
+}
+
+impl AccountLocks {
+    fn account(&self, user_id: i32) -> AccountLock<'_> {
+        let mut locks = self.0.lock().unwrap();
+        let entry = locks.entry(user_id).or_default();
+        entry.users += 1;
+        AccountLock {
+            registry: self,
+            user_id,
+            lock: entry.lock.clone(),
+        }
+    }
+}
+
+struct AccountLock<'a> {
+    registry: &'a AccountLocks,
+    user_id: i32,
+    lock: Arc<Mutex<()>>,
+}
+
+impl Drop for AccountLock<'_> {
+    fn drop(&mut self) {
+        let mut locks = self.registry.0.lock().unwrap();
+        let entry = locks.get_mut(&self.user_id).unwrap();
+        entry.users -= 1;
+        // Update and remove under the map lock so concurrent arrivals and
+        // cancellations cannot leave an idle entry or replace a live lock.
+        if entry.users == 0 {
+            locks.remove(&self.user_id);
+        }
+    }
+}
 
 /// Ensure the `spent_bw_tokens` table exists. Runs at most once per process,
 /// rather than on every redemption (the previous per-call DDL added a catalog
@@ -84,6 +131,9 @@ pub async fn bw_consumption(user_id: i32) -> anyhow::Result<Option<BwConsumption
 }
 
 pub async fn consume_bw(user_id: i32, mbs: i32) -> anyhow::Result<()> {
+    static ACCOUNT_LOCKS: LazyLock<AccountLocks> = LazyLock::new(AccountLocks::default);
+    let account = ACCOUNT_LOCKS.account(user_id);
+    let _guard = account.lock.lock().await;
     let mut txn = POSTGRES.begin().await?;
 
     let mb_used: i32 = sqlx::query_scalar(
@@ -108,8 +158,69 @@ RETURNING mb_used;
     if let Some(limit) = limit
         && mb_used > limit
     {
+        txn.rollback().await?;
         anyhow::bail!("consumed over limit")
     }
     txn.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{future::Future, task::Poll};
+
+    #[tokio::test]
+    async fn account_charges_serialize_without_blocking_other_accounts() {
+        let locks = AccountLocks::default();
+        let first = locks.account(1);
+        let first_guard = first.lock.lock().await;
+        let second = locks.account(1);
+        let mut waiting = Box::pin(second.lock.lock());
+        assert!(matches!(futures_util::poll!(&mut waiting), Poll::Pending));
+
+        let other = locks.account(2);
+        let other_guard = other.lock.try_lock().expect("different account is free");
+        drop(other_guard);
+        drop(other);
+
+        drop(first_guard);
+        drop(first);
+        // A queued request must keep the same lock registered.
+        let third = locks.account(1);
+        assert!(Arc::ptr_eq(&second.lock, &third.lock));
+        let second_guard = waiting.await;
+        assert!(third.lock.try_lock().is_err());
+        drop(second_guard);
+        drop(second);
+        drop(third);
+        assert!(locks.0.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_waiters_and_holders_release_registrations() {
+        async fn hold(locks: &AccountLocks) {
+            let account = locks.account(1);
+            let _guard = account.lock.lock().await;
+            std::future::pending::<()>().await;
+        }
+
+        fn poll_pending(future: &mut std::pin::Pin<Box<impl Future<Output = ()>>>) {
+            let mut cx = std::task::Context::from_waker(futures_util::task::noop_waker_ref());
+            assert!(future.as_mut().poll(&mut cx).is_pending());
+        }
+
+        let locks = AccountLocks::default();
+        let mut holder = Box::pin(hold(&locks));
+        poll_pending(&mut holder);
+        let mut waiter = Box::pin(hold(&locks));
+        poll_pending(&mut waiter);
+        drop(waiter);
+        assert_eq!(locks.0.lock().unwrap().len(), 1);
+        drop(holder);
+        assert!(locks.0.lock().unwrap().is_empty());
+
+        let account = locks.account(1);
+        assert!(account.lock.try_lock().is_ok());
+    }
 }

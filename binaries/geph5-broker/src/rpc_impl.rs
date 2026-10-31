@@ -864,25 +864,21 @@ impl BrokerProtocol for BrokerImpl {
     }
 
     async fn insert_bridge(&self, descriptor: Mac<BridgeDescriptor>) -> Result<(), GenericError> {
-        let descriptor = descriptor
-            .verify(blake3::hash(CONFIG_FILE.wait().bridge_token.as_bytes()).as_bytes())?;
-        tracing::debug!("inserting bridge from pool {}", descriptor.pool);
-        crate::database::bridges::insert_bridge(&descriptor).await?;
+        let (descriptor, token) = crate::bridge_auth::verify_bridge(descriptor, CONFIG_FILE.wait())?;
+        crate::bridge_auth::record_accepted("insert_bridge", token, STATS_SINK.as_ref());
+        tracing::info!(pool = %descriptor.pool, control_listen = %descriptor.control_listen, token = token.label(), "inserting bridge");
+        crate::database::bridges::insert_bridge(&descriptor)?;
         Ok(())
     }
 
     async fn report_stats(&self, stats: Mac<Vec<StatEvent>>) -> Result<(), GenericError> {
         let config = CONFIG_FILE.wait();
-        let bridge_key = blake3::hash(config.bridge_token.as_bytes());
-        let exit_key = blake3::hash(config.exit_token.as_bytes());
-        let events = stats
-            .clone()
-            .verify(bridge_key.as_bytes())
-            .or_else(|_| stats.verify(exit_key.as_bytes()))
+        let (events, token) = crate::bridge_auth::verify_stats(stats, config)
             .map_err(|_| GenericError("invalid stats MAC".to_string()))?;
         if events.len() > 10_000 {
             return Err(GenericError("too many stats in one batch".to_string()));
         }
+        crate::bridge_auth::record_accepted("report_stats", token, STATS_SINK.as_ref());
         if let Some(sink) = STATS_SINK.as_ref() {
             sink.send_many(&events);
         }

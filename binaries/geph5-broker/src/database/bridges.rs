@@ -4,7 +4,7 @@ use geph5_broker_protocol::BridgeDescriptor;
 use moka::future::Cache;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     net::{IpAddr, SocketAddr},
     sync::LazyLock,
     time::{Duration, Instant},
@@ -26,53 +26,6 @@ struct BridgePoolDelay {
     pool_prefix: String,
     delay_ms: u32,
     is_plus: bool,
-}
-
-async fn ensure_bridge_pool_delays_schema() -> anyhow::Result<()> {
-    sqlx::query(
-        r#"do $$
-        begin
-            perform pg_advisory_xact_lock(hashtext('bridge_pool_delays_migration'));
-            if to_regclass('bridge_group_delays') is not null
-               and to_regclass('bridge_pool_delays') is null then
-                alter table bridge_group_delays rename to bridge_pool_delays;
-            end if;
-        end
-        $$;"#,
-    )
-    .execute(&*POSTGRES)
-    .await?;
-
-    sqlx::query(
-        r#"CREATE TABLE IF NOT EXISTS bridge_pool_delays (
-            pool text primary key,
-            delay_ms integer not null,
-            is_plus boolean not null default false
-        )"#,
-    )
-    .execute(&*POSTGRES)
-    .await?;
-
-    sqlx::query(
-        r#"do $$
-        begin
-            perform pg_advisory_xact_lock(hashtext('bridge_pool_delays_migration'));
-            if to_regclass('bridge_group_delays') is not null then
-                insert into bridge_pool_delays (pool, delay_ms, is_plus)
-                select pool, delay_ms, is_plus
-                from bridge_group_delays
-                on conflict (pool) do update
-                set delay_ms = excluded.delay_ms,
-                    is_plus = excluded.is_plus;
-                drop table bridge_group_delays;
-            end if;
-        end
-        $$;"#,
-    )
-    .execute(&*POSTGRES)
-    .await?;
-
-    Ok(())
 }
 
 pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
@@ -127,7 +80,6 @@ async fn cached_bridges() -> anyhow::Result<Vec<BridgeMetadata>> {
 
     CACHE
         .try_get_with((), async {
-            ensure_bridge_pool_delays_schema().await?;
             let start = Instant::now();
             let probes: Vec<(String, i64, i64)> = sqlx::query_as(
                 r#"WITH recent_probes AS (
@@ -151,7 +103,8 @@ FROM recent_probes"#,
     bn.cookie,
     bn.pool,
     bn.expiry
-FROM bridges_new bn"#,
+FROM bridges_new bn
+WHERE bn.expiry > extract(epoch FROM now())"#,
             )
             .fetch_all(&*POSTGRES)
             .await?;
@@ -220,20 +173,56 @@ FROM bridge_pool_delays"#,
         .map_err(|e| anyhow::anyhow!(e))
 }
 
-pub async fn insert_bridge(descriptor: &BridgeDescriptor) -> anyhow::Result<()> {
-    sqlx::query(
-        r#"INSERT INTO bridges_new (listen, cookie, pool, expiry)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (listen) DO UPDATE
-            SET cookie = $2, pool = $3, expiry = $4"#,
-    )
-    .bind(descriptor.control_listen.to_string())
-    .bind(descriptor.control_cookie.to_string())
-    .bind(descriptor.pool.to_string())
-    .bind(descriptor.expiry as i64)
-    .execute(&*POSTGRES)
-    .await?;
+// Heartbeats repair updates lost on database errors or process restart.
+static REGISTRATIONS: LazyLock<tokio::sync::mpsc::UnboundedSender<BridgeDescriptor>> =
+    LazyLock::new(|| {
+        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+        geph5_rt::spawn(flush_registrations(recv)).detach();
+        send
+    });
+
+pub fn insert_bridge(descriptor: &BridgeDescriptor) -> anyhow::Result<()> {
+    REGISTRATIONS.send(descriptor.clone())?;
     Ok(())
+}
+
+async fn flush_registrations(mut recv: tokio::sync::mpsc::UnboundedReceiver<BridgeDescriptor>) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        // All broker replicas acquire bridge row locks in the same order.
+        let mut batch = BTreeMap::new();
+        while let Ok(descriptor) = recv.try_recv() {
+            batch.insert(descriptor.control_listen, descriptor);
+        }
+        if batch.is_empty() {
+            continue;
+        }
+        let mut listens = Vec::new();
+        let mut cookies = Vec::new();
+        let mut pools = Vec::new();
+        let mut expiries = Vec::new();
+        for descriptor in batch.into_values() {
+            listens.push(descriptor.control_listen.to_string());
+            cookies.push(descriptor.control_cookie.to_string());
+            pools.push(descriptor.pool);
+            expiries.push(descriptor.expiry as i64);
+        }
+        if let Err(err) = sqlx::query(
+            "INSERT INTO bridges_new (listen, cookie, pool, expiry)
+             SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::bigint[])
+             ON CONFLICT (listen) DO UPDATE
+             SET cookie = EXCLUDED.cookie, pool = EXCLUDED.pool, expiry = EXCLUDED.expiry",
+        )
+        .bind(listens)
+        .bind(cookies)
+        .bind(pools)
+        .bind(expiries)
+        .execute(&*POSTGRES)
+        .await
+        {
+            tracing::warn!(error = %err, "bridge registration batch failed");
+        }
+    }
 }
 
 use geph5_broker_protocol::AvailabilityData;

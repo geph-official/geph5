@@ -55,7 +55,11 @@ impl Client {
     /// descriptor wired into the VPN channels. The fd is consumed by this call.
     #[cfg(unix)]
     pub fn start_with_vpn_fd(cfg: Config, vpn_fd: Option<i32>) -> Self {
-        let ctx = AnyCtx::new(cfg.clone());
+        Self::start_in_context(AnyCtx::new(cfg), vpn_fd)
+    }
+
+    #[cfg(unix)]
+    fn start_in_context(ctx: AnyCtx<Config>, vpn_fd: Option<i32>) -> Self {
         // Initialize logging once we have context so JSON logs go to SQLite
         let _ = logging::init_logging(&ctx);
         let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
@@ -106,6 +110,118 @@ impl Client {
             task: task.shared(),
             ctx,
         }
+    }
+
+    /// Obtain a valid connection token before attempting a tunnel connection.
+    ///
+    /// Diagnostic callers can use this to distinguish broker authentication
+    /// failures from failures on a pinned bridge route. This uses the ordinary
+    /// authentication cache and exposes no token or signature to the caller.
+    pub async fn prepare_connect_token(&self) -> anyhow::Result<()> {
+        crate::auth::get_connect_token(&self.ctx).await?;
+        Ok(())
+    }
+
+    /// Refresh and export reusable authentication for trusted diagnostic workers.
+    ///
+    /// Call on an inert client with a persistent cache. Normal broker issuance
+    /// and signature verification apply; existing current/next-day tokens are
+    /// reused. The returned bytes contain secrets and must never be logged.
+    /// Single-use bandwidth tokens are deliberately excluded.
+    pub async fn prepare_cached_authentication(&self) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+        anyhow::ensure!(
+            self.ctx.init().dry_run,
+            "authentication exporter requires an inert client"
+        );
+        let token = get_auth_token(&self.ctx).await?;
+        if crate::auth::refresh_conn_token(&self.ctx, &token)
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                "authentication refresh failed; checking existing connection credentials"
+            );
+        }
+        let epoch = mizaru2::current_epoch();
+        let mut result = vec![];
+        for key in [
+            "auth_token".to_owned(),
+            format!("conn_token_{epoch}"),
+            format!("conn_token_{}", epoch + 1),
+        ] {
+            match crate::database::db_read(&self.ctx, &key).await? {
+                Some(value) => result.push((key, value)),
+                None if key == format!("conn_token_{}", epoch + 1) => {}
+                None => anyhow::bail!("missing current authentication cache entry"),
+            }
+        }
+        Ok(result)
+    }
+
+    /// Start a Unix diagnostic client with reusable auth seeded before its loops.
+    ///
+    /// This is trusted local input from `prepare_cached_authentication`, for the
+    /// same account and broker keys. Only current/next-day connection tokens and
+    /// the auth token are accepted; routes and single-use bandwidth tokens cannot
+    /// be imported. The next-day token is optional. Workers use current cached
+    /// credentials immediately and do not refresh account status; bandwidth
+    /// token acquisition and exit authentication continue normally.
+    #[cfg(unix)]
+    pub async fn start_with_cached_authentication(
+        cfg: Config,
+        entries: &[(String, Vec<u8>)],
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            cfg.diagnostic_route.is_some(),
+            "cached authentication requires a diagnostic route"
+        );
+        let epoch = mizaru2::current_epoch();
+        let allowed = [
+            "auth_token".to_owned(),
+            format!("conn_token_{epoch}"),
+            format!("conn_token_{}", epoch + 1),
+        ];
+        anyhow::ensure!(
+            (2..=3).contains(&entries.len())
+                && allowed[..2].iter().all(|key| entries
+                    .iter()
+                    .filter(|(k, v)| k == key && !v.is_empty())
+                    .count()
+                    == 1)
+                && entries.iter().all(|(key, value)| allowed.contains(key)
+                    && !value.is_empty()
+                    && entries.iter().filter(|(k, _)| k == key).count() == 1),
+            "invalid authentication cache entries"
+        );
+        // Validate every payload before opening or modifying the persistent cache.
+        // The input is locally trusted; exit authentication verifies signatures.
+        let mut is_plus = false;
+        for (key, value) in entries {
+            if key == "auth_token" {
+                std::str::from_utf8(value).context("invalid cached auth token")?;
+                continue;
+            }
+            let (level, _, signature): (
+                geph5_broker_protocol::AccountLevel,
+                mizaru2::ClientToken,
+                mizaru2::UnblindedSignature,
+            ) = stdcode::deserialize(value).context("invalid cached connection token")?;
+            let expected_epoch = if key == &allowed[1] { epoch } else { epoch + 1 };
+            anyhow::ensure!(
+                signature.epoch == expected_epoch,
+                "cached connection token epoch mismatch"
+            );
+            if expected_epoch == epoch {
+                is_plus = level == geph5_broker_protocol::AccountLevel::Plus;
+            }
+        }
+        let ctx = AnyCtx::new(cfg);
+        crate::database::db_write_batch(&ctx, entries).await?;
+        ctx.get(crate::auth::CACHED_AUTHENTICATION)
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        ctx.get(crate::auth::IS_PLUS)
+            .store(is_plus, std::sync::atomic::Ordering::SeqCst);
+        Ok(Self::start_in_context(ctx, None))
     }
 
     /// Opens a connection through the tunnel.
@@ -326,5 +442,218 @@ async fn client_main(ctx: AnyCtx<Config>) -> anyhow::Result<()> {
         )
             .race()
             .await
+    }
+}
+
+#[cfg(all(test, unix))]
+mod authentication_cache_tests {
+    use super::*;
+    use geph5_broker_protocol::{ExitDescriptor, ExitRouteDescriptor, RouteDescriptor};
+
+    fn config() -> Config {
+        let mut cfg: Config = serde_json::from_value(serde_json::json!({
+            "exit_constraint": "auto", "dry_run": true, "cache": ":memory:"
+        }))
+        .unwrap();
+        cfg.diagnostic_route = Some(ExitRouteDescriptor {
+            exit_pubkey: ed25519_dalek::SigningKey::from_bytes(&[7; 32]).verifying_key(),
+            exit: ExitDescriptor {
+                c2e_listen: "127.0.0.1:9000".parse().unwrap(),
+                b2e_listen: "127.0.0.1:9001".parse().unwrap(),
+                country: isocountry::CountryCode::CAN,
+                city: "test".into(),
+                load: 0.0,
+                expiry: u64::MAX,
+            },
+            route: RouteDescriptor::Tcp("127.0.0.1:9002".parse().unwrap()),
+        });
+        cfg
+    }
+
+    fn entries() -> Vec<(String, Vec<u8>)> {
+        use stdcode::StdcodeSerializeExt;
+        let epoch = mizaru2::current_epoch();
+        let token = |epoch| {
+            (
+                geph5_broker_protocol::AccountLevel::Plus,
+                mizaru2::ClientToken::random(),
+                mizaru2::UnblindedSignature {
+                    epoch,
+                    used_key: vec![],
+                    merkle_branch: vec![],
+                    unblinded_sig: vec![],
+                },
+            )
+                .stdcode()
+        };
+        vec![
+            ("auth_token".into(), vec![1]),
+            (format!("conn_token_{epoch}"), token(epoch)),
+            (format!("conn_token_{}", epoch + 1), token(epoch + 1)),
+        ]
+    }
+
+    #[tokio::test]
+    async fn imports_reusable_auth_before_start_without_copying_bandwidth_tokens() {
+        let entries = entries();
+        let client = Client::start_with_cached_authentication(config(), &entries)
+            .await
+            .unwrap();
+        for (key, value) in entries {
+            assert_eq!(
+                crate::database::db_read(&client.ctx, &key).await.unwrap(),
+                Some(value)
+            );
+        }
+        let count: i64 =
+            sqlx::query_scalar("select count(*) from sqlite_master where name='bw_tokens'")
+                .fetch_one(client.ctx.get(crate::database::DATABASE))
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn cached_credentials_work_without_broker_or_account_status_wait() {
+        let entries = entries();
+        let client = Client::start_with_cached_authentication(config(), &entries[..2])
+            .await
+            .unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            client.prepare_connect_token(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            client
+                .ctx
+                .get(crate::auth::IS_PLUS)
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+        // No broker is configured. Refresh must retain a usable current token.
+        assert_eq!(
+            client.prepare_cached_authentication().await.unwrap(),
+            entries[..2]
+        );
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(25),
+                crate::auth::auth_loop(&client.ctx)
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnostic_auth_loop_never_contacts_configured_broker() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut cfg = config();
+        cfg.broker = Some(geph5_misc_rpc::client_config::BrokerSource::Direct(
+            format!("http://{}/", listener.local_addr().unwrap()),
+        ));
+        let client = Client::start_with_cached_authentication(cfg, &entries())
+            .await
+            .unwrap();
+        let refresh = crate::auth::auth_loop(&client.ctx);
+        tokio::pin!(refresh);
+        tokio::select! {
+            _ = listener.accept() => panic!("diagnostic authentication contacted broker"),
+            _ = &mut refresh => panic!("diagnostic auth loop must remain idle"),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {},
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_imports_preserve_persistent_credentials() {
+        let path =
+            std::env::temp_dir().join(format!("geph-auth-import-{}.db", rand::random::<u64>()));
+        let mut cfg = config();
+        cfg.cache = Some(path.clone());
+        let ctx = AnyCtx::new(cfg.clone());
+        let original = entries();
+        crate::database::db_write_batch(&ctx, &original)
+            .await
+            .unwrap();
+
+        let mut replacement = entries();
+        replacement[0].1 = b"replacement-auth".to_vec();
+        let mut invalid = Vec::new();
+        for index in [1, 2] {
+            let mut malformed = replacement.clone();
+            malformed[index].1 = vec![0xff];
+            invalid.push(malformed);
+            let mut wrong_epoch = replacement.clone();
+            wrong_epoch[index].1 = replacement[3 - index].1.clone();
+            invalid.push(wrong_epoch);
+        }
+        let mut invalid_auth = replacement.clone();
+        invalid_auth[0].1 = vec![0xff];
+        invalid.push(invalid_auth);
+
+        for entries in invalid {
+            assert!(
+                Client::start_with_cached_authentication(cfg.clone(), &entries)
+                    .await
+                    .is_err()
+            );
+            for (key, value) in &original {
+                assert_eq!(
+                    crate::database::db_read(&ctx, key).await.unwrap().as_ref(),
+                    Some(value)
+                );
+            }
+        }
+
+        // Fail after the first write to verify that the whole import rolls back.
+        sqlx::query(
+            "CREATE TRIGGER reject_connection_import BEFORE INSERT ON misc
+                     WHEN NEW.key LIKE 'conn_token_%'
+                     BEGIN SELECT RAISE(ABORT, 'injected write failure'); END",
+        )
+        .execute(ctx.get(crate::database::DATABASE))
+        .await
+        .unwrap();
+        assert!(
+            Client::start_with_cached_authentication(cfg, &replacement)
+                .await
+                .is_err()
+        );
+        for (key, value) in &original {
+            assert_eq!(
+                crate::database::db_read(&ctx, key).await.unwrap().as_ref(),
+                Some(value)
+            );
+        }
+        ctx.get(crate::database::DATABASE).close().await;
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_missing_stale_duplicate_and_non_auth_entries() {
+        let valid = entries();
+        for key in ["route_cache", "bw_tokens", "conn_token_0", "auth_token"] {
+            let mut entries = valid.clone();
+            entries[2].0 = key.into();
+            assert!(
+                Client::start_with_cached_authentication(config(), &entries)
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(
+            Client::start_with_cached_authentication(config(), &valid[..1])
+                .await
+                .is_err()
+        );
+        let mut cfg = config();
+        cfg.diagnostic_route = None;
+        assert!(
+            Client::start_with_cached_authentication(cfg, &valid)
+                .await
+                .is_err()
+        );
     }
 }

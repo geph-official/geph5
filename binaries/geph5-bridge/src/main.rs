@@ -131,6 +131,7 @@ async fn run_bridge_instance(
         instance.pool.clone(),
         auth_token,
         broker_rpc,
+        rate_limiter.clone(),
     );
     let serve = async move {
         loop {
@@ -202,10 +203,15 @@ async fn broker_loop(
     pool: String,
     auth_token: Arc<str>,
     broker_rpc: broker::Client,
+    rate_limiter: BridgeRateLimiter,
 ) {
     tracing::info!(pool, "starting upload loop");
 
     loop {
+        if !rate_limiter.should_advertise() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
         tracing::info!(pool, "uploading...");
 
         let res = async {

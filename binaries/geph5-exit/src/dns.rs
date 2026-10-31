@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use simple_dns::{CLASS, Name, Packet, PacketFlag, QCLASS, QTYPE, Question, TYPE, rdata::RData};
 use tokio::sync::Semaphore;
 
+mod udp;
+
 const DNS_MAX_CONNECTIONS: usize = 1000;
 const DNS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 static DNS_REQUEST_SLOTS: Semaphore = Semaphore::const_new(DNS_MAX_CONNECTIONS);
@@ -101,6 +103,20 @@ pub async fn raw_dns_respond(req: Bytes, filter: FilterOptions) -> anyhow::Resul
             write!(&mut qname_str, "{}", q.qname)?;
             filter.check_host(&qname_str).await?;
         }
+    }
+
+    if let Some(server) = crate::CONFIG_FILE
+        .get()
+        .map(|c| c.dns_udp_server())
+        .transpose()?
+        .flatten()
+    {
+        return tokio::time::timeout(DNS_REQUEST_TIMEOUT, async {
+            let _slot = DNS_REQUEST_SLOTS.acquire().await?;
+            udp::respond(server, req).await
+        })
+        .await
+        .context("UDP DNS request timed out")?;
     }
 
     static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {

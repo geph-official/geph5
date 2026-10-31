@@ -33,6 +33,14 @@ pub struct Config {
     pub exit_constraint: ExitConstraint,
     #[serde(default)]
     pub allow_direct: bool,
+    /// Locally trusted diagnostic route, used instead of broker and cached routes.
+    ///
+    /// This bypasses broker route signature verification. The caller must obtain
+    /// the exit key and route from a trusted source. No direct-exit fallback is
+    /// added, even when `allow_direct` is true. Authentication remains unchanged.
+    /// Ordinary clients should leave this unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_route: Option<geph5_broker_protocol::ExitRouteDescriptor>,
 
     pub cache: Option<PathBuf>,
 

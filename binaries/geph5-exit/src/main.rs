@@ -95,6 +95,11 @@ struct ConfigFile {
     country: CountryCode,
     city: String,
 
+    /// Use plain DNS instead of DNS-over-HTTPS for proxied DNS queries.
+    #[serde(default)]
+    dns_over_udp: bool,
+    udp_dns_server: Option<SocketAddr>,
+
     #[serde(default)]
     metadata: Option<ExitMetadata>,
 
@@ -129,6 +134,22 @@ struct ConfigFile {
     /// YouTube video ID probed by the Google-reachability selfcheck.
     #[serde(default = "default_google_selfcheck_video")]
     google_selfcheck_video: String,
+}
+
+impl ConfigFile {
+    fn dns_udp_server(&self) -> anyhow::Result<Option<SocketAddr>> {
+        if !self.dns_over_udp {
+            return Ok(None);
+        }
+        let server = self.udp_dns_server.ok_or_else(|| {
+            anyhow::anyhow!("udp_dns_server must be set when dns_over_udp is enabled")
+        })?;
+        anyhow::ensure!(
+            server.port() != 0,
+            "udp_dns_server must have a nonzero port"
+        );
+        Ok(Some(server))
+    }
 }
 
 fn default_google_selfcheck_video() -> String {
@@ -313,6 +334,7 @@ fn main() -> anyhow::Result<()> {
     tracing::info!("**** START GEPH EXIT ****");
     let args = CliArgs::parse();
     let config: ConfigFile = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
+    config.dns_udp_server()?;
 
     CONFIG_FILE.set(config).ok().unwrap();
 
@@ -323,6 +345,32 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{AdvertisedIpSource, ConfigFile};
+
+    #[test]
+    fn udp_dns_is_opt_in_and_requires_a_server() {
+        let base = "signing_secret: /tmp/test\nc2e_listen: 0.0.0.0:9002\nb2e_listen: 0.0.0.0:9003\ncountry: JP\ncity: Tokyo\n";
+        let parse =
+            |extra: &str| serde_yaml::from_str::<ConfigFile>(&format!("{base}{extra}")).unwrap();
+        assert_eq!(parse("").dns_udp_server().unwrap(), None);
+        assert_eq!(
+            parse("udp_dns_server: 1.1.1.1:53\n")
+                .dns_udp_server()
+                .unwrap(),
+            None
+        );
+        assert!(parse("dns_over_udp: true\n").dns_udp_server().is_err());
+        assert!(
+            parse("dns_over_udp: true\nudp_dns_server: 1.1.1.1:0\n")
+                .dns_udp_server()
+                .is_err()
+        );
+        assert_eq!(
+            parse("dns_over_udp: true\nudp_dns_server: 1.1.1.1:53\n")
+                .dns_udp_server()
+                .unwrap(),
+            Some("1.1.1.1:53".parse().unwrap())
+        );
+    }
 
     fn parse_ip_addr(value: &str) -> Option<AdvertisedIpSource> {
         let yaml = format!(

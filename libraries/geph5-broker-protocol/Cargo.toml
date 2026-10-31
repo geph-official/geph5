@@ -10,7 +10,8 @@ license.workspace = true
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 nanorpc = "0.1.13"
-serde_json = "1.0.151"
+# MACs cover stdcode bytes, so JSON transport must preserve float bits.
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 thiserror = "1.0.69"
 serde = { version = "1.0.229", features = ["derive"] }
 bytes = { version = "1.12.1", features = ["serde"] }

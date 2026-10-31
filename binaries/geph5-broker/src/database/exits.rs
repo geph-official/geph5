@@ -61,7 +61,7 @@ pub async fn insert_exit_metadata(pubkey: [u8; 32], metadata: ExitMetadata) -> a
 
 pub async fn list_with_metadata() -> anyhow::Result<Vec<ExitRowWithMetadata>> {
     let rows = sqlx::query_as::<_, ExitRowWithMetadata>(
-        "select * from exits_new natural left join exit_metadata",
+        "select * from exits_new natural left join exit_metadata where expiry > extract(epoch from now())",
     )
     .fetch_all(&*POSTGRES)
     .await?;

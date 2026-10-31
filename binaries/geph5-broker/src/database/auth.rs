@@ -23,6 +23,9 @@ use std::{
 use super::{POSTGRES, bandwidth::bw_consumption};
 use crate::log_error;
 
+const ROTATION_REWARD_GRANT: &str =
+    include_str!("../../sql/auth_secret_rotation_rewards_02_grant.sql");
+
 pub async fn register_secret() -> anyhow::Result<String> {
     retry_serializable(|| async {
         let mut txn = POSTGRES.begin().await?;
@@ -133,7 +136,7 @@ pub async fn rotate_account_secret(current_secret: &str) -> Result<String, Accou
             .bind(user_id)
             .execute(&mut *txn)
             .await?;
-        sqlx::query(super::secret_hash_rollout::ROTATION_REWARD_GRANT)
+        sqlx::query(ROTATION_REWARD_GRANT)
             .bind(user_id)
             .execute(&mut *txn)
             .await?;
@@ -244,7 +247,7 @@ pub async fn valid_auth_token(token: String) -> anyhow::Result<Option<(i32, Acco
 
     let expiry = get_subscription_expiry(user_id).await?;
     tracing::trace!(user_id, expiry = debug(expiry), "valid auth token");
-    geph5_rt::spawn(record_auth(user_id)).detach();
+    record_auth(user_id);
 
     if expiry.is_none() {
         Ok(Some((user_id, AccountLevel::Free)))
@@ -418,22 +421,45 @@ LEFT JOIN stripe_recurring r ON s.id = r.user_id",
     Ok(all_subscriptions.get(&user_id).cloned())
 }
 
-async fn record_auth(user_id: i32) -> anyhow::Result<()> {
-    let now = Utc::now().naive_utc();
+static LOGINS: LazyLock<
+    tokio::sync::mpsc::UnboundedSender<(i32, sqlx::types::chrono::NaiveDateTime)>,
+> = LazyLock::new(|| {
+    let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+    geph5_rt::spawn(flush_logins(recv)).detach();
+    send
+});
 
-    sqlx::query(
-        r#"INSERT INTO last_login (id, login_time)
-VALUES ($1, $2)
-ON CONFLICT (id) 
-DO UPDATE SET login_time = EXCLUDED.login_time;
-"#,
-    )
-    .bind(user_id)
-    .bind(now)
-    .execute(&*POSTGRES)
-    .await?;
+fn record_auth(user_id: i32) {
+    let _ = LOGINS.send((user_id, Utc::now().naive_utc()));
+}
 
-    Ok(())
+async fn flush_logins(
+    mut recv: tokio::sync::mpsc::UnboundedReceiver<(i32, sqlx::types::chrono::NaiveDateTime)>,
+) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let mut batch = BTreeMap::new();
+        while let Ok((id, time)) = recv.try_recv() {
+            batch.insert(id, time);
+        }
+        if batch.is_empty() {
+            continue;
+        }
+        let (ids, times): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+        if let Err(err) = sqlx::query(
+            "INSERT INTO last_login (id, login_time)
+             SELECT * FROM UNNEST($1::integer[], $2::timestamp[])
+             ON CONFLICT (id) DO UPDATE
+             SET login_time = GREATEST(last_login.login_time, EXCLUDED.login_time)",
+        )
+        .bind(ids)
+        .bind(times)
+        .execute(&*POSTGRES)
+        .await
+        {
+            tracing::warn!(error = %err, "last-login batch failed");
+        }
+    }
 }
 
 fn secret_to_invite_code(secret: &str) -> String {

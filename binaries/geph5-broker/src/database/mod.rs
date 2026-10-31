@@ -1,8 +1,7 @@
 use std::{str::FromStr, sync::LazyLock, time::Duration};
 
-use rand::Rng;
 use sqlx::{
-    PgPool,
+    Executor, PgPool,
     pool::PoolOptions,
     postgres::{PgConnectOptions, PgSslMode},
 };
@@ -29,41 +28,21 @@ pub(super) static POSTGRES: LazyLock<PgPool> = LazyLock::new(|| {
         })
 });
 
-/// This loop is used for garbage-collecting stale data from the database.
-#[tracing::instrument]
-pub async fn database_gc_loop() -> anyhow::Result<()> {
-    tracing::info!("starting the database GC loop");
-    loop {
-        let sleep_time = Duration::from_secs_f64(rand::rng().random_range(1.0..2.0));
-        tracing::debug!("sleeping {:?}", sleep_time);
-        tokio::time::sleep(sleep_time).await;
-        let res = sqlx::query("delete from exits_new where expiry < extract(epoch from now())")
-            .execute(&*POSTGRES)
-            .await?;
-        tracing::debug!(rows_affected = res.rows_affected(), "cleaned up exits");
-        let res = sqlx::query("delete from bridges_new where expiry < extract(epoch from now())")
-            .execute(&*POSTGRES)
-            .await?;
-        tracing::debug!(rows_affected = res.rows_affected(), "cleaned up bridges");
-        sqlx::query("DELETE FROM auth_secret_recovery WHERE expires_at <= clock_timestamp()")
-            .execute(&*POSTGRES)
-            .await?;
-        // NOTE: spent_bw_tokens is intentionally never garbage-collected. The
-        // bandwidth tokens are blind-signed by a single, non-rotating key and
-        // carry no epoch/expiry, so a (token, sig) pair stays valid forever.
-        // Pruning the spent-record therefore reopens replay: an old token could
-        // be redeemed again once its row disappeared. The record must live at
-        // least as long as the token is honored — i.e. forever, until the
-        // signing key rotates.
-        if rand::random::<f64>() < 0.001 {
-            sqlx::query("vacuum full exits_new")
-                .execute(&*POSTGRES)
-                .await?;
-            sqlx::query("vacuum full bridges_new")
-                .execute(&*POSTGRES)
-                .await?;
-        }
-    }
+/// Install shared maintenance jobs once at startup. The transaction lock also
+/// serializes brokers starting together, including through the pooler.
+pub async fn install_maintenance_jobs() -> anyhow::Result<()> {
+    let mut txn = POSTGRES.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('geph_broker_maintenance_setup'))")
+        .execute(&mut *txn)
+        .await?;
+    (&mut *txn)
+        .execute(include_str!("../../sql/login_counts.sql"))
+        .await?;
+    (&mut *txn)
+        .execute(include_str!("../../sql/routing_cleanup.sql"))
+        .await?;
+    txn.commit().await?;
+    Ok(())
 }
 
 pub mod auth;
@@ -73,5 +52,4 @@ pub mod bridges;
 pub mod exits;
 pub mod free_voucher;
 pub mod puzzle;
-pub mod secret_hash_rollout;
 pub mod self_stat;

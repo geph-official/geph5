@@ -43,39 +43,27 @@ pub async fn self_stat_loop() -> anyhow::Result<()> {
                 ));
             }
 
-            let (daily_logins,): (i64,) = sqlx::query_as(
-                "select count(id) from last_login where login_time > NOW() - INTERVAL '24 hours'",
+            match sqlx::query_as::<_, (i64, i64, i64)>(
+                "SELECT daily, daily_new, weekly FROM public.broker_login_counts",
             )
             .fetch_one(&*POSTGRES)
-            .await?;
-
-            let (daily_logins_new,): (i64,) = sqlx::query_as(
-                "select count(id) from last_login natural join auth_secret_hash where login_time > NOW() - INTERVAL '24 hours'",
-            )
-            .fetch_one(&*POSTGRES)
-            .await?;
-
-            let (weekly_logins,): (i64,) = sqlx::query_as(
-                "select count(id) from last_login where login_time > NOW() - INTERVAL '7 days'",
-            )
-            .fetch_one(&*POSTGRES)
-            .await?;
-
-            events.push(StatEvent::gauge(
-                "broker_logins",
-                &[("kind", "daily")],
-                daily_logins as f64,
-            ));
-            events.push(StatEvent::gauge(
-                "broker_logins",
-                &[("kind", "daily_new")],
-                daily_logins_new as f64,
-            ));
-            events.push(StatEvent::gauge(
-                "broker_logins",
-                &[("kind", "weekly")],
-                weekly_logins as f64,
-            ));
+            .await
+            {
+                Ok((daily, daily_new, weekly)) => {
+                    for (kind, count) in [
+                        ("daily", daily),
+                        ("daily_new", daily_new),
+                        ("weekly", weekly),
+                    ] {
+                        events.push(StatEvent::gauge(
+                            "broker_logins",
+                            &[("kind", kind)],
+                            count as f64,
+                        ));
+                    }
+                }
+                Err(err) => tracing::warn!(error = %err, "could not read cached login counts"),
+            }
 
             let (plus_count,): (i64,) = sqlx::query_as("select count(*) from subscriptions")
                 .fetch_one(&*POSTGRES)

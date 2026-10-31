@@ -23,13 +23,19 @@ use crate::{
 static ACCOUNT_STATUS_CHECKED: LazyLock<ManualResetEvent> =
     LazyLock::new(|| ManualResetEvent::new(false));
 static AUTH_TOKEN_FETCH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+pub(crate) static CACHED_AUTHENTICATION: CtxField<AtomicBool> = |_| AtomicBool::new(false);
 pub static IS_PLUS: CtxField<AtomicBool> = |_| AtomicBool::new(false);
 const ACCOUNT_STATUS_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn get_connect_token(
     ctx: &AnyCtx<Config>,
 ) -> anyhow::Result<(AccountLevel, ClientToken, UnblindedSignature)> {
-    let wait_for_token = if ACCOUNT_STATUS_CHECKED
+    let wait_for_token = if ctx
+        .get(CACHED_AUTHENTICATION)
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        false
+    } else if ACCOUNT_STATUS_CHECKED
         .wait()
         .timeout(ACCOUNT_STATUS_WAIT_TIMEOUT)
         .await
@@ -85,7 +91,11 @@ pub async fn get_auth_token(ctx: &AnyCtx<Config>) -> anyhow::Result<String> {
 }
 
 pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
-    if ctx.init().broker.is_none() {
+    if ctx.init().broker.is_none()
+        || ctx
+            .get(CACHED_AUTHENTICATION)
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
         return std::future::pending().await;
     }
 
@@ -102,7 +112,10 @@ pub async fn auth_loop(ctx: &AnyCtx<Config>) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument(skip_all)]
-async fn refresh_conn_token(ctx: &AnyCtx<Config>, auth_token: &str) -> anyhow::Result<()> {
+pub(crate) async fn refresh_conn_token(
+    ctx: &AnyCtx<Config>,
+    auth_token: &str,
+) -> anyhow::Result<()> {
     let inner = async {
         let epoch = mizaru2::current_epoch();
         let broker_client = broker_client(ctx)?;

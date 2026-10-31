@@ -182,6 +182,7 @@ mod tests {
             control_listen_pipe: None,
             exit_constraint: super::ExitConstraint::Auto,
             allow_direct: false,
+            diagnostic_route: None,
             port_forward: vec![],
             cache: None,
             broker: Some(BrokerSource::Race(vec![

@@ -7,7 +7,6 @@ use axum::{
 };
 use base64::{Engine as _, prelude::BASE64_STANDARD_NO_PAD};
 use clap::Parser;
-use database::database_gc_loop;
 use ed25519_dalek::SigningKey;
 
 use moka::future::Cache;
@@ -23,6 +22,7 @@ use std::{fmt::Debug, fs, net::SocketAddr, path::PathBuf, sync::LazyLock, time::
 use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+mod bridge_auth;
 mod bridge_filter;
 mod bridge_to_route;
 mod database;
@@ -124,6 +124,9 @@ struct ConfigFile {
     postgres_root_cert: Option<PathBuf>,
 
     bridge_token: String,
+    /// Temporary overlap during bridge credential rotation; remove after migration.
+    #[serde(default)]
+    legacy_bridge_tokens: Vec<String>,
     exit_token: String,
 
     #[serde(default = "default_puzzle_difficulty")]
@@ -192,16 +195,20 @@ async fn async_main() -> anyhow::Result<()> {
 
     let _ = CONFIG_FILE.set(config);
 
-    database::secret_hash_rollout::run(&database::POSTGRES)
-        .await
-        .context("Secret hash rollout failed; broker has not started serving requests")?;
-
     Lazy::force(&PLUS_MIZARU_SK);
     Lazy::force(&FREE_MIZARU_SK);
     Lazy::force(&BW_MIZARU_SK);
 
-    let _gc_loop = Immortal::respawn(RespawnStrategy::Immediate, database_gc_loop);
-    let _self_stat_loop = Immortal::respawn(RespawnStrategy::Immediate, self_stat_loop);
+    let _self_stat_loop = geph5_rt::spawn(async {
+        // A database outage during setup must not prevent RPC listeners starting.
+        while let Err(err) = database::install_maintenance_jobs().await {
+            tracing::warn!(error = %err, "maintenance setup failed; retrying in 30 seconds");
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+        tracing::info!("database maintenance jobs installed");
+        let _reporter = Immortal::respawn(RespawnStrategy::Immediate, self_stat_loop);
+        std::future::pending::<()>().await;
+    });
     let _tcp_loop = Immortal::respawn(RespawnStrategy::Immediate, || async {
         nanorpc_sillad::rpc_serve(
             sillad::tcp::TcpListener::bind(CONFIG_FILE.wait().tcp_listen).await?,
