@@ -208,7 +208,7 @@ async fn broker_loop(
     tracing::info!(pool, "starting upload loop");
 
     loop {
-        if !rate_limiter.should_advertise() {
+        if !rate_limiter.should_accept_connections() {
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         }

@@ -42,14 +42,15 @@ impl BridgeRateLimiter {
         }
     }
 
-    pub fn should_advertise(&self) -> bool {
+    /// Whether the bridge has capacity to advertise and accept new clients.
+    pub fn should_accept_connections(&self) -> bool {
         if self.inner.is_none() {
             return true;
         }
         self.pressure
             .lock()
             .unwrap()
-            .advertise(Instant::now(), self.limit)
+            .should_accept_connections(Instant::now(), self.limit)
     }
 
     pub async fn wait(&self, bytes: usize) {
@@ -144,7 +145,7 @@ impl Pressure {
         }
     }
 
-    fn advertise(&mut self, now: Instant, limit: u32) -> bool {
+    fn should_accept_connections(&mut self, now: Instant, limit: u32) -> bool {
         self.advance(now);
         // Use the last 30 complete seconds; detection lags by at most one second.
         let second = now.duration_since(self.started).as_secs();
@@ -168,7 +169,7 @@ impl Pressure {
             tracing::info!(
                 suspended = self.suspended,
                 blocked_fraction = fraction,
-                "bridge advertising state changed"
+                "bridge admission state changed"
             );
         }
         !self.suspended
@@ -212,13 +213,13 @@ mod tests {
         let start = Instant::now();
         let mut p = Pressure::new(start);
         p.waiters = 2; // Overlapping waits contribute only wall-clock time.
-        assert!(p.advertise(start + Duration::from_secs(29), 100));
-        assert!(!p.advertise(start + Duration::from_secs(30), 100));
+        assert!(p.should_accept_connections(start + Duration::from_secs(29), 100));
+        assert!(!p.should_accept_connections(start + Duration::from_secs(30), 100));
         p.waiters = 0;
         p.quiet_since = start + Duration::from_secs(30);
         p.credit_at = start + Duration::from_secs(59);
-        assert!(!p.advertise(start + Duration::from_secs(60), 100));
-        assert!(p.advertise(start + Duration::from_secs(69), 100));
+        assert!(!p.should_accept_connections(start + Duration::from_secs(60), 100));
+        assert!(p.should_accept_connections(start + Duration::from_secs(69), 100));
     }
 
     #[test]
@@ -228,8 +229,8 @@ mod tests {
         p.waiters = 1;
         p.advance(start + Duration::from_secs(26));
         p.waiters = 0;
-        assert!(p.advertise(start + Duration::from_secs(30), 100));
-        assert!(p.advertise(start + Duration::from_secs(300), 100));
+        assert!(p.should_accept_connections(start + Duration::from_secs(30), 100));
+        assert!(p.should_accept_connections(start + Duration::from_secs(300), 100));
         assert_eq!(p.buckets.iter().sum::<Duration>(), Duration::ZERO);
     }
 
@@ -238,7 +239,29 @@ mod tests {
         let start = Instant::now();
         let mut p = Pressure::new(start);
         p.waiters = 1;
-        assert!(!p.advertise(start + Duration::from_secs(300), 100));
+        assert!(!p.should_accept_connections(start + Duration::from_secs(300), 100));
+    }
+
+    #[test]
+    fn admission_shares_suspension_and_recovery_across_listeners() {
+        let limiter = BridgeRateLimiter::limited(100);
+        let other_listener = limiter.clone();
+        assert!(limiter.should_accept_connections());
+        {
+            let mut pressure = limiter.pressure.lock().unwrap();
+            pressure.suspended = true;
+            pressure.waiters = 1;
+        }
+        assert!(!limiter.should_accept_connections());
+        assert!(!other_listener.should_accept_connections());
+        {
+            let mut pressure = limiter.pressure.lock().unwrap();
+            pressure.waiters = 0;
+            pressure.quiet_since = Instant::now() - WINDOW;
+            pressure.credit = 1000;
+        }
+        assert!(other_listener.should_accept_connections());
+        assert!(limiter.should_accept_connections());
     }
 
     #[test]
@@ -248,7 +271,7 @@ mod tests {
         let waiter = Waiter(limiter.pressure.clone());
         drop(waiter);
         assert_eq!(limiter.pressure.lock().unwrap().waiters, 0);
-        assert!(BridgeRateLimiter::unlimited().should_advertise());
+        assert!(BridgeRateLimiter::unlimited().should_accept_connections());
     }
 
     #[test]
