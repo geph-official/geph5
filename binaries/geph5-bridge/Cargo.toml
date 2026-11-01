@@ -12,7 +12,7 @@ rand = "0.9.5"
 sillad = { path = "../../libraries/sillad" }
 sillad-sosistab3 = { path = "../../libraries/sillad-sosistab3" }
 geph5-rt = { path = "../../libraries/geph5-rt" }
-tokio = { version = "1.53", features = ["process", "time", "io-util"] }
+tokio = { version = "1.53", features = ["process", "sync", "time", "io-util"] }
 futures-concurrency = "7.7.1"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
@@ -38,7 +38,6 @@ dashmap = "6.2.1"
 serde_json = "1.0.151"
 scopeguard = "1.2.0"
 async-channel = "2.5.0"
-oneshot = "0.1.13"
 tikv-jemallocator = { version = "0.6.1", features = [
   "unprefixed_malloc_on_supported_platforms",
 ] }

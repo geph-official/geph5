@@ -22,6 +22,7 @@ use mizaru2::{
 use moka::future::Cache;
 use nanorpc::{JrpcRequest, JrpcResponse, RpcService, RpcTransport, ServerError};
 use once_cell::sync::Lazy;
+use tokio::sync::oneshot;
 
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;

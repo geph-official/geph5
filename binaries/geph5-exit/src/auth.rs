@@ -3,6 +3,7 @@ use std::{sync::LazyLock, thread::available_parallelism};
 use geph5_broker_protocol::AccountLevel;
 use mizaru2::{ClientToken, UnblindedSignature};
 use threadpool::ThreadPool;
+use tokio::sync::oneshot;
 
 static POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
     ThreadPool::with_name(

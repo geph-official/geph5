@@ -35,6 +35,7 @@ use rand::Rng;
 use tachyonix::{Receiver, Sender};
 use tap::Tap;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
+use tokio::sync::oneshot;
 
 use crate::frame::{Header, PingInfo};
 

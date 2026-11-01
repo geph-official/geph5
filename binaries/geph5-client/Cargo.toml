@@ -72,7 +72,6 @@ moka = { version = "0.12.16", features = ["future", "sync"] }
 nanorpc = "0.1.13"
 nanorpc-sillad = { version = "0.2.2", path = "../../libraries/nanorpc-sillad" }
 once_cell = "1.21.4"
-oneshot = "0.1.13"
 ordered-float = "5.5.0"
 parking_lot = "0.12.5"
 percent-encoding = { version = "2.3.2", optional = true }

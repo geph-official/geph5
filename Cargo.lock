@@ -2013,7 +2013,6 @@ dependencies = [
  "nanorpc",
  "nanorpc-sillad",
  "once_cell",
- "oneshot",
  "picomux",
  "rand 0.9.5",
  "reqwest",
@@ -2058,7 +2057,6 @@ dependencies = [
  "nanorpc",
  "nanorpc-sillad",
  "once_cell",
- "oneshot",
  "pollster",
  "rand 0.9.5",
  "reqwest",
@@ -2161,7 +2159,6 @@ dependencies = [
  "nanorpc-sillad",
  "native-tls",
  "once_cell",
- "oneshot",
  "ordered-float",
  "parking_lot",
  "percent-encoding",
@@ -2239,7 +2236,6 @@ dependencies = [
  "nanorpc",
  "native-tls",
  "once_cell",
- "oneshot",
  "picomux",
  "quanta",
  "rand 0.9.5",
@@ -2334,7 +2330,6 @@ dependencies = [
  "hex",
  "native-tls",
  "once_cell",
- "oneshot",
  "picomux",
  "rand 0.9.5",
  "rcgen",
@@ -3464,12 +3459,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "oneshot"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
-
-[[package]]
 name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3658,7 +3647,6 @@ dependencies = [
  "futures-intrusive",
  "futures-util",
  "geph5-rt",
- "oneshot",
  "parking_lot",
  "pin-project",
  "rand 0.9.5",
