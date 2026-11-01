@@ -16,7 +16,6 @@ use picomux::{LivenessConfig, PicoMux};
 use sillad::{EitherPipe, Pipe, listener::Listener, tcp::TcpListener};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use stdcode::StdcodeSerializeExt;
-use tachyonix::Sender;
 
 use x25519_dalek::{EphemeralSecret, PublicKey};
 mod b2e_process;
@@ -82,7 +81,7 @@ async fn c2e_loop() -> anyhow::Result<()> {
 
 async fn b2e_loop() -> anyhow::Result<()> {
     let mut listener = TcpListener::bind(CONFIG_FILE.wait().b2e_listen).await?;
-    let b2e_table: Cache<ObfsProtocol, Sender<picomux::Stream>> = Cache::builder()
+    let b2e_table: Cache<ObfsProtocol, Arc<b2e_process::B2eListener>> = Cache::builder()
         .time_to_idle(Duration::from_secs(1200))
         .build();
     let b2e_table_report = b2e_table.clone();
@@ -132,11 +131,10 @@ async fn b2e_loop() -> anyhow::Result<()> {
                             table_length = display(b2e_table.entry_count()),
                             "creating new b2e metadata"
                         );
-                        let (send, recv) = tachyonix::channel(1);
-                        geph5_rt::spawn(b2e_process::b2e_process(protocol, recv)).detach();
-                        send
+                        Arc::new(b2e_process::B2eListener::new(protocol))
                     })
-                    .await;
+                    .await
+                    .sender();
                 send.send(lala).await.ok().context("could not accept")?;
             }
             #[allow(unreachable_code)]

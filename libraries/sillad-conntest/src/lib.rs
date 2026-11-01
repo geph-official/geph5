@@ -131,6 +131,54 @@ mod tests {
     use std::net::SocketAddr;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    struct FailOnce<L> {
+        inner: L,
+        fail_next: bool,
+    }
+
+    #[async_trait]
+    impl<L: Listener> Listener for FailOnce<L> {
+        type P = L::P;
+
+        async fn accept(&mut self) -> io::Result<Self::P> {
+            if std::mem::take(&mut self.fail_next) {
+                return Err(io::Error::other("transient accept failure"));
+            }
+            self.inner.accept().await
+        }
+    }
+
+    #[test]
+    fn listener_retries_transient_accept_error() -> io::Result<()> {
+        block_on(async {
+            let inner = TcpListener::bind("127.0.0.1:0".parse().unwrap()).await?;
+            let addr = inner.local_addr().await;
+            let mut listener = ConnTestListener::new(FailOnce {
+                inner,
+                fail_next: true,
+            });
+            let accepted = spawn(async move {
+                let mut pipe = listener.accept().await?;
+                let mut message = [0; 5];
+                pipe.read_exact(&mut message).await?;
+                assert_eq!(&message, b"hello");
+                io::Result::Ok(())
+            });
+            let dialer = ConnTestDialer {
+                inner: TcpDialer { dest_addr: addr },
+                ping_count: 1,
+            };
+
+            tokio::time::timeout(Duration::from_secs(5), async {
+                let mut pipe = dialer.dial().await?;
+                pipe.write_all(b"hello").await?;
+                accepted.await
+            })
+            .await
+            .expect("listener failed to recover after a transient accept error")
+        })
+    }
+
     /// This unit test creates a TCP listener (wrapped by `ConnTestListener`) that
     /// echoes incoming data. The client uses `ConnTestDialer` to perform several
     /// ping rounds before using the connection. The test then verifies that a test
