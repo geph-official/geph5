@@ -2,7 +2,7 @@
 name = "sillad-conntest"
 edition = "2024"
 description = "A connection-testing protocol within the sillad framework"
-version = "0.3.2"
+version = "0.3.3"
 repository.workspace = true
 license.workspace = true
 

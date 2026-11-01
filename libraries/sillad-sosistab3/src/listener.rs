@@ -1,9 +1,8 @@
 use std::{
-    any::type_name,
     io::ErrorKind,
     mem::size_of,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -27,11 +26,6 @@ const LISTENER_QUEUE_CAPACITY: usize = 1000;
 static LIVE_LISTENERS: AtomicUsize = AtomicUsize::new(0);
 static LISTENER_QUEUE_SLOTS: AtomicUsize = AtomicUsize::new(0);
 static LISTENER_QUEUE_PAYLOAD_BYTES: AtomicUsize = AtomicUsize::new(0);
-static LOGGED_PIPE_SIZES: OnceLock<Mutex<std::collections::HashSet<usize>>> = OnceLock::new();
-
-fn logged_pipe_sizes() -> &'static Mutex<std::collections::HashSet<usize>> {
-    LOGGED_PIPE_SIZES.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
-}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GlobalListenerStats {
@@ -65,17 +59,6 @@ impl<P: Pipe> SosistabListener<P> {
         LIVE_LISTENERS.fetch_add(1, Ordering::Relaxed);
         LISTENER_QUEUE_SLOTS.fetch_add(LISTENER_QUEUE_CAPACITY, Ordering::Relaxed);
         LISTENER_QUEUE_PAYLOAD_BYTES.fetch_add(queue_payload_bytes, Ordering::Relaxed);
-        let mut logged = logged_pipe_sizes().lock().unwrap();
-        if logged.insert(pipe_size) {
-            tracing::info!(
-                pipe_type = type_name::<P>(),
-                pipe_size,
-                queue_capacity = LISTENER_QUEUE_CAPACITY,
-                queue_payload_bytes,
-                "sosistab listener queue layout observed"
-            );
-        }
-        drop(logged);
         Self {
             recv_pipe,
             _task,

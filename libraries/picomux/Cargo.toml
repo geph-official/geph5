@@ -1,6 +1,6 @@
 [package]
 name = "picomux"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 repository = "https://github.com/geph-official/geph5"
 license = "ISC"
@@ -35,7 +35,7 @@ crossbeam-queue = "0.3.13"
 [dev-dependencies]
 socksv5 = { version = "0.3", features = ["tokio"] }
 tokio = { version = "1.53", features = ["net"] }
-sillad-sosistab3 = { version = "0.3.2", path = "../sillad-sosistab3" }
+sillad-sosistab3 = { version = "0.3.3", path = "../sillad-sosistab3" }
 tracing-subscriber = "0.3"
 clap = { version = "4.6.6", features = ["derive"] }
 argh = "0.1"

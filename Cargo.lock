@@ -1956,7 +1956,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-app"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2106,7 +2106,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2281,7 +2281,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3632,7 +3632,7 @@ dependencies = [
 
 [[package]]
 name = "picomux"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4684,7 +4684,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-conntest"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "async-trait",
  "futures-concurrency",
@@ -4756,7 +4756,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "arrayref",

@@ -11,8 +11,8 @@ name = "geph5"
 path = "src/main.rs"
 
 [dependencies]
-geph5-broker-protocol = { version = "0.4.3", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.4.3", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.5.0", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.5.0", path = "../../libraries/geph5-misc-rpc" }
 geph5-rt = { version = "0.3.8", path = "../../libraries/geph5-rt" }
 
 nanorpc = "0.1.13"
