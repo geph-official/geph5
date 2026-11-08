@@ -49,7 +49,7 @@ pub async fn bridge_to_leaf_route(
 
     static CACHE: LazyLock<
         Cache<
-            (BridgeDescriptor, SocketAddr, u32, Arc<str>),
+            (BridgeDescriptor, SocketAddr, u32, Arc<str>, u32),
             Result<RouteDescriptor, Arc<anyhow::Error>>,
         >,
     > = LazyLock::new(|| {
@@ -60,7 +60,13 @@ pub async fn bridge_to_leaf_route(
 
     CACHE
         .get_with(
-            (bridge.clone(), exit.b2e_listen, asn, country_key.clone()),
+            (
+                bridge.clone(),
+                exit.b2e_listen,
+                asn,
+                country_key.clone(),
+                delay_ms,
+            ),
             async {
                 if let Ok(version) = semver::Version::parse(version)
                     && VersionReq::parse(">=0.2.72").unwrap().matches(&version)
@@ -218,20 +224,17 @@ fn gencookie() -> String {
 
 fn generate_protocol(flavor: ProtocolFlavor) -> ObfsProtocol {
     match flavor {
-        ProtocolFlavor::Tls => ObfsProtocol::ConnTest(
-            ObfsProtocol::Sosistab3New(
-                gencookie(),
-                ObfsProtocol::PlainTlsWithSni {
-                    sni_domain: DEFAULT_TLS_SNI.into(),
-                    lower: ObfsProtocol::None.into(),
-                }
-                .into(),
-            )
+        ProtocolFlavor::Tls => ObfsProtocol::Sosistab3New(
+            gencookie(),
+            ObfsProtocol::PlainTlsWithSni {
+                sni_domain: DEFAULT_TLS_SNI.into(),
+                lower: ObfsProtocol::None.into(),
+            }
             .into(),
         ),
-        ProtocolFlavor::Sosistab3 => ObfsProtocol::ConnTest(
-            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into()).into(),
-        ),
+        ProtocolFlavor::Sosistab3 => {
+            ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
+        }
         ProtocolFlavor::Legacy => ObfsProtocol::Sosistab3(gencookie()),
         ProtocolFlavor::Meeklike => {
             ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into())
@@ -349,11 +352,18 @@ mod tests {
     }
 
     #[test]
-    fn broker_tls_stack_includes_its_server_name() {
-        let ObfsProtocol::ConnTest(lower) = generate_protocol(ProtocolFlavor::Tls) else {
-            panic!("expected connection test");
+    fn plain_sosistab3_route_has_no_connection_test() {
+        let addr = "192.0.2.1:12345".parse().unwrap();
+        let route = protocol_to_descriptor(generate_protocol(ProtocolFlavor::Sosistab3), addr);
+        let RouteDescriptor::Sosistab3 { lower, .. } = route else {
+            panic!("expected sosistab3 route");
         };
-        let ObfsProtocol::Sosistab3New(_, lower) = *lower else {
+        assert!(matches!(*lower, RouteDescriptor::Tcp(actual) if actual == addr));
+    }
+
+    #[test]
+    fn broker_tls_stack_includes_its_server_name() {
+        let ObfsProtocol::Sosistab3New(_, lower) = generate_protocol(ProtocolFlavor::Tls) else {
             panic!("expected sosistab3");
         };
         assert!(

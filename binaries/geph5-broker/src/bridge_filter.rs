@@ -8,7 +8,7 @@ pub(crate) fn filter_raw_bridge_descriptors(
 ) -> Vec<BridgeMetadata> {
     raw_descriptors
         .into_iter()
-        .filter(|meta| meta.is_plus == (account_level == AccountLevel::Plus))
+        .filter(|meta| account_level == AccountLevel::Plus || !meta.is_plus)
         .filter(|meta| {
             let pool = meta.descriptor.pool.as_str();
             if country == "CN" && meta.china_fail_count > meta.china_success_count {
@@ -32,6 +32,12 @@ pub(crate) fn filter_raw_bridge_descriptors(
                 }
             }
             true
+        })
+        .map(|mut meta| {
+            if account_level == AccountLevel::Plus && !meta.is_plus {
+                meta.delay_ms = meta.delay_ms.saturating_add(500);
+            }
+            meta
         })
         .collect()
 }
@@ -85,15 +91,22 @@ mod tests {
     }
 
     #[test]
-    fn account_tiers_remain_separate() {
+    fn plus_gets_all_routes_with_an_extra_delay_for_free_routes() {
         for tier in [AccountLevel::Free, AccountLevel::Plus] {
-            let routes = filter_raw_bridge_descriptors(
-                [bridge("test", false), bridge("test", true)],
-                tier,
-                "CN",
-            );
-            assert_eq!(routes.len(), 1);
-            assert_eq!(routes[0].is_plus, tier == AccountLevel::Plus);
+            let mut free = bridge("free", false);
+            free.delay_ms = 75;
+            let mut plus = bridge("plus", true);
+            plus.delay_ms = 25;
+            let routes = filter_raw_bridge_descriptors([free, plus], tier, "CN");
+            if tier == AccountLevel::Plus {
+                assert_eq!(routes.len(), 2);
+                assert_eq!(routes[0].delay_ms, 575);
+                assert_eq!(routes[1].delay_ms, 25);
+            } else {
+                assert_eq!(routes.len(), 1);
+                assert!(!routes[0].is_plus);
+                assert_eq!(routes[0].delay_ms, 75);
+            }
         }
     }
 

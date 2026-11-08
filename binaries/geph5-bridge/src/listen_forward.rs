@@ -126,12 +126,6 @@ async fn handle_one_listener(
 
     loop {
         let client_conn = listener.accept().await?;
-        // Cached routes can still send clients here after advertising stops.
-        // Close them before spawning tasks or opening streams to the exit.
-        if !rate_limiter.should_accept_connections() {
-            drop(client_conn);
-            continue;
-        }
         let count = COUNT.fetch_add(1, Ordering::Relaxed);
 
         let remote_ip = SocketAddr::from_str(client_conn.remote_addr().unwrap())

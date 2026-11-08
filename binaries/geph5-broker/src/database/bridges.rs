@@ -39,7 +39,7 @@ pub async fn query_bridges(key: &str) -> anyhow::Result<Vec<BridgeMetadata>> {
     Ok(rendezvous_bridges(bridges, key))
 }
 
-const ROUTES_PER_BRIDGE_POOL: usize = 2;
+const ROUTES_PER_BRIDGE_POOL: usize = 1;
 
 fn rendezvous_bridges(bridges: Vec<BridgeMetadata>, key: u64) -> Vec<BridgeMetadata> {
     let mut chosen: HashMap<String, Vec<(u128, BridgeMetadata)>> = HashMap::new();
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn rendezvous_bridges_returns_two_from_each_pool() {
+    fn rendezvous_bridges_returns_one_from_each_pool() {
         let bridges = vec![
             test_bridge("alpha", "127.0.0.1:9001"),
             test_bridge("alpha", "127.0.0.1:9002"),
@@ -403,7 +403,7 @@ mod tests {
             *pool_counts.entry(bridge.descriptor.pool).or_insert(0) += 1;
         }
 
-        assert_eq!(pool_counts.get("alpha"), Some(&ROUTES_PER_BRIDGE_POOL));
-        assert_eq!(pool_counts.get("beta"), Some(&ROUTES_PER_BRIDGE_POOL));
+        assert_eq!(pool_counts.get("alpha"), Some(&1));
+        assert_eq!(pool_counts.get("beta"), Some(&1));
     }
 }
