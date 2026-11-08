@@ -16,11 +16,7 @@ pub fn get_task_count() -> usize {
 /// Adds a task to the limited task pool, then waits for the death signal.
 pub async fn new_task_until_death(protected_period: Duration) -> anyhow::Result<()> {
     let task_limit = CONFIG_FILE.wait().task_limit;
-    let count = TASK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if rand::random::<f32>() < 0.01 {
-        tracing::debug!("** current task count: {count} **");
-    }
-    // tracing::debug!(count, task_limit, "making a task death handle");
+    TASK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     scopeguard::defer!({
         TASK_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     });
@@ -38,6 +34,5 @@ pub async fn new_task_until_death(protected_period: Duration) -> anyhow::Result<
             }
         })
         .await;
-    // tracing::warn!(task_limit, "a task is killed due to overflow");
     anyhow::bail!("too many tasks")
 }

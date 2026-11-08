@@ -31,15 +31,29 @@ pub async fn proxy_stream(
     let cmd_str = String::from_utf8_lossy(stream.metadata());
     let cmd = TunnelCommand::from_str(&cmd_str)?;
     let is_rich = matches!(cmd, TunnelCommand::Rich(_));
-    let opened =
-        match open_tunnel(&dialer, &sess_metadata, &cmd, is_rich, is_free, &mut stream).await {
-            Ok(opened) => opened,
-            Err(err) => return fail_rich_open(stream, is_rich, err).await,
-        };
+    // Box the large DNS/connect setup state so it is freed after setup, keeping
+    // the long-lived proxy future small across millions of concurrent streams.
+    let opened = match Box::pin(open_tunnel(
+        &dialer,
+        &sess_metadata,
+        &cmd,
+        is_rich,
+        is_free,
+        &mut stream,
+    ))
+    .await
+    {
+        Ok(opened) => opened,
+        Err(err) => return fail_rich_open(stream, is_rich, err).await,
+    };
     match opened {
         OpenedTunnel::Tcp { dest_tcp } => proxy_tcp(stream, dest_tcp, ratelimit).await,
         OpenedTunnel::Dns { filter } => proxy_dns(stream, filter).await,
-        OpenedTunnel::Udp { udp_socket } => proxy_udp(stream, udp_socket, ratelimit).await,
+        OpenedTunnel::Udp { udp_socket } => {
+            // Allocate UDP's 8 KiB receive buffer once per UDP flow, keeping
+            // that storage separate from the common proxy future's layout.
+            Box::pin(proxy_udp(stream, udp_socket, ratelimit)).await
+        }
     }
 }
 
@@ -237,5 +251,38 @@ async fn proxy_dns(stream: picomux::Stream, filter: FilterOptions) -> anyhow::Re
             anyhow::Ok(())
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bw_accounting::BwAccount;
+
+    #[test]
+    fn proxy_future_stays_small() {
+        geph5_rt::block_on(async {
+            let (client, server) = tokio::io::duplex(65536);
+            let (client_read, client_write) = tokio::io::split(client);
+            let (server_read, server_write) = tokio::io::split(server);
+            let client = picomux::PicoMux::new(client_read, client_write);
+            let mut server = picomux::PicoMux::new(server_read, server_write);
+            let (stream, _peer) =
+                futures_util::future::try_join(client.open(b"example.com:443"), server.accept())
+                    .await
+                    .unwrap();
+
+            let proxy = proxy_stream(
+                EyeballDialer::new(None),
+                Arc::new(serde_json::Value::Null),
+                RateLimiter::unlimited(BwAccount::unlimited(), None),
+                stream,
+                false,
+            );
+            // A large inline setup or protocol future previously made every
+            // proxy task allocate 14 KiB, including idle TCP connections.
+            let size = std::mem::size_of_val(&proxy);
+            assert!(size <= 4096, "proxy future grew to {size} bytes");
+        });
     }
 }

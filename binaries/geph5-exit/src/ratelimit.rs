@@ -76,7 +76,6 @@ pub fn update_load_loop() {
 
             std::thread::sleep(Duration::from_millis(100));
         }
-        tracing::info!(load = get_load(), "updated load");
     }
 }
 

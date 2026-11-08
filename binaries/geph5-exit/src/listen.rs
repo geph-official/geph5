@@ -84,17 +84,6 @@ async fn b2e_loop() -> anyhow::Result<()> {
     let b2e_table: Cache<ObfsProtocol, Arc<b2e_process::B2eListener>> = Cache::builder()
         .time_to_idle(Duration::from_secs(1200))
         .build();
-    let b2e_table_report = b2e_table.clone();
-    geph5_rt::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            tracing::info!(
-                b2e_table_entries = b2e_table_report.entry_count(),
-                "b2e table snapshot"
-            );
-        }
-    })
-    .detach();
     loop {
         let b2e_raw = match listener.accept().await {
             Ok(conn) => conn,

@@ -1,6 +1,8 @@
 mod bw_accounting;
 mod dns;
 mod ipv6;
+#[cfg(target_env = "musl")]
+mod jemalloc_profile;
 mod session;
 mod tasklimit;
 
@@ -17,10 +19,7 @@ use serde_with::{DisplayFromStr, serde_as};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
-    process,
     str::FromStr,
-    thread,
-    time::Duration,
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -40,43 +39,6 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use crate::ratelimit::update_load_loop;
 use geph5_broker_protocol::{AccountLevel, ExitCategory, ExitMetadata};
-use session::RATE_LIMITER_CACHE;
-
-fn read_status_kb(field: &str) -> Option<u64> {
-    let contents = std::fs::read_to_string("/proc/self/status").ok()?;
-    for line in contents.lines() {
-        if let Some(rest) = line.strip_prefix(field) {
-            return rest
-                .split_whitespace()
-                .next()
-                .and_then(|val| val.parse::<u64>().ok());
-        }
-    }
-    None
-}
-
-fn instrumentation_report_loop() {
-    tracing::info!(
-        pid = process::id(),
-        picomux_stream_size = std::mem::size_of::<picomux::Stream>(),
-        sosistab_over_stream_size =
-            std::mem::size_of::<sillad_sosistab3::SosistabPipe<picomux::Stream>>(),
-        "instrumentation type sizes"
-    );
-    loop {
-        thread::sleep(Duration::from_secs(60));
-        let sosistab_stats = sillad_sosistab3::listener::global_listener_stats();
-        tracing::info!(
-            vmrss_kb = read_status_kb("VmRSS:"),
-            vmswap_kb = read_status_kb("VmSwap:"),
-            rate_limiter_entries = RATE_LIMITER_CACHE.entry_count(),
-            sosistab_listeners = sosistab_stats.live_listeners,
-            sosistab_queue_slots = sosistab_stats.queue_slots,
-            sosistab_queue_payload_bytes = sosistab_stats.queue_payload_bytes,
-            "instrumentation snapshot"
-        );
-    }
-}
 
 /// The global config file.
 static CONFIG_FILE: OnceCell<ConfigFile> = OnceCell::new();
@@ -202,8 +164,8 @@ fn default_free_port_whitelist() -> Vec<u16> {
         20, 21, 43, 53, 79, 80, 81, 88, 110, 143, 220, 389, 443, 464, 531, 543, 544, 554, 636, 706,
         749, 873, 902, 903, 904, 981, 989, 990, 991, 992, 993, 995, 1194, 1220, 1293, 1500, 1533,
         1677, 1723, 1755, 1863, 2083, 2086, 2087, 2095, 2096, 2102, 2103, 2104, 3690, 4321, 4643,
-        5050, 5190, 5222, 5223, 5228, 8008, 8074, 8080, 8082, 8087, 8088, 8332, 8333, 8443, 8888, 9418,
-        10000, 11371, 19294, 19638, 50002, 64738,
+        5050, 5190, 5222, 5223, 5228, 8008, 8074, 8080, 8082, 8087, 8088, 8332, 8333, 8443, 8888,
+        9418, 10000, 11371, 19294, 19638, 50002, 64738,
         // --- VoIP / WebRTC calling (WhatsApp, Signal, FaceTime, Teams, Zoom, Meet) ---
         // STUN/TURN signaling + relay. This is the single most important group: when
         // direct peer-to-peer media is blocked, virtually every app falls back to
@@ -338,7 +300,8 @@ fn main() -> anyhow::Result<()> {
 
     CONFIG_FILE.set(config).ok().unwrap();
 
-    std::thread::spawn(instrumentation_report_loop);
+    #[cfg(target_env = "musl")]
+    jemalloc_profile::start()?;
     geph5_rt::block_on(listen_main())
 }
 

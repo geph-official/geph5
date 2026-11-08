@@ -59,7 +59,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 flate2 = "1.1.10"
 
 # OpenSSL's C allocations must also use jemalloc to avoid musl's global malloc lock.
-tikv-jemallocator = { version = "0.6", features = ["override_allocator_on_supported_platforms"] }
+tikv-jemallocator = { version = "0.6", features = ["override_allocator_on_supported_platforms", "profiling", "stats"] }
 threadpool = "1.8.1"
 bytes = "1.12.1"
 simple-dns = "0.9.3"
