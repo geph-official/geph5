@@ -1701,6 +1701,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast-socks5"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9545787d8304a71e1bf1b711705070a4c400cce9b332c4a11800627b7c9a2067"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "log",
+ "socket2 0.5.10",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "fastrand"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2136,6 +2151,7 @@ dependencies = [
  "ed25519-dalek",
  "elevated-command",
  "event-listener 5.4.2",
+ "fast-socks5",
  "futures-concurrency",
  "futures-intrusive",
  "futures-util",
@@ -2184,7 +2200,6 @@ dependencies = [
  "simple-dns 0.7.1",
  "slab",
  "smol_str",
- "socksv5",
  "sqlx",
  "stdcode",
  "tachyonix",
@@ -2299,7 +2314,6 @@ dependencies = [
  "sillad",
  "sillad-meeklike",
  "smallvec",
- "socksv5",
  "stdcode",
  "tachyonix",
  "tap",
