@@ -1701,6 +1701,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast-socks5"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9545787d8304a71e1bf1b711705070a4c400cce9b332c4a11800627b7c9a2067"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "log",
+ "socket2 0.5.10",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "fastrand"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1720,6 +1735,16 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+
+[[package]]
+name = "file-rotate"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e8e2fa049328a1f3295991407a88585805d126dfaadf74b9fe8c194c730aafc"
+dependencies = [
+ "chrono",
+ "flate2",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -2136,6 +2161,8 @@ dependencies = [
  "ed25519-dalek",
  "elevated-command",
  "event-listener 5.4.2",
+ "fast-socks5",
+ "file-rotate",
  "futures-concurrency",
  "futures-intrusive",
  "futures-util",
@@ -2184,7 +2211,6 @@ dependencies = [
  "simple-dns 0.7.1",
  "slab",
  "smol_str",
- "socksv5",
  "sqlx",
  "stdcode",
  "tachyonix",
@@ -2195,6 +2221,7 @@ dependencies = [
  "tokio-rustls",
  "tower-service",
  "tracing",
+ "tracing-appender",
  "tracing-oslog",
  "tracing-subscriber",
  "windows-sys 0.59.0",
@@ -2299,7 +2326,6 @@ dependencies = [
  "sillad",
  "sillad-meeklike",
  "smallvec",
- "socksv5",
  "stdcode",
  "tachyonix",
  "tap",
@@ -5191,6 +5217,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "734676eb262c623cec13c3155096e08d1f8f29adce39ba17948b18dad1e54142"
 
 [[package]]
+name = "symlink"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5599,6 +5631,19 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
+dependencies = [
+ "crossbeam-channel",
+ "symlink",
+ "thiserror 2.0.20",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]

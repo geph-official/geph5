@@ -258,6 +258,14 @@ fn should_retry_connect(_: &std::io::Error) -> bool {
 #[pin_project]
 pub struct TcpPipe(#[pin] tokio::net::TcpStream, String);
 
+impl TcpPipe {
+    /// The actual local endpoint, including the selected address of a wildcard
+    /// listener. Protocols such as SOCKS UDP ASSOCIATE advertise this to peers.
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.0.local_addr()
+    }
+}
+
 impl AsyncRead for TcpPipe {
     fn poll_read(
         self: Pin<&mut Self>,

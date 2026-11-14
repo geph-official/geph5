@@ -86,6 +86,17 @@ pub async fn open_conn(
     protocol: &str,
     dest_addr: &str,
 ) -> anyhow::Result<Box<dyn sillad::Pipe>> {
+    Ok(open_conn_with_addr(ctx, protocol, dest_addr).await?.0)
+}
+
+/// Open a tunnel and retain the exit's resolved destination address. SOCKS UDP
+/// replies need this address rather than the requested domain in their header.
+/// This is not the exit's local/bound address, which the wire protocol omits.
+pub(crate) async fn open_conn_with_addr(
+    ctx: &AnyCtx<Config>,
+    protocol: &str,
+    dest_addr: &str,
+) -> anyhow::Result<(Box<dyn sillad::Pipe>, SocketAddr)> {
     let dest_addr = if let Ok(sock_addr) = SocketAddr::from_str(dest_addr) {
         if let IpAddr::V4(v4) = sock_addr.ip() {
             if let Some(orig) = fake_dns_backtranslate(ctx, v4) {
@@ -120,7 +131,12 @@ pub async fn open_conn(
             dest_addr = debug(dest_addr),
             "passing through whitelisted address"
         );
-        return Ok(Box::new(crate::bound_dialer::connect_addrs(&addrs).await?));
+        let conn = crate::bound_dialer::connect_addrs(&addrs).await?;
+        let remote = conn
+            .remote_addr()
+            .context("direct connection has no peer address")?
+            .parse()?;
+        return Ok((Box::new(conn), remote));
     }
 
     let cmd = RichTunnelCommand {
@@ -130,7 +146,7 @@ pub async fn open_conn(
 
     let session = wait_for_session(ctx).await;
     match open_tunnel_on_session(ctx, &session, cmd.clone()).await {
-        Ok(conn) => {
+        Ok((conn, resolved_addr)) => {
             let mut conn = conn;
             let ctx = ctx.clone();
             let accounting = session.accounting.clone();
@@ -144,7 +160,7 @@ pub async fn open_conn(
                 stat_incr_num(&ctx, "total_tx_bytes", n as _);
                 ctx.get(TRAFF_COUNT).write().unwrap().incr(n as _);
             }));
-            Ok(Box::new(conn))
+            Ok((Box::new(conn), resolved_addr))
         }
         Err(err) => {
             tracing::warn!(err = debug(&err), "opening something on the session failed");
@@ -197,7 +213,7 @@ async fn open_tunnel_on_session(
     ctx: &AnyCtx<Config>,
     session: &Arc<ConnectedSession>,
     cmd: RichTunnelCommand,
-) -> anyhow::Result<picomux::Stream> {
+) -> anyhow::Result<(picomux::Stream, SocketAddr)> {
     session.pending_opens.fetch_add(1, Ordering::Relaxed);
     scopeguard::defer!({
         session.pending_opens.fetch_sub(1, Ordering::Relaxed);
@@ -239,8 +255,11 @@ async fn open_tunnel_on_session(
             return Err(err).context("could not read tunnel open response");
         }
     };
-    let open_ms = match resp {
-        RichTunnelResponse::Success { open_ms, .. } => open_ms,
+    let (open_ms, resolved_addr) = match resp {
+        RichTunnelResponse::Success {
+            open_ms,
+            resolved_addr,
+        } => (open_ms, resolved_addr),
         RichTunnelResponse::Fail(error) => {
             return Err(anyhow::anyhow!("exit failed to open tunnel: {error}"));
         }
@@ -251,7 +270,7 @@ async fn open_tunnel_on_session(
         "tunnel open"
     );
     stat_set_num(ctx, "ping", start.elapsed().as_secs_f64());
-    Ok(stream)
+    Ok((stream, resolved_addr))
 }
 
 #[tracing::instrument(skip_all)]
@@ -565,6 +584,77 @@ mod tests {
     use geph5_broker_protocol::ExitDescriptor;
     use isocountry::CountryCode;
     use std::net::{Ipv4Addr, SocketAddr};
+
+    #[tokio::test]
+    async fn tunnel_open_retains_the_existing_exit_response_address() {
+        use super::*;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let ctx = AnyCtx::new(
+            serde_json::from_value::<Config>(serde_json::json!({
+                "exit_constraint": "auto", "dry_run": true, "cache": ":memory:"
+            }))
+            .unwrap(),
+        );
+        let (client, exit) = tokio::io::duplex(4096);
+        let (read, write) = tokio::io::split(client);
+        let mux = Arc::new(PicoMux::new(read, write));
+        let (accounting, _accounting_loop) = bw_accounting_pair();
+        let session = Arc::new(ConnectedSession {
+            worker_id: 0,
+            exit: "test".into(),
+            bridge: "test".into(),
+            mux,
+            accounting,
+            pending_opens: AtomicUsize::new(0),
+            early_dead: Arc::new(ManualResetEvent::new(false)),
+        });
+        let resolved: SocketAddr = "1.1.1.1:123".parse().unwrap();
+        let server = tokio::spawn(async move {
+            let (read, write) = tokio::io::split(exit);
+            let mux = PicoMux::new(read, write);
+            let mut stream = mux.accept().await.unwrap();
+            let cmd: RichTunnelCommand = serde_json::from_slice(stream.metadata()).unwrap();
+            assert_eq!(cmd.protocol, "udp");
+            assert_eq!(cmd.host, "example.com:123");
+            // This is the unchanged response format used by current exits.
+            write_prepend_length(
+                &serde_json::to_vec(&RichTunnelResponse::Success {
+                    resolved_addr: resolved,
+                    open_ms: None,
+                })
+                .unwrap(),
+                &mut stream,
+            )
+            .await
+            .unwrap();
+            let mut bytes = [0; 4];
+            stream.read_exact(&mut bytes).await.unwrap();
+            assert_eq!(&bytes, b"ping");
+            stream.write_all(b"pong").await.unwrap();
+            assert!(stream.read_u8().await.is_err());
+        });
+        let (mut stream, actual) = open_tunnel_on_session(
+            &ctx,
+            &session,
+            RichTunnelCommand {
+                protocol: "udp".into(),
+                host: "example.com:123".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(actual, resolved);
+        stream.write_all(b"ping").await.unwrap();
+        let mut bytes = [0; 4];
+        stream.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"pong");
+        drop(stream);
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 
     fn sample_exit() -> ExitDescriptor {
         ExitDescriptor {

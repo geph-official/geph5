@@ -77,6 +77,7 @@ impl ControlProtocol for ControlProtocolImpl {
     async fn stop(&self) {
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(100));
+            crate::logging::shutdown_logging();
             std::process::exit(0);
         });
     }
@@ -84,7 +85,7 @@ impl ControlProtocol for ControlProtocolImpl {
     async fn recent_logs(&self) -> Vec<String> {
         get_json_logs(&self.ctx)
             .await
-            .split("\n")
+            .lines()
             .map(|s| s.to_string())
             .collect()
     }
