@@ -116,6 +116,7 @@ mod tests {
             allow_direct: false,
             diagnostic_route: None,
             cache: None,
+            logging: Default::default(),
             broker: None,
             tunneled_broker: None,
             broker_keys: None,

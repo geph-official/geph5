@@ -44,6 +44,9 @@ pub struct Config {
 
     pub cache: Option<PathBuf>,
 
+    #[serde(default)]
+    pub logging: LoggingConfig,
+
     pub broker: Option<BrokerSource>,
     #[serde(alias = "tunneled_broker_source")]
     pub tunneled_broker: Option<TunneledBrokerSource>,
@@ -70,6 +73,50 @@ pub struct Config {
     pub task_limit: Option<u32>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct LoggingConfig {
+    /// Disable the persistent log file. Stderr logging remains available.
+    #[serde(default)]
+    pub disabled: bool,
+    /// Minimum level written to the log file (`off`, `error`, `warn`, `info`, `debug`, or `trace`).
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    /// Directory for the rotating log files. When omitted, it is derived from `cache`.
+    #[serde(default)]
+    pub log_dir: Option<PathBuf>,
+    /// Maximum number of files to retain, including the active file.
+    #[serde(default = "default_max_log_files")]
+    pub max_file: u32,
+    /// Rotation threshold in bytes. Whole records may exceed it by one record.
+    #[serde(default = "default_max_log_file_size")]
+    pub max_file_size: u64,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            disabled: false,
+            level: default_log_level(),
+            log_dir: None,
+            max_file: default_max_log_files(),
+            max_file_size: default_max_log_file_size(),
+        }
+    }
+}
+
+fn default_log_level() -> String {
+    "debug".to_owned()
+}
+
+fn default_max_log_files() -> u32 {
+    5
+}
+
+fn default_max_log_file_size() -> u64 {
+    10 * 1024 * 1024
+}
+
 fn default_allow_lan() -> bool {
     true
 }
@@ -86,6 +133,52 @@ impl Config {
         this.control_listen_unix = None;
         this.control_listen_pipe = None;
         this
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, LoggingConfig};
+
+    #[test]
+    fn logging_defaults_when_omitted() {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "exit_constraint": "auto"
+        }))
+        .unwrap();
+        assert_eq!(config.logging.level, "debug");
+        assert_eq!(config.logging.max_file, 5);
+        assert_eq!(config.logging.max_file_size, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn logging_config_round_trips() {
+        let logging = LoggingConfig {
+            disabled: true,
+            level: "warn".into(),
+            log_dir: Some("/tmp/geph-logs".into()),
+            max_file: 2,
+            max_file_size: 4096,
+        };
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "exit_constraint": "auto",
+            "logging": logging,
+        }))
+        .unwrap();
+        assert!(config.logging.disabled);
+        assert_eq!(config.logging.level, "warn");
+        assert_eq!(config.logging.max_file_size, 4096);
+    }
+
+    #[test]
+    fn unknown_logging_fields_are_rejected() {
+        assert!(
+            serde_json::from_value::<Config>(serde_json::json!({
+                "exit_constraint": "auto",
+                "logging": { "unknown_setting": 123 }
+            }))
+            .is_err()
+        );
     }
 }
 

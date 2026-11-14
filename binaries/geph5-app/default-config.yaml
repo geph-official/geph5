@@ -12,6 +12,12 @@ control_listen: 127.0.0.1:28081
 exit_constraint: auto
 allow_direct: false
 cache: null
+logging:
+  disabled: false
+  level: debug
+  log_dir: null
+  max_file: 5
+  max_file_size: 10485760
 broker:
   priority_race:
     1500:

@@ -7,7 +7,7 @@ pub use broker::broker_client;
 pub use broker::{BrokerSource, TunneledBrokerSource};
 use bytes::Bytes;
 pub use client::Client;
-pub use client::{BrokerKeys, Config};
+pub use client::{BrokerKeys, Config, LoggingConfig};
 pub use geph5_broker_protocol::ExitConstraint;
 use nanorpc::JrpcRequest;
 use nanorpc::RpcTransport;
@@ -185,6 +185,7 @@ mod tests {
             diagnostic_route: None,
             port_forward: vec![],
             cache: None,
+            logging: Default::default(),
             broker: Some(BrokerSource::Race(vec![
                 BrokerSource::Fronted {
                     front: "https://www.cdn77.com/".into(),
