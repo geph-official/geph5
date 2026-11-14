@@ -163,7 +163,6 @@ async fn fetch_exit_route(ctx: &AnyCtx<Config>) -> anyhow::Result<ExitRouteDescr
         }
     };
 
-    tracing::debug!(token = %conn_token, "CONN TOKEN");
     let broker = broker_client(ctx)?;
     let signed_exit_route = broker
         .get_exit_route(GetExitRouteArgs {
@@ -383,6 +382,7 @@ mod tests {
             allow_direct: false,
             diagnostic_route: None,
             cache: None,
+            logging: Default::default(),
             broker: None,
             tunneled_broker: None,
             broker_keys: None,

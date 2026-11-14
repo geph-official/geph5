@@ -37,7 +37,7 @@ use crate::{
 // depend on that lightweight crate instead of this whole engine. Re-exported
 // here so `geph5_client::Config` etc. keep working. The behavior over
 // `BrokerSource` lives in `broker.rs` as extension traits.
-pub use geph5_misc_rpc::client_config::{BrokerKeys, Config};
+pub use geph5_misc_rpc::client_config::{BrokerKeys, Config, LoggingConfig};
 
 #[derive(Clone)]
 pub struct Client {
@@ -60,8 +60,8 @@ impl Client {
 
     #[cfg(unix)]
     fn start_in_context(ctx: AnyCtx<Config>, vpn_fd: Option<i32>) -> Self {
-        // Initialize logging once we have context so JSON logs go to SQLite
-        let _ = logging::init_logging(&ctx);
+        // Initialize logging once we have context so file paths are config-aware.
+        let logging_result = logging::init_logging(&ctx);
         let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
             if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
                 binary_search::Direction::Low(())
@@ -78,6 +78,8 @@ impl Client {
         // packets flowed; folding the pump into the client task surfaces any such
         // failure through wait_until_dead / check_dead.
         let combined = async move {
+            logging_result
+                .map_err(|err| anyhow::anyhow!("could not initialize client logging: {err:#}"))?;
             let main_fut = client_main(ctx.clone());
             match vpn_fd {
                 Some(fd) => (main_fut, run_vpn_fd_handler(ctx, fd)).race().await,
@@ -95,7 +97,7 @@ impl Client {
     #[cfg(not(unix))]
     pub fn start_with_vpn_fd(cfg: Config, _vpn_fd: Option<i32>) -> Self {
         let ctx = AnyCtx::new(cfg.clone());
-        let _ = logging::init_logging(&ctx);
+        let logging_result = logging::init_logging(&ctx);
         let ((fd_limit, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
             if rlimit::increase_nofile_limit(lim).unwrap_or_default() >= lim {
                 binary_search::Direction::Low(())
@@ -105,7 +107,16 @@ impl Client {
         });
         tracing::info!("raised file descriptor limit to {}", fd_limit);
 
-        let task = geph5_rt::spawn(client_main(ctx.clone()).map_err(Arc::new));
+        let task_ctx = ctx.clone();
+        let task = geph5_rt::spawn(
+            async move {
+                logging_result.map_err(|err| {
+                    anyhow::anyhow!("could not initialize client logging: {err:#}")
+                })?;
+                client_main(task_ctx).await
+            }
+            .map_err(Arc::new),
+        );
         Client {
             task: task.shared(),
             ctx,
@@ -452,7 +463,8 @@ mod authentication_cache_tests {
 
     fn config() -> Config {
         let mut cfg: Config = serde_json::from_value(serde_json::json!({
-            "exit_constraint": "auto", "dry_run": true, "cache": ":memory:"
+            "exit_constraint": "auto", "dry_run": true, "cache": ":memory:",
+            "logging": { "disabled": true }
         }))
         .unwrap();
         cfg.diagnostic_route = Some(ExitRouteDescriptor {
