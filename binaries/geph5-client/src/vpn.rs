@@ -54,16 +54,10 @@ pub async fn vpn_loop(ctx: &AnyCtx<crate::Config>) -> anyhow::Result<()> {
     let (send_captured, recv_captured) = async_channel::bounded(100);
     let (send_injected, recv_injected) = async_channel::bounded(100);
 
+    let mtu = if cfg!(target_os = "ios") { 1450 } else { 16384 };
     let ipstack = IpStack::new(
-        #[cfg(target_os = "ios")]
         IpStackConfig {
-            mtu: 1450,
-            tcp_timeout: std::time::Duration::from_secs(3600),
-            udp_timeout: std::time::Duration::from_secs(600),
-        },
-        #[cfg(not(target_os = "ios"))]
-        IpStackConfig {
-            mtu: 16384,
+            mtu,
             tcp_timeout: std::time::Duration::from_secs(3600),
             udp_timeout: std::time::Duration::from_secs(600),
         },
@@ -205,14 +199,19 @@ pub async fn vpn_loop(ctx: &AnyCtx<crate::Config>) -> anyhow::Result<()> {
                                 #[allow(unreachable_code)]
                                 anyhow::Ok(())
                             };
+                            let udp_headers = if local_addr.is_ipv4() { 28 } else { 48 };
+                            let max_payload = usize::from(mtu) - udp_headers;
                             let dn_loop = async {
+                                let mut buf = Vec::new();
                                 loop {
                                     let mut len_buf = [0u8; 2];
                                     read_tunneled.read_exact(&mut len_buf).await?;
                                     let len = u16::from_le_bytes(len_buf) as usize;
-                                    let mut buf = vec![0u8; len];
+                                    buf.resize(len, 0);
                                     read_tunneled.read_exact(&mut buf).await?;
-                                    captured.send(&buf).await?;
+                                    if len <= max_payload {
+                                        captured.send(&buf).await?;
+                                    }
                                 }
                                 #[allow(unreachable_code)]
                                 anyhow::Ok(())

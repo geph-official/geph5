@@ -50,8 +50,7 @@ pub async fn proxy_stream(
         OpenedTunnel::Tcp { dest_tcp } => proxy_tcp(stream, dest_tcp, ratelimit).await,
         OpenedTunnel::Dns { filter } => proxy_dns(stream, filter).await,
         OpenedTunnel::Udp { udp_socket } => {
-            // Allocate UDP's 8 KiB receive buffer once per UDP flow, keeping
-            // that storage separate from the common proxy future's layout.
+            // Keep UDP forwarding state separate from the common proxy future.
             Box::pin(proxy_udp(stream, udp_socket, ratelimit)).await
         }
     }
@@ -168,47 +167,48 @@ async fn proxy_udp(
     udp_socket: UdpSocket,
     ratelimit: RateLimiter,
 ) -> anyhow::Result<()> {
+    const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
     let (read_stream, mut write_stream) = tokio::io::split(stream);
+    let last_activity = std::sync::Mutex::new(tokio::time::Instant::now());
     let up_loop = async {
         let mut read_stream = BufReader::new(read_stream);
         let mut len_buf = [0; 2];
+        let mut packet_buf = Vec::new();
         loop {
             read_stream
                 .read_exact(&mut len_buf)
-                .timeout(Duration::from_secs(60))
                 .await
-                .context("timeout in udp up")??;
-            let mut packet_buf = vec![0; u16::from_le_bytes(len_buf) as usize];
+                .context("read UDP length")?;
+            packet_buf.resize(u16::from_le_bytes(len_buf) as usize, 0);
             read_stream
                 .read_exact(&mut packet_buf)
-                .timeout(Duration::from_secs(60))
                 .await
-                .context("timeout in udp up")??;
+                .context("read UDP payload")?;
+            *last_activity.lock().unwrap() = tokio::time::Instant::now();
             ratelimit.wait(packet_buf.len()).await;
             udp_socket.send(&packet_buf).await?;
         }
     };
     let dn_loop = async {
-        let mut buf = [0u8; 8192];
+        let mut buf = vec![0u8; usize::from(u16::MAX) + 2];
         loop {
-            // Receive data into the buffer starting from the third byte
-            let len = udp_socket
-                .recv(&mut buf[2..])
-                .timeout(Duration::from_secs(60))
-                .await
-                .context("timeout in udp down")??;
+            let len = udp_socket.recv(&mut buf[2..]).await?;
+            *last_activity.lock().unwrap() = tokio::time::Instant::now();
             ratelimit.wait(len).await;
-
-            // Store the length of the data in the first two bytes
-            let len_bytes = (len as u16).to_le_bytes();
-            buf[0] = len_bytes[0];
-            buf[1] = len_bytes[1];
-
-            // Write both the length and the data in a single call
+            buf[..2].copy_from_slice(&(len as u16).to_le_bytes());
             write_stream.write_all(&buf[..len + 2]).await?;
         }
     };
-    (up_loop, dn_loop).race().await
+    let idle = async {
+        loop {
+            let deadline = *last_activity.lock().unwrap() + UDP_IDLE_TIMEOUT;
+            tokio::time::sleep_until(deadline).await;
+            if tokio::time::Instant::now() >= *last_activity.lock().unwrap() + UDP_IDLE_TIMEOUT {
+                anyhow::bail!("UDP tunnel idle");
+            }
+        }
+    };
+    (up_loop, dn_loop, idle).race().await
 }
 
 async fn fail_rich_open(
