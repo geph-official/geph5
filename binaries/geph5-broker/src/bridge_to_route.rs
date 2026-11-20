@@ -20,7 +20,6 @@ use std::{
 enum ProtocolFlavor {
     Tls,
     Sosistab3,
-    Legacy,
     Meeklike,
 }
 
@@ -40,8 +39,11 @@ pub async fn bridge_to_leaf_route(
     version: &str,
 ) -> anyhow::Result<RouteDescriptor> {
     let country_key: Arc<str> = country.to_ascii_uppercase().into();
-    let blocked_iran = bridge.pool.contains("NOIR");
-    let is_iran = &*country_key == "IR" || (!blocked_iran && bridge.pool.contains("IR"));
+    let flavor = if &*country_key == "RU" {
+        ProtocolFlavor::Tls
+    } else {
+        ProtocolFlavor::Sosistab3
+    };
 
     // for cache coherence
     let mut bridge = bridge;
@@ -72,11 +74,7 @@ pub async fn bridge_to_leaf_route(
                     && VersionReq::parse(">=0.2.72").unwrap().matches(&version)
                     && bridge.pool.contains("meeklike")
                 {
-                    let fallback_protocol = if is_iran {
-                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
-                    } else {
-                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await
-                    };
+                    let fallback_protocol = stable_protocol(&bridge, exit.b2e_listen, flavor).await;
                     let fallback_route = bridge_to_leaf_route_inner(
                         bridge.clone(),
                         exit.b2e_listen,
@@ -102,61 +100,7 @@ pub async fn bridge_to_leaf_route(
                     });
                 }
 
-                // if asn == 4837 || asn == 4808 {
-                //     return anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: route.into(),
-                //     })
-                // } else
-                // } else if is_china_mobile_asn(asn) {
-                //     return anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: route.into(),
-                //     })
-                // } else
-                // if is_iran {
-                //     return anyhow::Ok(RouteDescriptor::Delay {
-                //         milliseconds: delay_ms,
-                //         lower: route.into(),
-                //     });
-                // }
-                let protocol = if asn == 4134 {
-                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
-                } else if country == "CN" {
-                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
-                } else if country == "RU" {
-                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Tls).await
-                } else if !country.is_empty() {
-                    // anyhow::Ok(RouteDescriptor::Delay {
-                    //     milliseconds: delay_ms,
-                    //     lower: route.into(),
-                    // })
-                    stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await
-                } else {
-                    let sosistab3_route = bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Sosistab3).await,
-                    )
-                    .await?;
-                    let legacy_route = bridge_to_leaf_route_inner(
-                        bridge.clone(),
-                        exit.b2e_listen,
-                        stable_protocol(&bridge, exit.b2e_listen, ProtocolFlavor::Legacy).await,
-                    )
-                    .await?;
-                    return anyhow::Ok(RouteDescriptor::Delay {
-                        milliseconds: delay_ms,
-                        lower: RouteDescriptor::Fallback(vec![
-                            RouteDescriptor::Timeout {
-                                milliseconds: 5000,
-                                lower: sosistab3_route.into(),
-                            },
-                            legacy_route,
-                        ])
-                        .into(),
-                    });
-                };
+                let protocol = stable_protocol(&bridge, exit.b2e_listen, flavor).await;
 
                 let route =
                     bridge_to_leaf_route_inner(bridge.clone(), exit.b2e_listen, protocol).await?;
@@ -235,7 +179,6 @@ fn generate_protocol(flavor: ProtocolFlavor) -> ObfsProtocol {
         ProtocolFlavor::Sosistab3 => {
             ObfsProtocol::Sosistab3New(gencookie(), ObfsProtocol::None.into())
         }
-        ProtocolFlavor::Legacy => ObfsProtocol::Sosistab3(gencookie()),
         ProtocolFlavor::Meeklike => {
             ObfsProtocol::Meeklike(gencookie(), Default::default(), ObfsProtocol::None.into())
         }
