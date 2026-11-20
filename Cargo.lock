@@ -1956,7 +1956,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-app"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2106,7 +2106,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2281,7 +2281,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "async-trait",
