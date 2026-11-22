@@ -103,7 +103,7 @@ fn snapshot() -> anyhow::Result<Value> {
         "prof_active": read::<bool>(c"prof.active")?,
         "lg_prof_sample": read::<usize>(c"prof.lg_sample")?,
         "rate_limiter_entries": crate::session::RATE_LIMITER_CACHE.entry_count(),
-        "proxy_task_count": crate::tasklimit::get_task_count(),
+        "proxy_task_count": crate::proxy::get_task_count(),
         "sosistab_listeners": listeners.live_listeners,
         "sosistab_queue_payload_bytes": listeners.queue_payload_bytes,
     }))

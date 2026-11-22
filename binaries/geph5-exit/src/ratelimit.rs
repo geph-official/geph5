@@ -9,7 +9,7 @@ use std::{
 
 use atomic_float::AtomicF32;
 use geph5_broker_protocol::AccountLevel;
-use geph5_rt::{TimeoutExt, pooled_read};
+use geph5_rt::pooled_read;
 use governor::{DefaultDirectRateLimiter, Quota};
 use mizaru2::ClientToken;
 use once_cell::sync::Lazy;
@@ -197,25 +197,17 @@ impl RateLimiter {
         &self,
         mut read_stream: impl AsyncRead + Unpin,
         mut write_stream: impl AsyncWrite + Unpin,
+        on_activity: impl Fn(),
     ) -> std::io::Result<u64> {
         let mut total_bytes = 0;
 
-        loop {
-            let bts = pooled_read(&mut read_stream, 8192)
-                .timeout(Duration::from_secs(1800))
-                .await
-                .ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout in TCP read")
-                })??;
-            match bts {
-                None => break,
-                Some(bts) => {
-                    self.wait(bts.len()).await;
+        while let Some(bts) = pooled_read(&mut read_stream, 8192).await? {
+            on_activity();
+            self.wait(bts.len()).await;
 
-                    write_stream.write_all(&bts).await?;
-                    total_bytes += bts.len() as u64;
-                }
-            }
+            write_stream.write_all(&bts).await?;
+            on_activity();
+            total_bytes += bts.len() as u64;
         }
 
         Ok(total_bytes)

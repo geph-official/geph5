@@ -30,7 +30,6 @@ use crate::{
     proxy::proxy_stream,
     ratelimit::{RateLimiter, get_ratelimiter},
     session::SessionKey,
-    tasklimit::new_task_until_death,
 };
 
 pub async fn listen_main() -> anyhow::Result<()> {
@@ -189,7 +188,11 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
     };
 
     let (client_read, client_write) = tokio::io::split(client);
-    let mux = PicoMux::new(client_read, client_write);
+    let mut mux = PicoMux::new(client_read, client_write);
+    mux.set_liveness(LivenessConfig {
+        ping_interval: Duration::from_secs(1800),
+        timeout: Duration::from_secs(300),
+    });
     mux.set_debloat(true);
 
     let mut sess_metadata = None;
@@ -234,18 +237,14 @@ async fn handle_client(mut client: impl Pipe) -> anyhow::Result<()> {
             .unwrap_or_else(|| Arc::new(serde_json::Value::Null));
         let dialer = dialer.clone();
         geph5_rt::spawn(
-            (
-                proxy_stream(
-                    dialer,
-                    sess_metadata.clone(),
-                    ratelimit.clone(),
-                    stream,
-                    is_free,
-                ),
-                new_task_until_death(Duration::from_secs(1)),
+            proxy_stream(
+                dialer,
+                sess_metadata.clone(),
+                ratelimit.clone(),
+                stream,
+                is_free,
             )
-                .race()
-                .map_err(|e| tracing::trace!(err = debug(e), "stream died with")),
+            .map_err(|e| tracing::trace!(err = debug(e), "stream died with")),
         )
         .detach();
     }

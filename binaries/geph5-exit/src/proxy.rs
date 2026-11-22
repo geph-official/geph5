@@ -1,6 +1,9 @@
 use std::{
     str::FromStr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -9,7 +12,7 @@ use geph5_misc_rpc::tunnel_command::{RichTunnelResponse, TunnelCommand};
 
 use futures_concurrency::future::Race;
 use geph5_rt::TimeoutExt;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UdpSocket};
 
 use crate::{
@@ -19,6 +22,55 @@ use crate::{
     ratelimit::RateLimiter,
 };
 
+const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
+
+static ACTIVE_PROXY_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Obtains the current number of active proxy tasks.
+pub fn get_task_count() -> usize {
+    ACTIVE_PROXY_TASKS.load(Ordering::Relaxed)
+}
+
+struct ActiveProxyTask;
+
+impl ActiveProxyTask {
+    fn new() -> Self {
+        ACTIVE_PROXY_TASKS.fetch_add(1, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for ActiveProxyTask {
+    fn drop(&mut self) {
+        ACTIVE_PROXY_TASKS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+struct IdleActivity {
+    start: tokio::time::Instant,
+    last_activity_ms: AtomicU64,
+}
+
+impl IdleActivity {
+    fn new() -> Self {
+        Self {
+            start: tokio::time::Instant::now(),
+            last_activity_ms: AtomicU64::new(0),
+        }
+    }
+
+    fn touch(&self) {
+        let elapsed_ms = self.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        self.last_activity_ms
+            .fetch_max(elapsed_ms, Ordering::Relaxed);
+    }
+
+    fn deadline(&self, timeout: Duration) -> tokio::time::Instant {
+        let last_ms = self.last_activity_ms.load(Ordering::Relaxed);
+        self.start + Duration::from_millis(last_ms) + timeout
+    }
+}
+
 #[tracing::instrument(skip_all)]
 pub async fn proxy_stream(
     dialer: EyeballDialer,
@@ -27,6 +79,7 @@ pub async fn proxy_stream(
     stream: picomux::Stream,
     is_free: bool,
 ) -> anyhow::Result<()> {
+    let _active_task = ActiveProxyTask::new();
     let mut stream = stream;
     let cmd_str = String::from_utf8_lossy(stream.metadata());
     let cmd = TunnelCommand::from_str(&cmd_str)?;
@@ -151,14 +204,33 @@ async fn proxy_tcp(
     dest_tcp: TcpStream,
     ratelimit: RateLimiter,
 ) -> anyhow::Result<()> {
+    proxy_tcp_with_timeout(stream, dest_tcp, ratelimit, TCP_IDLE_TIMEOUT).await
+}
+
+async fn proxy_tcp_with_timeout(
+    stream: impl AsyncRead + AsyncWrite + Unpin,
+    dest: impl AsyncRead + AsyncWrite + Unpin,
+    ratelimit: RateLimiter,
+    idle_timeout: Duration,
+) -> anyhow::Result<()> {
     let (read_stream, mut write_stream) = tokio::io::split(stream);
-    let (read_dest, mut write_dest) = tokio::io::split(dest_tcp);
-    (
-        ratelimit.io_copy(read_stream, &mut write_dest),
-        ratelimit.io_copy(read_dest, &mut write_stream),
-    )
-        .race()
-        .await?;
+    let (read_dest, mut write_dest) = tokio::io::split(dest);
+    let activity = IdleActivity::new();
+    let up = ratelimit.io_copy(read_stream, &mut write_dest, || activity.touch());
+    let dn = ratelimit.io_copy(read_dest, &mut write_stream, || activity.touch());
+    let idle = async {
+        loop {
+            let deadline = activity.deadline(idle_timeout);
+            tokio::time::sleep_until(deadline).await;
+            if tokio::time::Instant::now() >= activity.deadline(idle_timeout) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "timeout in TCP idle",
+                ));
+            }
+        }
+    };
+    (up, dn, idle).race().await?;
     Ok(())
 }
 
@@ -283,6 +355,41 @@ mod tests {
             // proxy task allocate 14 KiB, including idle TCP connections.
             let size = std::mem::size_of_val(&proxy);
             assert!(size <= 4096, "proxy future grew to {size} bytes");
+        });
+    }
+
+    #[test]
+    fn tcp_idle_timeout_is_bidirectional() {
+        geph5_rt::block_on(async {
+            let (mut client_end, proxy_client) = tokio::io::duplex(4096);
+            let (proxy_dest, mut dest_end) = tokio::io::duplex(4096);
+            let idle_timeout = Duration::from_millis(120);
+
+            let proxy = geph5_rt::spawn(proxy_tcp_with_timeout(
+                proxy_client,
+                proxy_dest,
+                RateLimiter::unlimited(BwAccount::unlimited(), None),
+                idle_timeout,
+            ));
+
+            // Keep only one direction active well past `idle_timeout`.
+            let mut buf = [0u8; 4];
+            for _ in 0..5 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                client_end.write_all(b"ping").await.unwrap();
+                dest_end.read_exact(&mut buf).await.unwrap();
+                assert_eq!(&buf, b"ping");
+            }
+
+            // Now stop traffic in both directions and verify the tunnel times out.
+            let err = tokio::time::timeout(Duration::from_secs(2), proxy)
+                .await
+                .expect("proxy did not time out after becoming idle")
+                .expect_err("idle TCP tunnel should fail with TimedOut");
+            let io_err = err
+                .downcast_ref::<std::io::Error>()
+                .expect("expected io::Error");
+            assert_eq!(io_err.kind(), std::io::ErrorKind::TimedOut);
         });
     }
 }

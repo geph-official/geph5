@@ -20,9 +20,9 @@ use tap::Tap;
 
 use crate::{
     AdvertisedIpSource, CONFIG_FILE, SIGNING_SECRET, exit_metadata,
+    proxy::get_task_count,
     ratelimit::{get_kbps, get_load},
     schedlag::SCHEDULER_LAG_SECS,
-    tasklimit::get_task_count,
 };
 
 pub static ACCEPT_FREE: AtomicBool = AtomicBool::new(false);
