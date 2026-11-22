@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-app"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2079,7 +2079,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4599,7 +4599,7 @@ dependencies = [
 
 [[package]]
 name = "sillad-meeklike"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-channel",

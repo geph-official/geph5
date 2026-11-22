@@ -52,8 +52,8 @@ event-listener = "5.4.2"
 futures-concurrency = "7.7.1"
 futures-intrusive = "0.5.0"
 futures-util = "0.3.34"
-geph5-broker-protocol = { version = "0.5.4", path = "../../libraries/geph5-broker-protocol" }
-geph5-misc-rpc = { version = "0.5.4", path = "../../libraries/geph5-misc-rpc" }
+geph5-broker-protocol = { version = "0.5.5", path = "../../libraries/geph5-broker-protocol" }
+geph5-misc-rpc = { version = "0.5.5", path = "../../libraries/geph5-misc-rpc" }
 geph5-rt = { version = "0.3.8", path = "../../libraries/geph5-rt" }
 # geph5-ip-to-asn = { version = "0.2", path = "../../libraries/geph5-ip-to-asn"}
 hex = "0.4.3"
@@ -93,7 +93,7 @@ sillad = { version = "0.3.3", path = "../../libraries/sillad" }
 sillad-conntest = { version = "0.3.3", path = "../../libraries/sillad-conntest" }
 sillad-native-tls = { version = "0.3.2", path = "../../libraries/sillad-native-tls" }
 sillad-sosistab3 = { version = "0.3.3", path = "../../libraries/sillad-sosistab3" }
-sillad-meeklike = { version = "0.2.2", path = "../../libraries/sillad-meeklike" }
+sillad-meeklike = { version = "0.2.3", path = "../../libraries/sillad-meeklike" }
 sillad-hex = { version = "0.2.2", path = "../../libraries/sillad-hex" }
 simple-dns = "0.7.1"
 slab = "0.4.12"
