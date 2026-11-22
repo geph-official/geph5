@@ -15,8 +15,8 @@ serde = "1.0.229"
 serde_json = "1.0.151"
 serde_yaml = "0.9.34"
 geph5-rt = { path = "../../libraries/geph5-rt" }
-sqlx = { version = "0.7", features = [
-  "runtime-tokio-rustls",
+sqlx = { workspace = true, features = [
+  "tls-rustls-ring-webpki",
   "postgres",
   "chrono",
 ] }

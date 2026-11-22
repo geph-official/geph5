@@ -9,6 +9,8 @@ repository = "https://github.com/geph-official/geph5"
 license = "ISC"
 edition = "2024"
 
+[workspace.dependencies]
+sqlx = { version = "0.9.1", features = ["runtime-tokio"] }
 
 [patch.crates-io]
 # ipstack-geph = { path = "../ipstack-geph" }
