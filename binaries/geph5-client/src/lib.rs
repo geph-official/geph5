@@ -24,6 +24,7 @@ mod control_prot;
 mod database;
 mod device_metadata;
 mod dial_logging;
+mod early_death;
 mod http_proxy;
 mod litecopy;
 pub mod logging;

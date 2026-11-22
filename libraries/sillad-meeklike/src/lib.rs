@@ -1,7 +1,7 @@
 mod crypto;
 mod datagram;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -46,6 +46,7 @@ impl Default for MeeklikeConfig {
 pub struct MeeklikePipe {
     #[pin]
     inner: Compat<virta::Stream>,
+    remote_addr: Option<String>,
 
     _task: Task<()>,
 }
@@ -89,7 +90,7 @@ impl Pipe for MeeklikePipe {
         "meeklike"
     }
     fn remote_addr(&self) -> Option<&str> {
-        Some("0.0.0.0:0")
+        self.remote_addr.as_deref().or(Some("0.0.0.0:0"))
     }
 }
 
@@ -104,11 +105,13 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
     type P = MeeklikePipe;
     async fn dial(&self) -> std::io::Result<Self::P> {
         let stream_id: u128 = rand::random();
+        let peer = Arc::new(OnceLock::new());
         let dg_conn = DgConnection::new(
             self.cfg,
             PresharedSecret::new(&self.key).into(),
             stream_id,
             self.inner.clone(),
+            peer.clone(),
         );
         let notify = Arc::new(Event::new());
         let (mut state, inner) = virta::stream_state::StreamState::new_pending({
@@ -122,6 +125,7 @@ impl<D: Dialer> Dialer for MeeklikeDialer<D> {
         inner.wait_connected().await?;
         Ok(MeeklikePipe {
             inner: inner.compat(),
+            remote_addr: peer.get().cloned(),
             _task,
         })
     }
@@ -208,6 +212,7 @@ impl<L: Listener> Listener for MeeklikeListener<L> {
         let _task = spawn(ticker(notify, state, dg_conn));
         Ok(MeeklikePipe {
             inner: inner.compat(),
+            remote_addr: None,
             _task,
         })
     }
@@ -220,6 +225,36 @@ mod tests {
     use sillad::tcp::{TcpDialer, TcpListener};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn dial_reports_the_peer_that_established_the_stream() {
+        block_on(async {
+            use futures_concurrency::future::TryJoin;
+            let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                .await
+                .unwrap();
+            let addr = listener.local_addr().await;
+            let key = [7u8; 32];
+            let cfg = MeeklikeConfig {
+                max_inflight: 2,
+                ..Default::default()
+            };
+            let mut listener = MeeklikeListener::new(listener, key, cfg);
+            let dialer = MeeklikeDialer {
+                inner: Arc::new(TcpDialer { dest_addr: addr }),
+                key,
+                cfg,
+            };
+            let (client, _server) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    (dialer.dial(), listener.accept()).try_join().await
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(client.remote_addr().unwrap().parse(), Ok(addr));
+        });
+    }
 
     // TODO(tokio-migration): this HTTP-polling round-trip test hangs under the
     // tokio runtime — the server's TCP listener stops accepting after a burst of

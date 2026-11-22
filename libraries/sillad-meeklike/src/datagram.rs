@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, atomic::AtomicUsize},
+    sync::{Arc, OnceLock, atomic::AtomicUsize},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -12,7 +12,7 @@ use http_body_util::BodyExt;
 use hyper::{Method, Request, Response, StatusCode, body::Incoming, service::service_fn};
 use hyper_util::rt::TokioIo;
 use rand::Rng;
-use sillad::{dialer::Dialer, listener::Listener};
+use sillad::{Pipe, dialer::Dialer, listener::Listener};
 use stdcode::StdcodeSerializeExt;
 
 use crate::{
@@ -41,6 +41,7 @@ impl DgConnection {
         secret: Arc<PresharedSecret>,
         stream_id: u128,
         inner: Arc<D>,
+        peer: Arc<OnceLock<String>>,
     ) -> Self {
         let (send_up, recv_up) = async_channel::bounded(1000);
         let (send_dn, recv_dn) = async_channel::bounded(1000);
@@ -50,6 +51,7 @@ impl DgConnection {
                 stream_id,
                 cfg,
                 inner.clone(),
+                peer.clone(),
                 recv_up.clone(),
                 send_dn.clone(),
             ))
@@ -78,6 +80,7 @@ async fn dg_client_backhaul<D: Dialer>(
     cfg: MeeklikeConfig,
 
     inner: Arc<D>,
+    peer: Arc<OnceLock<String>>,
     recv_up: Receiver<Bytes>,
     send_dn: Sender<Bytes>,
 ) -> anyhow::Result<()> {
@@ -118,6 +121,11 @@ async fn dg_client_backhaul<D: Dialer>(
                 tracing::debug!(inflight, "inflight decr");
             });
             let lower = inner.dial().await?;
+            let remote_addr = if peer.get().is_none() {
+                lower.remote_addr().map(str::to_owned)
+            } else {
+                None
+            };
             let io = TokioIo::new(lower);
             let (mut sender, conn) =
                 hyper::client::conn::http1::handshake::<_, http_body_util::Full<Bytes>>(io)
@@ -155,6 +163,9 @@ async fn dg_client_backhaul<D: Dialer>(
                 anyhow::bail!("got a response with the wrong stream ID")
             }
             if !plain.inner.is_empty() {
+                if let Some(addr) = remote_addr {
+                    let _ = peer.set(addr);
+                }
                 send_dn.try_send(plain.inner)?;
                 interval = 0.1;
             } else {

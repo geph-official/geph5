@@ -4,7 +4,6 @@ use bytes::Bytes;
 use clone_macro::clone;
 use ed25519_dalek::VerifyingKey;
 use futures_concurrency::future::Race as _;
-use futures_intrusive::sync::ManualResetEvent;
 use geph5_misc_rpc::{
     client_control::ConnectedInfo,
     exit::{ClientCryptHello, ClientExitCryptPipe, ClientHello, ExitHello, ExitHelloInner},
@@ -40,6 +39,7 @@ use crate::{
     china::is_chinese_host,
     client::CtxField,
     control_prot::CURRENT_CONNECTED_INFOS,
+    early_death::EARLY_DEATHS,
     get_dialer::get_dialer,
     spoof_dns::fake_dns_backtranslate,
     stats::{stat_incr_num, stat_set_num},
@@ -48,7 +48,7 @@ use crate::{
 
 use super::Config;
 
-const TARGET_SESSION_COUNT: usize = 6;
+const TARGET_SESSION_COUNT: usize = 1;
 
 struct ConnectedSession {
     worker_id: usize,
@@ -57,7 +57,6 @@ struct ConnectedSession {
     mux: Arc<PicoMux>,
     accounting: BwAccountingHandle,
     pending_opens: AtomicUsize,
-    early_dead: Arc<ManualResetEvent>,
 }
 
 static CURRENT_SESSIONS: CtxField<parking_lot::Mutex<Slab<Arc<ConnectedSession>>>> =
@@ -167,7 +166,7 @@ fn select_session(ctx: &AnyCtx<Config>) -> Option<Arc<ConnectedSession>> {
         .get(CURRENT_SESSIONS)
         .lock()
         .iter()
-        .filter(|(_, session)| session.mux.is_alive() && !session.early_dead.is_set())
+        .filter(|(_, session)| session.mux.is_alive())
         .map(|(_, session)| session.clone())
         .collect::<Vec<_>>();
     if sessions.is_empty() {
@@ -210,35 +209,20 @@ async fn open_tunnel_on_session(
     let cmd_str = TunnelCommand::Rich(cmd).to_string();
     let start = Instant::now();
     tracing::debug!("opening tunnel...");
-    let mut stream = match session.mux.open(cmd_str.as_bytes()).await {
-        Ok(stream) => stream,
-        Err(err) => {
-            session.early_dead.set();
-            return Err(err).context("could not open stream on session");
-        }
-    };
+    let mut stream = session
+        .mux
+        .open(cmd_str.as_bytes())
+        .await
+        .context("could not open stream on session")?;
 
     let open_response = geph5_misc_rpc::read_prepend_length(&mut stream)
         .timeout(Duration::from_secs(10))
         .await
-        .ok_or_else(|| {
-            session.early_dead.set();
-            anyhow::anyhow!("timeout waiting for tunnel open response")
-        })?;
+        .context("timeout waiting for tunnel open response")?
+        .context("could not read tunnel open response")?;
 
-    let resp: RichTunnelResponse = match open_response {
-        Ok(resp) => match serde_json::from_slice(&resp) {
-            Ok(resp) => resp,
-            Err(err) => {
-                session.early_dead.set();
-                return Err(err).context("could not parse tunnel open response");
-            }
-        },
-        Err(err) => {
-            session.early_dead.set();
-            return Err(err).context("could not read tunnel open response");
-        }
-    };
+    let resp: RichTunnelResponse =
+        serde_json::from_slice(&open_response).context("could not parse tunnel open response")?;
     let open_ms = match resp {
         RichTunnelResponse::Success { open_ms, .. } => open_ms,
         RichTunnelResponse::Fail(error) => {
@@ -367,58 +351,64 @@ async fn run_session_once(
     timeout_time: Duration,
     failures: &mut f64,
 ) -> anyhow::Result<()> {
-    let (authed_pipe, exit) = async {
+    let (authed_pipe, exit, addr, connected_at) = async {
         let (pubkey, exit, raw_dialer) = get_dialer(ctx).await?;
         let start = Instant::now();
         let raw_pipe = raw_dialer.dial().await.context("could not dial")?;
+        let connected_at = Instant::now();
+        let addr: SocketAddr = raw_pipe
+            .remote_addr()
+            .context("dialed pipe has no remote address")?
+            .parse()
+            .context("invalid remote socket address")?;
         tracing::debug!(
             elapsed = debug(start.elapsed()),
             protocol = raw_pipe.protocol(),
             "dial completed"
         );
 
-        let authed_pipe = client_auth(ctx, raw_pipe, pubkey)
+        let credentials = session_credentials(ctx).await?;
+        let authed_pipe = client_auth(credentials, raw_pipe, pubkey)
             .await
+            .inspect_err(|err| {
+                if err.downcast_ref::<std::io::Error>().is_some() {
+                    ctx.get(EARLY_DEATHS).record(addr, connected_at.elapsed());
+                }
+            })
             .context("could not client auth")?;
 
         tracing::debug!(
             elapsed = debug(start.elapsed()),
             "authentication done, starting mux system"
         );
-        anyhow::Ok((authed_pipe, exit))
+        anyhow::Ok((authed_pipe, exit, addr, connected_at))
     }
     .timeout(timeout_time)
     .await
     .context("overall dial/mux/auth timeout")??;
 
-    let remote_addr = authed_pipe
-        .remote_addr()
-        .and_then(|addr| addr.parse::<SocketAddr>().ok());
-    let bridge_addr = bridge_addr_for_session(remote_addr, &exit);
-    let bridge = remote_addr.map(|addr| addr.to_string()).unwrap_or_default();
     let connected_info = ConnectedInfo {
         protocol: authed_pipe.protocol().to_string(),
         exit: exit.clone(),
-        bridge: bridge_addr,
+        bridge: bridge_addr_for_session(Some(addr), &exit),
     };
-    let addr: SocketAddr = bridge.parse()?;
     let mux = start_mux(authed_pipe);
     let (accounting, accounting_loop) = bw_accounting_pair();
-    let early_dead = Arc::new(ManualResetEvent::new(false));
     let session = Arc::new(ConnectedSession {
         worker_id,
         exit: exit_log_label(&exit),
-        bridge,
+        bridge: addr.to_string(),
         mux: mux.clone(),
         accounting,
         pending_opens: AtomicUsize::new(0),
-        early_dead,
     });
     *failures = 0.0;
 
     // we first register the session metadata
+    let record_death = || ctx.get(EARLY_DEATHS).record(addr, connected_at.elapsed());
     mux.open(&serde_json::to_vec(&ctx.init().sess_metadata)?)
-        .await?;
+        .await
+        .inspect_err(|_| record_death())?;
     let connected_info_idx = ctx
         .get(CURRENT_CONNECTED_INFOS)
         .lock()
@@ -432,6 +422,11 @@ async fn run_session_once(
     });
     proxy_loop(ctx.clone(), session, accounting_loop)
         .await
+        .inspect_err(|_| {
+            if !mux.is_alive() {
+                record_death();
+            }
+        })
         .context(format!("inner connection to {addr} failed"))
 }
 
@@ -439,8 +434,8 @@ fn start_mux(authed_pipe: impl Pipe) -> Arc<PicoMux> {
     let (read, write) = tokio::io::split(authed_pipe);
     let mut mux = PicoMux::new(read, write);
     mux.set_liveness(LivenessConfig {
-        ping_interval: Duration::from_secs(1200),
-        timeout: Duration::from_secs(120),
+        ping_interval: Duration::from_secs(rand::rng().random_range(120..=180)),
+        timeout: Duration::from_secs(30),
     });
     mux.set_debloat(true);
     Arc::new(mux)
@@ -452,39 +447,24 @@ async fn proxy_loop(
     session: Arc<ConnectedSession>,
     accounting_loop: BwAccountingLoop,
 ) -> anyhow::Result<()> {
-    (
-        session.mux.wait_until_dead(),
-        async {
-            if ctx.get(IS_PLUS).load(Ordering::SeqCst) {
-                bw_accounting_client_loop(
-                    ctx.clone(),
-                    session.mux.open(b"!bw-accounting-2").await?,
-                    accounting_loop,
-                )
-                .await
-            } else {
-                std::future::pending().await
-            }
-        },
-        async {
-            session.early_dead.wait().await;
-            tracing::warn!("dying due to an early-dead signal");
-            anyhow::bail!("early dead")
-        },
-    )
+    (session.mux.wait_until_dead(), async {
+        if ctx.get(IS_PLUS).load(Ordering::SeqCst) {
+            bw_accounting_client_loop(
+                ctx.clone(),
+                session.mux.open(b"!bw-accounting-2").await?,
+                accounting_loop,
+            )
+            .await
+        } else {
+            std::future::pending().await
+        }
+    })
         .race()
         .await
 }
 
-#[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
-async fn client_auth(
-    ctx: &AnyCtx<Config>,
-    mut pipe: impl Pipe,
-    pubkey: VerifyingKey,
-) -> anyhow::Result<impl Pipe> {
-    let server = pipe.remote_addr().unwrap_or("").to_string();
-
-    let credentials = if ctx.init().broker.is_none() {
+async fn session_credentials(ctx: &AnyCtx<Config>) -> anyhow::Result<Bytes> {
+    Ok(if ctx.init().broker.is_none() {
         Bytes::new()
     } else {
         let (level, token, sig) = get_connect_token(ctx)
@@ -492,7 +472,17 @@ async fn client_auth(
             .context("cannot get connect token")?;
         tracing::info!(level = debug(level), "authentication with a connect token");
         (level, token, sig).stdcode().into()
-    };
+    })
+}
+
+#[tracing::instrument(skip_all, fields(pubkey = hex::encode(pubkey.as_bytes())))]
+async fn client_auth(
+    credentials: Bytes,
+    mut pipe: impl Pipe,
+    pubkey: VerifyingKey,
+) -> anyhow::Result<impl Pipe> {
+    let server = pipe.remote_addr().unwrap_or("").to_string();
+
     match pipe.shared_secret().map(|s| s.to_owned()) {
         Some(ss) => {
             tracing::debug!(server, "using shared secret for authentication");
