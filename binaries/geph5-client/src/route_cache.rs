@@ -94,6 +94,7 @@ mod tests {
             allow_direct: false,
             diagnostic_route: None,
             cache: Some(temp_db_path()),
+            logging: Default::default(),
             broker: None,
             tunneled_broker: None,
             broker_keys: None,

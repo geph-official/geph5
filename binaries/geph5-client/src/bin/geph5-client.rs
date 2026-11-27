@@ -27,6 +27,12 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    scopeguard::defer! { geph5_client::logging::shutdown_logging(); }
+    ctrlc::set_handler(|| {
+        geph5_client::logging::shutdown_logging();
+        std::process::exit(0);
+    })
+    .context("could not install termination handler")?;
     let args = CliArgs::parse();
     let config: serde_json::Value = serde_yaml::from_slice(&std::fs::read(args.config)?)?;
     let config: Config = serde_json::from_value(config)?;
